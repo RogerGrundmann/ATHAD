@@ -170,11 +170,27 @@ the measurements that did not work out — rather than what is intended.
    `R_of(c, 0) = 414.2` instead of 387.9 — a 7 % error through the whole column. Harmless
    on Earth, where CO₂ was ppm and never entered the density.
 
+   **Stability.** A 20-iteration run at 8 threads completes cleanly: no NaN, no
+   non-positive pressure at any of the 5 checkpoints, 34 ParaView files written. The
+   equatorial surface settles rather than drifting away —
+
+   | iter | T [K] | p [bar] | ρ [kg/m³] |
+   |---|---|---|---|
+   | 0  | 1499.5 | 249.947 | 42.9695 |
+   | 5  | 1497.1 | 249.615 | 42.9222 |
+   | 10 | 1496.0 | 249.360 | 42.8784 |
+   | 15 | 1495.6 | 249.307 | 42.8692 |
+   | 20 | 1495.5 | 249.280 | 42.8646 |
+
+   with the per-checkpoint change decaying 2.4 → 1.1 → 0.4 → 0.1 K. The domain top rises
+   from 0.024 to 0.049 bar over the run and stays below the radiating level.
+
    **What is not yet right.** Radiation is still the inherited Earth scheme (Bignami /
    Atwater–Ball emissivity, `radiation_mode = 5` relaxing toward a target that no longer
-   exists), so the model does not yet hold its temperature over many iterations. Deep
-   convection remains inactive — its trigger thresholds are absolute Earth surface
-   pressures. Between 373 K and 647 K the saturation curve is still Magnus, far outside
-   its validity. These are Phases 4 and 5.
+   exists), so the small residual drift above has no physical meaning — it is an Earth
+   parameterisation being evaluated far outside its calibration, not a Hadean climate
+   settling. Deep convection remains inactive: its trigger thresholds are absolute Earth
+   surface pressures. Between 373 K and 647 K the saturation curve is still Magnus, far
+   outside its validity. These are Phases 4 and 5.
 
 *(Further entries are added as each phase is measured.)*
