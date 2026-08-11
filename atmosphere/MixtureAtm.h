@@ -195,6 +195,19 @@ namespace AtmMixture {
         return q_c * M_of(c, co2, M_background) / M_CO2;
     }
 
+    // Mean molar mass of everything EXCEPT water [kg/mol] — what the exact saturation
+    // mass-fraction conversion needs as its "other" carrier. Built from the local CO2
+    // mass fraction and the background, renormalised to exclude H2O.
+    inline double M_nonwater(double co2, double M_background)
+    {
+        const double q_c = std::min(std::max(co2, 0.0), 1.0);
+        const double q_b = std::max(0.0, 1.0 - q_c);
+        const double sum = q_c + q_b;
+        if (!(sum > 0.0)) return M_background;
+        const double inv = (q_c / sum) / M_CO2 + (q_b / sum) / M_background;
+        return (inv > 0.0) ? 1.0 / inv : M_background;
+    }
+
     // Mole fraction of H2O, likewise.
     inline double x_H2O_of(double c, double co2, double M_background)
     {

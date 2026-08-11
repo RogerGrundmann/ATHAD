@@ -1,5 +1,6 @@
 #pragma once
 
+#include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
 #include "IceSchemeCommon.h"
 
@@ -120,7 +121,7 @@ private:
                         double t_u  = m.t.x[i][j][k] * m.t_0;
                         double cl_i = m.cloud.x[i][j][k];
 
-                        double E_sat = m.hp * AtomUtils::exp_func(t_u, 17.2694, 35.86);
+                        double E_sat = SaturationH2O::saturationPressure(t_u);
                         double q_sat = m.ep * E_sat / (m.p_stat.x[i][j][k] - E_sat);
 
                         // Accretion: cloud water collected by raindrops

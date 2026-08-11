@@ -1,4 +1,5 @@
 #include "MixtureAtm.h"
+#include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
 #include "Utils.h"
 
@@ -41,10 +42,9 @@ namespace VaporCloudConstants {
     constexpr double SPREAD_THRESHOLD = 2.0;                            // Temperature-dewpoint spread [K]
 
     // Magnus-Tetens formula coefficients
-    constexpr double MAGNUS_A_WATER = 17.2694;
-    constexpr double MAGNUS_B_WATER = 35.86;
-    constexpr double MAGNUS_A_ICE = 21.8747;
-    constexpr double MAGNUS_B_ICE = 7.66;
+    // The Magnus coefficients that lived here are gone: every saturation calculation now
+    // goes through SaturationH2O.h (IAPWS), which is valid across ATHAD's whole 1500 K
+    // column rather than the ~320 K the Magnus fit was calibrated on.
 
     // Dewpoint calculation (inverse Magnus)
     constexpr double MAG_A = 17.27;
@@ -100,8 +100,8 @@ void cAtmosphereModel::init_vapour_cloud() {                            // calcu
                 // ------------------------------------------------------------
                 // Calculate Saturation Vapor Pressure (Magnus-Tetens)
                 // ------------------------------------------------------------
-                const double E_wat = hp * AtomUtils::exp_func(t_u, MAGNUS_A_WATER, MAGNUS_B_WATER);
-                const double E_ice = hp * AtomUtils::exp_func(t_u, MAGNUS_A_ICE, MAGNUS_B_ICE);
+                const double E_wat = SaturationH2O::saturationPressure(t_u);
+                const double E_ice = SaturationH2O::sublimationPressure(t_u);
                 double E_sat;
                                                                                                                                                                                                         
                 // Temperature-dependent phase transition
@@ -519,10 +519,7 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
             const double p_u_0 = p_stat.x[0][j][k];
             
             // Magnus coefficients depend on phase (water vs ice)
-            const double a_loc = (t_u_0 >= t_0) ? MAGNUS_A_WATER : MAGNUS_A_ICE;
-            const double b_loc = (t_u_0 >= t_0) ? MAGNUS_B_WATER : MAGNUS_B_ICE;
-
-            const double E_Satur = hp * exp(a_loc * (t_u_0 - t_0) / (t_u_0 - b_loc));
+            const double E_Satur = SaturationH2O::saturationPressureAuto(t_u_0);
             const double e_curr  = c.x[0][j][k] * p_u_0 / (c.x[0][j][k] + ep);
 
             relative_humidity.y[j][k] = std::clamp(
@@ -931,8 +928,8 @@ void cAtmosphereModel::initCloudIce() {
                 if (t_u >= AtmMixture::T_CRIT_H2O) continue;
 
                 const double E_sat = (t_u >= t_0)
-                    ? hp * AtomUtils::exp_func(t_u, MAGNUS_A_WATER, MAGNUS_B_WATER)
-                    : hp * AtomUtils::exp_func(t_u, MAGNUS_A_ICE,   MAGNUS_B_ICE);
+                    ? SaturationH2O::saturationPressure(t_u)
+                    : SaturationH2O::sublimationPressure(t_u);
                 const double q_sat = ep * E_sat / (p_u - E_sat);
 
 //                sum += std::max(0.0, c.x[i][j][k] - q_sat); }
@@ -986,8 +983,8 @@ void cAtmosphereModel::initCloudIce() {
                 }
 
                 const double E_sat = (t_u >= t_0)
-                    ? hp * AtomUtils::exp_func(t_u, MAGNUS_A_WATER, MAGNUS_B_WATER)
-                    : hp * AtomUtils::exp_func(t_u, MAGNUS_A_ICE,   MAGNUS_B_ICE);
+                    ? SaturationH2O::saturationPressure(t_u)
+                    : SaturationH2O::sublimationPressure(t_u);
                 const double q_sat = ep * E_sat / (p_u - E_sat);
 
                 const double x_norm = p_u * inv_p_crit;

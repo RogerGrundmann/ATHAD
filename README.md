@@ -193,4 +193,35 @@ the measurements that did not work out — rather than what is intended.
    surface pressures. Between 373 K and 647 K the saturation curve is still Magnus, far
    outside its validity. These are Phases 4 and 5.
 
+5. **Saturation physics (done).** `SaturationH2O.h` replaces the Magnus formula
+   everywhere — all ~25 call sites across 8 files — with the IAPWS correlations:
+
+   - Wagner & Pruss (IAPWS-95) saturation line, 273.16 K to the critical point;
+   - IAPWS (2011) ice-Ih sublimation curve below the triple point;
+   - Watson latent heat, correctly vanishing at the critical point;
+   - the **exact** mass-fraction conversion `q = x·M_H₂O / (x·M_H₂O + (1−x)·M_other)`,
+     replacing the dilute `ep·E/(p−E)` that assumed water is a trace;
+   - dew point by bisection (IAPWS has no closed-form inverse) and dq_sat/dT from
+     Clausius–Clapeyron rather than the Magnus fit's own derivative.
+
+   `make test` runs `test/saturation_selftest.cpp` against published reference points.
+   All pass: the liquid curve to ~1e-5 relative (6.11657 hPa at 273.16 K, 1013.25 hPa at
+   373.124 K, 220640 hPa at 647.095 K), sublimation to ~6e-3, plus monotonicity,
+   [0,1]-boundedness, and agreement with the dilute form in the dilute limit.
+
+   Writing the test first paid for itself: it caught a sign error in the sublimation
+   formula (the summand is `a_i·θ^b_i`, not `a_i·(1−θ^b_i)` — the wrong form gives
+   49 hPa instead of 0.76 hPa at 250 K) and two wrong expectations of my own.
+
+   **Result: there is no condensation anywhere in the model.** The equatorial column runs
+   1499.5 K at the surface to 676.7 K at 243 km and never crosses 647.096 K, so every
+   level is supercritical — no cloud, no rain, no latent heat. The column printout now
+   reports the saturation state per level and says so explicitly.
+
+   That is physically coherent for a runaway greenhouse, but it is *not yet a result*: it
+   follows from the prescribed lapse rate, and `cosmo_lapse_fraction = 0.5108` is still
+   Earth calibration. At the dry adiabat (4.81 K/km) the column would cross 647 K near
+   177 km and condensation would begin there. Which is right is for the radiation to
+   decide, not for a prescribed lapse — see Phase 5.
+
 *(Further entries are added as each phase is measured.)*

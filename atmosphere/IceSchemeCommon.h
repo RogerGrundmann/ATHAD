@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MixtureAtm.h"
+#include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
 
 // ============================================================================
@@ -63,16 +65,22 @@ namespace IceSchemeCommon {
             }
     }
 
-    // Saturation specific humidity over water / ice [kg/kg] (Magnus form used by
-    // every scheme). Available for computeColumns to use; kept identical to the
-    // inline expressions so a scheme can adopt it without changing results.
+    // Saturation mass fraction over water / ice [kg/kg].
+    //
+    // Was the Magnus form with the dilute conversion ep*E/(p-E). Both parts fail here:
+    // Magnus is calibrated to ~320 K against a column spanning 1500 K, and the dilute
+    // conversion assumes water is a trace when it is 67 % of the mass. Note the old form
+    // did not even guard p <= E, so it returned a NEGATIVE saturation humidity wherever
+    // the extrapolated E exceeded the local pressure.
     inline double qSatWater(cAtmosphereModel& m, double t_u, int i, int j, int k) {
-        const double E = m.hp * AtomUtils::exp_func(t_u, 17.2694, 35.86);
-        return m.ep * E / (m.p_stat.x[i][j][k] - E);
+        const double M_other = AtmMixture::M_nonwater(m.co2.x[i][j][k], m.m_comp.M_bg);
+        return SaturationH2O::saturationMassFraction(
+                   SaturationH2O::saturationPressure(t_u), m.p_stat.x[i][j][k], M_other);
     }
     inline double qSatIce(cAtmosphereModel& m, double t_u, int i, int j, int k) {
-        const double E = m.hp * AtomUtils::exp_func(t_u, 21.8746, 7.66);
-        return m.ep * E / (m.p_stat.x[i][j][k] - E);
+        const double M_other = AtmMixture::M_nonwater(m.co2.x[i][j][k], m.m_comp.M_bg);
+        return SaturationH2O::saturationMassFraction(
+                   SaturationH2O::sublimationPressure(t_u), m.p_stat.x[i][j][k], M_other);
     }
 
     // ---- Vapour -> ice -> snow throttle (Seifert-Beheng / COSMO; TwoCat's) ----

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MixtureAtm.h"
+#include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
 #include "IceSchemeCommon.h"
 
@@ -146,10 +148,10 @@ private:
 
                         step[i] = m.get_layer_height(i+1) - m.get_layer_height(i); // local atmospheric shell thickness in m
 
-                        E_sat = m.hp * AtomUtils::exp_func(t_u, 17.2694, 35.86); // saturation water vapour pressure for the water phase at t > 0°C in hPa
+                        E_sat = SaturationH2O::saturationPressure(t_u);     // IAPWS saturation pressure over water [hPa]
                         q_sat = m.ep * E_sat/(m.p_stat.x[i][j][k] - E_sat);   // relativ water vapour contents on ocean surface reduced by factor in kg/kg
 
-                        E_Ice = m.hp * AtomUtils::exp_func(t_u, 21.8746, 7.66);
+                        E_Ice = SaturationH2O::sublimationPressure(t_u);
                         q_Ice = m.ep * E_Ice/(m.p_stat.x[i][j][k] - E_Ice);      // relativ water vapour contents on ocean surface reduced by factor in kg/kg
 
                         // Snow is grown through the cloud-ICE reservoir via the shared, bounded

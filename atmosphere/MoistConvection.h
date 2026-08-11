@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MixtureAtm.h"
+#include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
 
 #include <vector>
@@ -147,10 +148,20 @@ private:
 
 
 // ==================== NaN-SAFE HELPERS ====================
-    // Saturation specific humidity: q_sat = ep * E_sat / (p - E_sat).
-    // Guards against p <= E_sat (fully saturated / super-saturated column).
-    static double safe_q_sat(double ep, double E_sat, double p_u) noexcept {
-        return ep * E_sat / std::max(p_u - E_sat, 1e-10);
+    // Saturation MASS FRACTION, exact conversion.
+    //
+    // Was q_sat = ep*E/(p - E), the dilute approximation, with the denominator floored at
+    // 1e-10 to survive p <= E. That floor is the tell: when E exceeds p the dilute form
+    // has no answer, and the floor turned it into an enormous positive number rather than
+    // the correct "the column is entirely vapour, q_sat = 1". Water is 67 % of ATHAD's
+    // mass, so there is no small parameter to expand in and the exact form is used.
+    //
+    // M_other is taken from the reference CO2 mass fraction rather than the local cell:
+    // ATHAD's CO2 is well mixed by construction (co2Atmosphere fills it uniformly), so
+    // the two agree, and this keeps the helper usable from every call site unchanged.
+    double safe_q_sat(double E_sat, double p_u) const noexcept {
+        return SaturationH2O::saturationMassFraction(
+                   E_sat, p_u, AtmMixture::M_nonwater(m.co2_0, m.m_comp.M_bg));
     }
 
     // Clausius-Clapeyron scaling factor for the convective moisture-perturbation
@@ -162,11 +173,11 @@ private:
         constexpr double T_ref_cc = 288.15;                 // [K] reference surface T (15°C)
         auto E_sat_of = [&](double T) {
             return (T >= m.t_0)
-                ? m.hp * AtomUtils::exp_func(T, 17.2694, 35.86)   // over water
-                : m.hp * AtomUtils::exp_func(T, 21.8746,  7.66);  // over ice
+                ? SaturationH2O::saturationPressure(T)            // over water
+                : SaturationH2O::sublimationPressure(T);          // over ice
         };
-        double qs_T   = safe_q_sat(m.ep, E_sat_of(T_K),     p_hPa);
-        double qs_ref = safe_q_sat(m.ep, E_sat_of(T_ref_cc), p_hPa);
+        double qs_T   = safe_q_sat(E_sat_of(T_K),     p_hPa);
+        double qs_ref = safe_q_sat(E_sat_of(T_ref_cc), p_hPa);
         return (qs_ref > 0.0) ? qs_T / qs_ref : 1.0;
     }
 
@@ -485,8 +496,8 @@ private:
                     double r_h_i   = m.r_humid.x[i][j][k];
                     double p_u     = m.p_stat.x[i][j][k];
 
-                    double E_sat_add = m.hp * AtomUtils::exp_func(t_u_add, 17.2694, 35.86);
-                    double q_sat_add = safe_q_sat(m.ep, E_sat_add, p_u);
+                    double E_sat_add = SaturationH2O::saturationPressureAuto(t_u_add);
+                    double q_sat_add = safe_q_sat(E_sat_add, p_u);
 
 
                     m.q_v_u.x[i][j][k]     = m.c.x[i][j][k] + q_pert;
@@ -541,8 +552,8 @@ private:
                     double t_u_add = t_u + t_pert;
                     double p_u     = m.p_stat.x[i][j][k];
 
-                    double E_sat_add = m.hp * AtomUtils::exp_func(t_u_add, 17.2694, 35.86);
-                    double q_sat_add = safe_q_sat(m.ep, E_sat_add, p_u);
+                    double E_sat_add = SaturationH2O::saturationPressureAuto(t_u_add);
+                    double q_sat_add = safe_q_sat(E_sat_add, p_u);
 
                     if(i == local_i_end+1)  m.M_u.x[i-1][j][k] = m.M_u.x[local_i_beg][j][k];
 
@@ -640,9 +651,9 @@ void findCloudBaseLFS() {
                     const double t_u_add = t_u + t_add_u;
                     const double p_u     = m.p_stat.x[i][j][k];
 
-                    double E_sat_add = m.hp * AtomUtils::exp_func(t_u_add, 17.2694, 35.86);
+                    double E_sat_add = SaturationH2O::saturationPressureAuto(t_u_add);
 
-                    q_sat_col[i] = safe_q_sat(m.ep, E_sat_add, p_u);
+                    q_sat_col[i] = safe_q_sat(E_sat_add, p_u);
                 }
 
                 for (int i = i_deep_beg_local[j][k]; i < m.im; i++) {
@@ -900,8 +911,8 @@ void findCloudBaseLFS() {
                 m.E_d.x[i_lfs][j][k] = eps_d * fabs(m.M_d.x[i_lfs][j][k]);
                 m.D_d.x[i_lfs][j][k] = del_d * fabs(m.M_d.x[i_lfs][j][k]);
 
-                double E_sat = m.hp * AtomUtils::exp_func(t_u, 17.2694, 35.86);
-                double q_sat = safe_q_sat(m.ep, E_sat, p_u);
+                double E_sat = SaturationH2O::saturationPressureAuto(t_u);
+                double q_sat = safe_q_sat(E_sat, p_u);
 
                 m.q_v_d.x[i_lfs][j][k] = 0.5 * (cloud.x[i_lfs][j][k] + scale * q_sat);
 
@@ -941,8 +952,8 @@ void findCloudBaseLFS() {
 
                     m.s_d.x[i][j][k] = m.cp_l * t_u / m.s_0;
 
-                    double E_sat = m.hp * AtomUtils::exp_func(t_u, 17.2694, 35.86);
-                    double q_sat = safe_q_sat(m.ep, E_sat, p_u);
+                    double E_sat = SaturationH2O::saturationPressureAuto(t_u);
+                    double q_sat = safe_q_sat(E_sat, p_u);
 
                     m.q_v_d.x[i][j][k] = 0.5 * (cloud.x[i][j][k] + scale * q_sat);
 
@@ -1081,13 +1092,12 @@ void findCloudBaseLFS() {
                         const double p_u = m.p_stat.x[i][j][k];
                         double dcond_tot = 0.0;
                         for(int it = 0; it < 2; ++it){
-                            const double E_s     = m.hp * AtomUtils::exp_func(T_u, 17.2694, 35.86);
-                            const double q_sat_u = safe_q_sat(m.ep, E_s, p_u);
+                            const double E_s     = SaturationH2O::saturationPressureAuto(T_u);
+                            const double q_sat_u = safe_q_sat(E_s, p_u);
                             const double dq      = m.q_v_u.x[i][j][k] - q_sat_u;
                             if(dq <= 0.0) break;
                             const double L_u   = (T_u >= m.t_0) ? m.lv : m.ls;
-                            const double dqsdT = q_sat_u * 17.2694 * (273.15 - 35.86)
-                                                 / ((T_u - 35.86) * (T_u - 35.86));
+                            const double dqsdT = SaturationH2O::dqSatdT(q_sat_u, T_u);
                             const double G     = (L_u / m.cp_l) * dqsdT;        // latent gain
                             const double dcond = dq / (1.0 + G);               // damped condensation
                             m.q_v_u.x[i][j][k] -= dcond;

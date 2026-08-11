@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MixtureAtm.h"
+#include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
 #include "IceSchemeCommon.h"
 
@@ -161,7 +163,7 @@ private:
         const double B_g_neg1213 = pow(B_g, -12.0/13.0);
 
         // Precompute E_sat at t_0 (constant, used in every cell)
-        const double E_sat_t_0_Pa = 1e2 * m.hp * AtomUtils::exp_func(m.t_0, 17.2694, 35.86);
+        const double E_sat_t_0_Pa = 1e2 * SaturationH2O::saturationPressure(m.t_0);
 
         // Thread-local accumulators for the OMP reduction
         double local_max_rain = 0.0, local_max_snow = 0.0, local_max_graupel = 0.0;
@@ -218,9 +220,9 @@ private:
 
                         double step_i = step_table[i];
 
-                        double E_sat = m.hp * AtomUtils::exp_func(t_u, 17.2694, 35.86);
+                        double E_sat = SaturationH2O::saturationPressure(t_u);
                         double q_sat = m.ep * E_sat / (p_u - E_sat);
-                        double E_Ice  = m.hp * AtomUtils::exp_func(t_u, 21.8746, 7.66);
+                        double E_Ice  = SaturationH2O::sublimationPressure(t_u);
                         double q_Ice  = m.ep * E_Ice / (p_u - E_Ice);
 
                         double dt_rain_dim = step_i / 1.6;

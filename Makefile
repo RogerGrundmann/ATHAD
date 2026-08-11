@@ -48,6 +48,15 @@ $(PARAM_OUTPUTS): param.py
 analyze:
 	analyze-build make
 
+# Self-tests. These build standalone against the headers — no model state, no config —
+# so they are cheap to run and safe to run first.
+.PHONY: test test-saturation
+test: test-saturation
+
+test-saturation:
+	$(CXX) -std=c++17 -Iatmosphere -Ilib -o test/saturation_selftest test/saturation_selftest.cpp
+	./test/saturation_selftest
+
 python: libathad.a python/pyathad.so
 
 python/pyathad.so: python/pyathad.pyx python/athad.pxd libathad.a

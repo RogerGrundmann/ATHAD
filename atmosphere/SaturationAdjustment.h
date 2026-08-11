@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MixtureAtm.h"
+#include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
 
 #include <algorithm>
@@ -60,8 +61,11 @@ private:
     void adjustSaturation() {
         const double inv_t_0      = 1.0 / m.t_0;
         const double t_range_inv  = 1.0 / (m.t_0 - m.t_00);
-        const double lv_over_cp   = m.lv / m.cp_l;
-        const double ls_over_cp   = m.ls / m.cp_l;
+        // Latent heat is now a FUNCTION of temperature, evaluated per cell inside the
+        // loop rather than hoisted as a constant. It has to be: L falls from 2.50e6 J/kg
+        // at 273 K to zero at the critical point, and a constant L near T_crit injects
+        // heat from a phase change that is not happening. cp is likewise local, since the
+        // mixture's heat capacity moves with composition and temperature.
 
         // Surface row is skipped below, but its condensation source must still be
         // cleared every call: S_c_c.x[0] feeds the ice schemes' cloud-water source,
@@ -118,10 +122,18 @@ private:
 
                     double p_local = p_row[k];
 
-                    double E_sat  = m.hp * exp_func(T, 17.2694, 35.86);
-                    double q_sat  = (p_local > E_sat)
-                        ? m.ep * E_sat / (p_local - E_sat)
-                        : m.ep * 1e-5;
+                    // IAPWS saturation curve and the EXACT mass-fraction conversion.
+                    // The Magnus form here was valid to ~320 K and its q_sat fallback
+                    // (ep * 1e-5) fired whenever E_sat exceeded the local pressure —
+                    // collapsing q_sat by ~5000x and triggering the runaway condensation
+                    // the old temperature cap existed to contain. The exact form
+                    // saturates at 1 instead, which is what "the column is all vapour"
+                    // actually means.
+                    const double M_other = AtmMixture::M_nonwater(m.co2.x[i][j][k],
+                                                                  m.m_comp.M_bg);
+                    double E_sat  = SaturationH2O::saturationPressureAuto(T);
+                    double q_sat  = SaturationH2O::saturationMassFraction(E_sat, p_local,
+                                                                          M_other);
 
                     const double alpha_entry = 1.0 / (1.0 + std::exp(-(T - m.t_00) / fade_K));
 
@@ -154,16 +166,18 @@ private:
                             q_c_b  = std::max(0.0, q_c_b - d_cnd);
                             q_i_b  = std::max(0.0, q_i_b - d_dep);
 
-                            T -= lv_over_cp * d_cnd + ls_over_cp * d_dep;
+                            const double cp_loc = AtmMixture::cp_of(q_v_b, m.co2.x[i][j][k],
+                                                                    T, m.m_comp.M_bg);
+                            T -= (SaturationH2O::latentHeat(T)           * d_cnd
+                                + SaturationH2O::latentHeatSublimation(T) * d_dep) / cp_loc;
 
-                            double E_sat = m.hp * exp_func(T, 17.2694, 35.86);
-                            double E_Ice = m.hp * exp_func(T, 21.8746, 7.66);
+                            double E_sat = SaturationH2O::saturationPressure(T);
+                            double E_Ice = SaturationH2O::sublimationPressure(T);
                             double q_sat = (p_local > E_sat)
                                 ? m.ep * E_sat / (p_local - E_sat)
                                 : m.ep * 1e-5;
-                            double q_Ice = (p_local > E_Ice)
-                                ? m.ep * E_Ice / (p_local - E_Ice)
-                                : m.ep * 1e-5;
+                            double q_Ice = SaturationH2O::saturationMassFraction(
+                                               E_Ice, p_local, M_other);
 
                             double q_sum = q_c_b + q_i_b;
                             double q_v_target = (q_sum > 1e-12)
@@ -181,10 +195,15 @@ private:
                             // derivative 1-omega*(1+G) to 0 (stable, ~Newton-optimal) at all T.
                             // dq_sat/dT from Clausius-Clapeyron: q_sat*L/(Rv*T^2).
                             // project_overprecip_saturation_injection.
-                            const double Rv = 461.5;                    // [J/(kg K)] water-vapour gas constant
-                            const double inv_RvT2 = 1.0 / (Rv * T * T);
-                            const double Gain = CND * lv_over_cp * (q_sat * m.lv * inv_RvT2)
-                                              + DEP * ls_over_cp * (q_Ice * m.ls * inv_RvT2);
+                            // L(T) and cp(T), not constants: the whole point of the
+                            // damping is to track dq_sat/dT, and both factors in
+                            // G = (L/cp)*dq_sat/dT move strongly across 273-647 K.
+                            const double cp_g   = AtmMixture::cp_of(q_v_b, m.co2.x[i][j][k],
+                                                                    T, m.m_comp.M_bg);
+                            const double L_cnd  = SaturationH2O::latentHeat(T);
+                            const double L_dep  = SaturationH2O::latentHeatSublimation(T);
+                            const double Gain = CND * (L_cnd / cp_g) * SaturationH2O::dqSatdT(q_sat, T)
+                                              + DEP * (L_dep / cp_g) * SaturationH2O::dqSatdT(q_Ice, T);
                             const double omega = 1.0 / (1.0 + Gain);
                             q_v_hyp = q_v_b + omega * (q_v_target - q_v_b);
 
@@ -241,8 +260,7 @@ private:
 
     void clampAndFade() {
         const double inv_t_0    = 1.0 / m.t_0;
-        const double lv_over_cp = m.lv / m.cp_l;
-        const double ls_over_cp = m.ls / m.cp_l;
+        // L/cp evaluated per cell below, for the same reason as in adjustSaturation().
         // Defensive physical bounds. The upper temperature bound is now a configured
         // PHYSICAL constant (t_max_phys) rather than the 333.15 K literal: a bound
         // expressed as "no air parcel exceeds 60 °C" is an Earth fact, and on ATHAD it sat
@@ -286,7 +304,7 @@ private:
                     // run the per-call excess is small (physical); the T_max recap below is
                     // the backstop if a transient ever drives a large excess.
                     const double p_local = p_row[k];
-                    const double E_sat = m.hp * exp_func(T_dim, 17.2694, 35.86);
+                    const double E_sat = SaturationH2O::saturationPressureAuto(T_dim);
                     const double q_sat = (p_local > E_sat)
                         ? m.ep * E_sat / (p_local - E_sat)
                         : m.ep * 1e-5;
@@ -295,10 +313,14 @@ private:
                         c_row[k] = q_sat;
                         if (T_dim >= m.t_00) {
                             cloud_row[k] += excess;
-                            T_dim        += lv_over_cp * excess;
+                            T_dim        += SaturationH2O::latentHeat(T_dim) * excess
+                                          / AtmMixture::cp_of(c_row[k], m.co2.x[i][j][k],
+                                                              T_dim, m.m_comp.M_bg);
                         } else {
                             ice_row[k]   += excess;
-                            T_dim        += ls_over_cp * excess;
+                            T_dim        += SaturationH2O::latentHeatSublimation(T_dim) * excess
+                                          / AtmMixture::cp_of(c_row[k], m.co2.x[i][j][k],
+                                                              T_dim, m.m_comp.M_bg);
                         }
                         if (T_dim > T_max) T_dim = T_max;   // backstop on the latent release
                         t_row_nd[k] = T_dim * inv_t_0;

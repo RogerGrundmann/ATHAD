@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MixtureAtm.h"
+#include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
 #include "IceSchemeCommon.h"
 
@@ -232,10 +234,10 @@ private:
                         t_u = m.t.x[i][j][k] * m.t_0;                   // in K
                         p_u = m.p_stat.x[i][j][k];                      // in hPa
 
-                        E_sat = m.hp * AtomUtils::exp_func(t_u, 17.2694, 35.86); // saturation water vapour pressure for the water phase at t > 0°C in hPa
+                        E_sat = SaturationH2O::saturationPressure(t_u);     // IAPWS saturation pressure over water [hPa]
                         q_sat = m.ep * E_sat/(p_u - E_sat);             // relativ water vapour contents on ocean surface reduced by factor in kg/kg
 
-                        E_Ice = m.hp * AtomUtils::exp_func(t_u, 21.8746, 7.66);
+                        E_Ice = SaturationH2O::sublimationPressure(t_u);
                         q_Ice = m.ep * E_Ice/(p_u - E_Ice);             // relativ water vapour contents on ocean surface reduced by factor in kg/kg
 
                         step[i] = m.get_layer_height(i+1)

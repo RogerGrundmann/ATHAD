@@ -8,6 +8,7 @@
  * class to combine the right hand sides of the differential equations for the Runge-Kutta scheme
 */
 
+#include "SaturationH2O.h"
 #include <iostream>
 #include <iomanip>
 #include <cmath>
@@ -455,8 +456,8 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
         + pow(dpdphi * inv_rmsinthe, 2)) / 3.0);
 
     double t_u    = t.x[i][j][k] * t_0;
-    double E_Rain = hp * exp_func(t_u, 17.2694, 35.86);
-    double E_Ice  = hp * exp_func(t_u, 21.8746, 7.66);
+    double E_Rain = SaturationH2O::saturationPressure(t_u);
+    double E_Ice  = SaturationH2O::sublimationPressure(t_u);
     double q_Rain = ep * E_Rain / (p_hydro.x[i][j][k] - E_Rain);
     double q_Ice  = ep * E_Ice  / (p_hydro.x[i][j][k] - E_Ice);
     double Q_Latent_Ice = 0.0;

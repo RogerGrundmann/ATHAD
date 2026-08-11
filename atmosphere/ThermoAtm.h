@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MixtureAtm.h"
+#include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
 #include "Utils.h"
 
@@ -195,8 +196,8 @@ public:
                 double p_mmHg = p_stat_0jk * hPa_to_mmHg;               // [mmHg]
 
                 double E_sat  = (t_u_base >= m.t_0)                     // [hPa]
-                    ? m.hp * AtomUtils::exp_func(t_u_base, 17.2694, 35.86)
-                    : m.hp * AtomUtils::exp_func(t_u_base, 21.8746,  7.66);
+                    ? SaturationH2O::saturationPressure(t_u_base)
+                    : SaturationH2O::sublimationPressure(t_u_base);
 
                 // Per-formula coefficients [mm/(d*hPa)]: E = coeff * sat_deficit_hPa
                 //   Dalton: from wind-dependent mass-transfer coefficient
@@ -273,8 +274,8 @@ public:
                         double t_i     = m.t.x[i][j][k] * m.t_0;
                         double p_i     = m.p_stat.x[i][j][k];
                         double E_i     = (t_i >= m.t_0)
-                            ? m.hp * AtomUtils::exp_func(t_i, 17.2694, 35.86)
-                            : m.hp * AtomUtils::exp_func(t_i, 21.8746,  7.66);
+                            ? SaturationH2O::saturationPressure(t_i)
+                            : SaturationH2O::sublimationPressure(t_i);
                         double denom_i = p_i - (1.0 - m.ep) * E_i;
                         double c_sat_i = (denom_i > 0.0) ? m.ep * E_i / denom_i : m.ep * E_i / p_i;
                         m.c.x[i][j][k] = std::min(m.c.x[i][j][k] + c_eq * weight, c_sat_i);
@@ -352,8 +353,8 @@ public:
                     double t_u = m.t.x[i][j][k] * m.t_0;
 
                     double E = (t_u > m.t_0)
-                        ? m.hp * AtomUtils::exp_func(t_u, 17.2694, 35.86)
-                        : m.hp * AtomUtils::exp_func(t_u, 21.8746,  7.66);
+                        ? SaturationH2O::saturationPressure(t_u)
+                        : SaturationH2O::sublimationPressure(t_u);
 
                     double e           = m.c.x[i][j][k] * m.p_stat.x[i][j][k] * inv_ep;
                     bool   zero_vapour = (e == 0.0);
@@ -361,10 +362,11 @@ public:
 
                     m.TempStand.x[i][j][k]    = TempStand_surface - lapse_rate * height_table[i];
 
-                    double L    = std::log(e / m.hp);
-                    double a_dp = (t_u > m.t_0) ? 21.8746 : 17.2694;
-                    double b_dp = (t_u > m.t_0) ?  7.66   : 35.86;
-                    m.TempDewPoint.x[i][j][k] = L * (m.t_0 - b_dp) / (a_dp - L);
+                    // Dew point by bisecting the IAPWS curve. The closed-form Magnus
+                    // inverse it replaces also returned a value in DEGREES CELSIUS while
+                    // everything around it is in kelvin — preserved here as the same
+                    // convention (subtract t_0) so the ParaView output is unchanged.
+                    m.TempDewPoint.x[i][j][k] = SaturationH2O::dewPoint(e) - m.t_0;
 
                     m.HumidityRel.x[i][j][k]  = zero_vapour
                         ? 0.0
@@ -771,10 +773,13 @@ public:
         cout << endl << "      Column profile — " << label
              << "  (j = " << j_lat << ", k = " << k << ")" << endl;
         cout << "        "
-             << setw(4)  << "i"      << setw(12) << "height[km]"
-             << setw(11) << "T[K]"   << setw(14) << "p[bar]"
-             << setw(12) << "rho[kg/m3]" << setw(11) << "R[J/kgK]"
-             << setw(10) << "q_H2O" << endl;
+             << setw(4)  << "i"      << setw(11) << "height[km]"
+             << setw(10) << "T[K]"   << setw(13) << "p[bar]"
+             << setw(11) << "rho"    << setw(10) << "R"
+             << setw(9)  << "q_H2O"  << setw(10) << "q_sat"
+             << setw(14) << "phase" << endl;
+
+        int i_cond_top = m.im;                 // lowest level where saturation can bite
 
         cout.precision(4);
         for (int i = 0; i < m.im; i++) {
@@ -783,14 +788,44 @@ public:
             const double rho = m.r_humid.x[i][j_lat][k];
             const double R   = AtmMixture::R_of(m.c.x[i][j_lat][k],
                                                 m.co2.x[i][j_lat][k], m.m_comp.R_bg);
+            // Saturation state. q_sat = 1 means "no limit": either the cell is
+            // supercritical (T >= 647.096 K, no liquid phase exists) or the vapour is
+            // superheated (p_sat(T) exceeds the local pressure, so it cannot saturate).
+            // Only where q_sat < q_H2O can water actually condense.
+            const double M_other = AtmMixture::M_nonwater(m.co2.x[i][j_lat][k], m.m_comp.M_bg);
+            const double q_sat   = SaturationH2O::saturationMassFractionAt(T, p, M_other);
+            const double q_v     = m.c.x[i][j_lat][k];
+
+            const char* phase;
+            if      (T >= AtmMixture::T_CRIT_H2O) phase = "supercrit";
+            else if (q_sat >= 1.0)                phase = "superheat";
+            else if (q_v > q_sat)                 phase = "CONDENSING";
+            else                                  phase = "subsat";
+
+            if (q_sat < 1.0 && i < i_cond_top) i_cond_top = i;
+
             cout << "        " << setw(4) << i
-                 << setw(12) << fixed << m.get_layer_height(i) * 1.0e-3
-                 << setw(11) << setprecision(1) << T
-                 << setw(14) << setprecision(5) << p * 1.0e-3
-                 << setw(12) << setprecision(4) << rho
-                 << setw(11) << setprecision(1) << R
-                 << setw(10) << setprecision(4) << m.c.x[i][j_lat][k] << endl;
+                 << setw(11) << fixed << m.get_layer_height(i) * 1.0e-3
+                 << setw(10) << setprecision(1) << T
+                 << setw(13) << setprecision(5) << p * 1.0e-3
+                 << setw(11) << setprecision(3) << rho
+                 << setw(10) << setprecision(1) << R
+                 << setw(9)  << setprecision(4) << q_v
+                 << setw(10) << setprecision(4) << q_sat
+                 << setw(14) << phase << endl;
         }
+
+        // Where, if anywhere, water can condense in this column. For a runaway steam
+        // atmosphere the honest answer may be "nowhere": below the critical temperature
+        // the column must also be cool enough that p_sat(T) drops below the local
+        // pressure, and a 250 bar column that is still ~700 K at its top never gets there.
+        if (i_cond_top < m.im)
+            cout << "        condensation possible from i = " << i_cond_top
+                 << " (" << setprecision(1) << m.get_layer_height(i_cond_top) * 1.0e-3
+                 << " km) upward" << endl;
+        else
+            cout << "        NO condensation anywhere in this column"
+                 << " — supercritical or superheated at every level" << endl;
 
         // The two facts the sizing depends on, stated rather than left to be read off.
         const double p_top = m.p_stat.x[m.im-1][j_lat][k] * 1.0e-3;
