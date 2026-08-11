@@ -39,6 +39,7 @@ double t_0;
 double t_surf_equator;
 double t_surf_pole;
 double cosmo_lapse_fraction;
+double t_skin;
 double r_air;
 double r_0_water;
 double t_equat_modern;

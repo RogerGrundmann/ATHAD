@@ -33,7 +33,8 @@
         <t_0>273.15</t_0>  <!-- temperature in K compare to 0°C(double) -->
         <t_surf_equator>1500.0</t_surf_equator>  <!-- ATHAD: prescribed Hadean surface temperature at the equator in K(double) -->
         <t_surf_pole>1450.0</t_surf_pole>  <!-- ATHAD: prescribed Hadean surface temperature at the poles in K(double) -->
-        <cosmo_lapse_fraction>0.5108</cosmo_lapse_fraction>  <!-- ATHAD: near-surface lapse rate as a fraction of the dry adiabat; sets the COSMO beta(double) -->
+        <cosmo_lapse_fraction>1.0</cosmo_lapse_fraction>  <!-- ATHAD: near-surface lapse rate as a fraction of the dry adiabat; 1.0 = dry adiabat(double) -->
+        <t_skin>254.0</t_skin>  <!-- ATHAD: radiative-equilibrium temperature of the optically thin top, in K(double) -->
         <r_air>42.97</r_air>  <!-- ATHAD: reference density of the atmospheric mixture at the surface in kg/m³(double) -->
         <r_0_water>997.0</r_0_water>  <!-- reference density of fresh water in kg/m3(double) -->
         <t_equat_modern>15.4</t_equat_modern>  <!-- mean temperature of the modern earth in °C(double) -->
@@ -69,12 +70,12 @@
         <evap_model>Meyer</evap_model>  <!-- evaporation formula driving surface humidity update: Dalton, Meyer, or Rohwer(string) -->
         <Ma_max>300</Ma_max>  <!-- parabolic temperature distribution 300 Ma(from Ruddiman)(int) -->
         <Ma_max_half>150</Ma_max_half>  <!-- half of time scale(int) -->
-        <L_atm>15718.7</L_atm>  <!-- ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 300 km(double) -->
+        <L_atm>12051.0</L_atm>  <!-- ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 230 km(double) -->
         <zeta>3.0</zeta>  <!-- ATHAD: radial coordinate-stretching factor (was a hard-coded 3.715)(double) -->
-        <tropopause_pole>250000.0</tropopause_pole>  <!-- ATHAD: extension of the troposphere at the poles in m(double) -->
-        <tropopause_equator>280000.0</tropopause_equator>  <!-- ATHAD: extension of the troposphere at the equator in m(double) -->
-        <albedo_pole>0.4</albedo_pole>  <!-- ATHAD: cloud-deck albedo at the poles(double) -->
-        <albedo_equator>0.4</albedo_equator>  <!-- ATHAD: cloud-deck albedo at the equator(double) -->
+        <tropopause_pole>195000.0</tropopause_pole>  <!-- ATHAD: top of the convective column at the poles in m(double) -->
+        <tropopause_equator>207000.0</tropopause_equator>  <!-- ATHAD: top of the convective column at the equator in m(double) -->
+        <albedo_pole>0.1</albedo_pole>  <!-- inherited; unused — MultiLayerRadiation builds the albedo itself(double) -->
+        <albedo_equator>0.1</albedo_equator>  <!-- inherited; unused — MultiLayerRadiation builds the albedo itself(double) -->
         <epsilon_equator>0.48</epsilon_equator>  <!-- emissivity and absorptivity caused by other gases than water vapour/(by Häckel)(double) -->
         <epsilon_pole>0.45</epsilon_pole>  <!-- emissivity and absorptivity caused by other gases than water vapour at the poles(double) -->
         <epsilon_tropopause>0.001</epsilon_tropopause>  <!-- emissivity and absorptivity caused by other gases than water vapour in the tropopause(double) -->

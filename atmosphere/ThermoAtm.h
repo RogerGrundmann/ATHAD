@@ -966,11 +966,28 @@ public:
         //   R_of() — the LOCAL value at each cell, used for the densities.
         const double R_mix            = m.m_comp.R_mix;
         const double p_sl_factor      = 1e-2 * m.r_air * R_mix;
-        const double beta             = m.m_beta_cosmo;                 // K, COSMO — derived, see initComposition()
-        const double inv_beta         = 1.0 / beta;
-        const double two_beta_g_inv_R = 2.0 * beta * m.g / R_mix;
         const double M_bg             = m.m_comp.M_bg;
         const double R_bg             = m.m_comp.R_bg;
+
+        // ATHAD: the column is integrated, not fitted.
+        //
+        // The inherited profile was the COSMO barometric form
+        // T(h) = T0*sqrt(1 - 2*beta*g*h/(R*T0^2)), an empirical shape for Earth's
+        // troposphere with beta tuned to reproduce ~5 K/km near the ground. Two things
+        // break it here. It is a SQRT in height, so matching its near-surface slope to the
+        // dry adiabat does not make it an adiabat — it plunges to zero at
+        // h = R*T0^2/(2*beta*g), which for the dry-adiabatic beta is 156 km, well inside a
+        // 300 km domain. And beta is a fitted Earth constant with no meaning for this
+        // mixture.
+        //
+        // Replaced by the physics the profile is meant to represent, integrated layer by
+        // layer:
+        //     dry adiabat     dT/dz = -g/cp        (cp local: follows composition and T)
+        //     hydrostatic     dp/dz = -p*g/(R*T)   (R local, on the layer-mean T)
+        //     isothermal top  T = t_skin           where the adiabat falls below it
+        //
+        // Exact for a constant-cp adiabat, correct to O(dz^2) as cp and R vary, needs no
+        // tuned constant, and cannot produce the zero temperature the sqrt form did.
 
         std::vector<double> height_table(m.im);
         for (int i = 0; i < m.im; i++)
@@ -980,73 +997,47 @@ public:
         for (int j = 0; j < m.jm; j++) {
             for (int k = 0; k < m.km; k++) {
 
-                // Floor surface T at 180 K (below Earth's coldest-ever ~184 K): coeff ∝ 1/T²,
-                // so an unphysical cold surface (the coastal/Pamir T oscillation) blows coeff up
-                // and drives the barometric sqrt negative. Backstops the sqrt guard at the
-                // source. See [[project_upper_velocity_secular_growth]].
-                const double t_u_0        = std::max(180.0, m.t.x[0][j][k] * m.t_0);
-                const double p_sl         = p_sl_factor * t_u_0;
-                const double t_0_inv_beta = t_u_0 * inv_beta;
-                const double coeff        = two_beta_g_inv_R / (t_u_0 * t_u_0);
-
-                // Level at which the COSMO temperature falls to the floor t_00, and the
-                // pressure there — the anchor for the isothermal continuation above it.
-                double h_iso = -1.0, p_iso = 0.0;
+                // Surface anchor. The floor guards against a transient cold surface making
+                // the integration meaningless; 180 K is far below anything physical here.
+                double T_prev = std::max(180.0, m.t.x[0][j][k] * m.t_0);
+                double p_prev = p_sl_factor * T_prev;                   // [hPa]
 
                 for (int i = 0; i < m.im; i++) {
-                    const double h_i = height_table[i];
-                    const double t_u = m.t.x[i][j][k] * m.t_0;
-                    // Guard the COSMO barometric sqrt: coeff = 2βg/(R_Air·t_u_0²) ∝ 1/T², so an
-                    // anomalously cold surface column drives (1 - coeff·h_i) negative aloft →
-                    // sqrt(NaN) → p_i/r_humid NaN → whole-field blow-up. The init-time copy of
-                    // this formula (InitValues_Atm.cpp:644) already clamps with max(0,…); this
-                    // in-loop version had dropped it. See [[project_upper_velocity_secular_growth]].
-                    const double s_i     = sqrt(std::max(0.0, 1.0 - coeff * h_i));
-                    const double t_cosmo = t_u_0 * s_i;                     // [K] profile value
+                    const double q_v = m.c.x[i][j][k];
+                    const double q_c = m.co2.x[i][j][k];
+                    const double R_loc = AtmMixture::R_of(q_v, q_c, R_bg);
 
-                    // ATHAD: isothermal continuation above the level where T hits the floor.
-                    //
-                    // The COSMO profile T(h) = T0*sqrt(1 - coeff*h) reaches ZERO at h = 1/coeff
-                    // — 305 km at the 1500 K equator, but only 285 km at the 1450 K pole, since
-                    // coeff goes as 1/T0^2. Over Earth's 16 km shell that singularity was far
-                    // outside the domain; over 300 km it is inside it.
-                    //
-                    // The temperature was already floored at t_00, but the PRESSURE kept using
-                    // the raw profile, so it went on falling at a rate its own temperature no
-                    // longer justified and crossed zero near the pole (measured: -8.9 hPa at
-                    // the domain top). Above the floor the column is isothermal, so continue
-                    // hydrostatically at t_00 instead: p = p_iso * exp(-g*(h - h_iso)/(R*t_00)).
-                    double p_i;
-                    if (t_cosmo > m.t_00) {
-                        p_i = p_sl * exp(-t_0_inv_beta * (1.0 - s_i));      // COSMO barometric formula
-                        h_iso = h_i;
-                        p_iso = p_i;
+                    double T_i, p_i;
+                    if (i == 0) {
+                        T_i = T_prev;
+                        p_i = p_prev;
                     } else {
-                        if (h_iso < 0.0) { h_iso = 0.0; p_iso = p_sl; }     // floor reached at the ground
-                        p_i = p_iso * exp(-m.g * (h_i - h_iso) / (R_mix * m.t_00));
+                        const double dz = height_table[i] - height_table[i-1];
+
+                        // Dry adiabat with the LOCAL heat capacity: Gamma = g/cp.
+                        const double cp_loc = AtmMixture::cp_of(q_v, q_c, T_prev, M_bg);
+                        const double T_ad   = T_prev - (m.g / cp_loc) * dz;
+
+                        // Isothermal once the adiabat drops below the radiative skin value.
+                        T_i = std::max(m.t_skin, T_ad);
+
+                        // Hydrostatic, integrated on the layer-mean temperature.
+                        const double T_mean = 0.5 * (T_prev + T_i);
+                        p_i = p_prev * exp(-m.g * dz / (R_loc * T_mean));
                     }
 
+                    m.t.x[i][j][k]      = T_i / m.t_0;
                     m.p_stat.x[i][j][k] = p_i;
 
-                    // Local mixture gas constant from this cell's own composition.
-                    const double R_loc = AtmMixture::R_of(m.c.x[i][j][k],
-                                                          m.co2.x[i][j][k], R_bg);
-
-                    // r_humid: the true density of the parcel, p/(R_loc*T), reduced by the
-                    // condensate loading. The Earth form reached the same place by a virtual
-                    // temperature correction (1 + (R_v/R_a - 1)*c) applied to a FIXED R_Air —
-                    // a first-order expansion in c that is only valid while c is small. At
-                    // c = 0.67 it is not, so the local R is used directly instead.
                     const double water_factor = std::max(0.5, 1.0
                                         - m.cloud.x[i][j][k] - m.ice.x[i][j][k]);
-                    m.r_humid.x[i][j][k] = 1e2 * p_i / (R_loc * t_u * water_factor);
+                    m.r_humid.x[i][j][k] = 1e2 * p_i / (R_loc * T_i * water_factor);
 
-                    // r_dry: the density the same parcel would have with the water removed
-                    // (background + CO2 only). It is a diagnostic — the momentum equations
-                    // and the buoyancy use r_humid — but keeping its name honest matters.
-                    const double R_dry_loc = AtmMixture::R_of(0.0,
-                                                              m.co2.x[i][j][k], R_bg);
-                    m.r_dry.x[i][j][k]   = 1e2 * p_i / (R_dry_loc * t_u);
+                    const double R_dry_loc = AtmMixture::R_of(0.0, q_c, R_bg);
+                    m.r_dry.x[i][j][k]     = 1e2 * p_i / (R_dry_loc * T_i);
+
+                    T_prev = T_i;
+                    p_prev = p_i;
                 }
 
                 const int    i_m = m.i_topography[j][k];

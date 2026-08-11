@@ -274,4 +274,62 @@ the measurements that did not work out — rather than what is intended.
    cloud deck to justify the 0.4 albedo that is being assumed — the two are inconsistent,
    and resolving it needs the upper atmosphere to cool enough to condense.
 
+7. **Lapse rate and albedo made self-consistent (done).** This closed the inconsistency
+   Phase 5 left standing — a 0.4 cloud albedo asserted over a column that condensed
+   nothing.
+
+   The root cause was `cosmo_lapse_fraction = 0.5108`, carried over from Earth. That
+   number is not a tuning constant: Earth's ~5 K/km sits half way to its 9.8 K/km dry
+   adiabat *because of latent heat release*. ATHAD's deep column condenses nothing, so
+   there is nothing to flatten the lapse, and the consistent value is the dry adiabat.
+   Carrying Earth's value across was self-fulfilling — the flattened lapse was justified
+   by condensation that the flattening then prevented.
+
+   Setting the fraction to 1.0 alone broke the model (surface NaN, 30 bar instead of 250),
+   which exposed a deeper problem: the inherited COSMO profile is `T = T₀√(1−coeff·h)`, a
+   **sqrt** in height. Matching its near-surface slope to the adiabat does not make it an
+   adiabat — it plunges to zero at 156 km, inside the domain. So the fitted profile was
+   replaced by the physics it was standing in for, integrated layer by layer:
+
+   ```
+   dry adiabat     dT/dz = -g/cp          (cp local: follows composition and T)
+   hydrostatic     dp/dz = -p*g/(R*T)     (R local, on the layer-mean T)
+   isothermal top  T = t_skin             where the adiabat falls below it
+   ```
+
+   No tuned constant, exact for a constant-cp adiabat, and it cannot produce the zero
+   temperature the sqrt form did.
+
+   Consequences measured:
+
+   - The atmosphere is far more compressed on the true adiabat, so the domain came back
+     from 300 km to **230 km**; 300 km put the top 90 km into near-vacuum (6e-8 bar).
+   - **A cloud deck now forms**, from ~207 km (0.09 bar) upward, where p_H₂O finally
+     exceeds p_sat. The top two levels report `CONDENSING`. The albedo is no longer
+     asserted: `MultiLayerRadiation` uses the dark molten-surface value (0.08) and the
+     existing condensate-driven cloud bump raises it where the model actually makes cloud.
+     (The `albedo_pole`/`albedo_equator` parameters turned out to be **inert** — the
+     radiation module builds its own albedo and never read them, so the earlier 0.4 was
+     never in effect.)
+   - `t_skin` is now derived from the **energy budget**, σT⁴ = (1−α)·SW + geothermal =
+     236.0 W/m² → 254.0 K, replacing a value taken from a previously measured OLR, which
+     was circular.
+
+   **Energy balance closes:** OLR = 236.0 W/m², exactly the absorbed SW plus geothermal,
+   with the surface suppressed by ×1214.
+
+   **And that is the interesting result.** 236 W/m² is *below* the 280–310 W/m² runaway
+   limit. At 0.71 S₀ with the assumed 150 W/m² geothermal flux, the planet does not absorb
+   enough to sustain a runaway greenhouse — so the 1500 K surface is being held by fiat
+   (it is prescribed), not by the budget. For a 1500 K surface to be self-consistently in
+   runaway, the geothermal flux would have to be **≥ ~195 W/m²** (absorbed ≥ 280). That is
+   not implausible for a genuine magma ocean, but it is a prediction the model now makes
+   rather than an assumption it was given, and `geothermal_flux` should be revisited
+   against magma-ocean cooling estimates.
+
+   Still not closed: `t_skin` is a one-shot estimate using the clear-sky albedo, while the
+   cloud deck raises it (albedo 0.4 would give 245.5 K). Making it a true fixed point means
+   iterating `t_skin` against the model's own albedo. `initComposition()` prints both values
+   and warns when they diverge.
+
 *(Further entries are added as each phase is measured.)*

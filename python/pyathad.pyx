@@ -404,6 +404,15 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.cosmo_lapse_fraction = <double> value
     
+    property t_skin:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.t_skin
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.t_skin = <double> value
+    
     property r_air:
         def __get__(Atmosphere self):
             self._check_alive()

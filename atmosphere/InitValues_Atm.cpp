@@ -488,10 +488,9 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
     // ========================================================================
     // Step 8: Vertical Temperature Profile & Potential Temperature
     // ========================================================================
-    // ATHAD: beta is derived per-composition in initComposition(), not the Earth constant.
-    const double beta  = m_beta_cosmo;
     const double R_mix = m_comp.R_mix;
     const double R_bg  = m_comp.R_bg;
+    const double M_bg  = m_comp.M_bg;
 
     #pragma omp parallel for collapse(2)
     for (int k = 0; k < km; k++) {
@@ -531,62 +530,42 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
             // ================================================================
             // Vertical Profile: Temperature, Pressure, Density
             // ================================================================
-            const double t_safe = std::max(MIN_SAFE_TEMP, t.x[0][j][k]);
-            const double tu_be     = t_safe / beta;
-            const double c_inv_tu2 = (2.0 * beta * g) / (R_mix * t_safe * t_safe);
-            const double p_basis   = p_stat.x[0][j][k];
-
-            // Removed inner #pragma omp simd to avoid nested parallelization issues
-            double h_iso = -1.0, p_iso = 0.0;
+            // ATHAD: dry adiabat + isothermal skin, integrated hydrostatically.
+            // Identical scheme to ThermoAtm::densities() — see the long note there for why
+            // the inherited COSMO sqrt profile was replaced rather than re-tuned.
+            double T_prev = std::max(MIN_SAFE_TEMP, t.x[0][j][k]);
+            double p_prev = p_stat.x[0][j][k];
 
             for (int i = 0; i < im; i++) {
-                const double height = get_layer_height(i);
-                const double s_i    = sqrt(std::max(0.0, 1.0 - height * c_inv_tu2));
+                const double q_v   = c.x[i][j][k];
+                const double q_c   = co2.x[i][j][k];
+                const double R_loc = AtmMixture::R_of(q_v, q_c, R_bg);
 
-                const double t_curr = t_safe * s_i;  // [K]
-
-                // ATHAD: isothermal continuation above the level where T hits the floor.
-                //
-                // The COSMO profile T(h) = T0*sqrt(1 - coeff*h) reaches ZERO at h = 1/coeff
-                // — 305 km at the 1500 K equator, but only 285 km at the 1450 K pole, since
-                // coeff goes as 1/T0^2. Over Earth's 16 km shell that singularity was far
-                // outside the domain; over 300 km it is inside it.
-                //
-                // The temperature was already floored at t_00, but the PRESSURE kept using
-                // the raw profile, so it went on falling at a rate its own temperature no
-                // longer justified and crossed zero near the pole (measured: -8.9 hPa at
-                // the domain top). Above the floor the column is isothermal, so continue
-                // hydrostatically at t_00 instead: p = p_iso * exp(-g*(h - h_iso)/(R*t_00)).
-                double p_val;
-                if (t_curr > t_00) {
-                    p_val = p_basis * exp(-tu_be * (1.0 - s_i));
-                    h_iso = height;
-                    p_iso = p_val;
+                double T_curr, p_val;
+                if (i == 0) {
+                    T_curr = T_prev;
+                    p_val  = p_prev;
                 } else {
-                    if (h_iso < 0.0) { h_iso = 0.0; p_iso = p_basis; }
-                    p_val = p_iso * exp(-g * (height - h_iso) / (R_mix * t_00));
+                    const double dz     = get_layer_height(i) - get_layer_height(i-1);
+                    const double cp_loc = AtmMixture::cp_of(q_v, q_c, T_prev, M_bg);
+                    const double T_ad   = T_prev - (g / cp_loc) * dz;
+                    T_curr = std::max(t_skin, T_ad);
+                    const double T_mean = 0.5 * (T_prev + T_curr);
+                    p_val  = p_prev * exp(-g * dz / (R_loc * T_mean));
                 }
 
-                // Smooth lower bound: approaches t_00 asymptotically rather than clamping hard
-                const double delta = t_curr - t_00;
-                const double sharpness = 5.0;                           // larger = closer to hard clamp
-
-                t.x[i][j][k] = t_00 + delta / (1.0 + std::exp(-sharpness * delta));
-                t.x[i][j][k] = std::max(t_00, t_curr);                  // Ensure minimum temperature
+                t.x[i][j][k]      = T_curr;
                 p_stat.x[i][j][k] = p_val;
-
-                // Densities from the LOCAL mixture gas constant, matching ThermoAtm::densities().
-                // The Earth virtual-temperature form (1 + (R_v/R_a - 1)*c) is a first-order
-                // expansion in c, valid only while water is a trace; at c = 0.67 it is not.
-                const double t_dens = std::max(MIN_SAFE_TEMP, t_curr);
-                const double R_loc  = AtmMixture::R_of(c.x[i][j][k], co2.x[i][j][k], R_bg);
-                const double R_dloc = AtmMixture::R_of(0.0,          co2.x[i][j][k], R_bg);
 
                 const double total_water_factor =
                     std::max(MIN_WATER_FACTOR, 1.0 - (cloud.x[i][j][k] + ice.x[i][j][k]));
+                const double R_dloc = AtmMixture::R_of(0.0, q_c, R_bg);
 
-                r_dry.x[i][j][k]   = p_val * 100.0 / (R_dloc * t_dens);
-                r_humid.x[i][j][k] = p_val * 100.0 / (R_loc * t_dens * total_water_factor);
+                r_dry.x[i][j][k]   = p_val * 100.0 / (R_dloc * T_curr);
+                r_humid.x[i][j][k] = p_val * 100.0 / (R_loc * T_curr * total_water_factor);
+
+                T_prev = T_curr;
+                p_prev = p_val;
             }
 
             temp_landscape.y[j][k]   = t.x[i_mount][j][k] - t_0;        // [°C]

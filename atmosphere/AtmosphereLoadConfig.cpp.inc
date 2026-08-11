@@ -41,6 +41,7 @@
     Config::FillDoubleWithElement(elem_common, "t_surf_equator", t_surf_equator);
     Config::FillDoubleWithElement(elem_common, "t_surf_pole", t_surf_pole);
     Config::FillDoubleWithElement(elem_common, "cosmo_lapse_fraction", cosmo_lapse_fraction);
+    Config::FillDoubleWithElement(elem_common, "t_skin", t_skin);
     Config::FillDoubleWithElement(elem_common, "r_air", r_air);
     Config::FillDoubleWithElement(elem_common, "r_0_water", r_0_water);
     Config::FillDoubleWithElement(elem_common, "t_equat_modern", t_equat_modern);

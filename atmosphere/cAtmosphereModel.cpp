@@ -192,6 +192,34 @@ void cAtmosphereModel::initComposition(){
     cout << "        near-surface lapse rate .......... = " << lapse_K_per_km
          << " K/km   (dry adiabat " << adiabat_K_per_km << " K/km)" << endl;
 
+    // Skin temperature of the optically thin top, DERIVED from the energy budget rather
+    // than prescribed.
+    //
+    // The top of the column is isothermal and radiative, and in equilibrium it must emit
+    // what the planet absorbs: sigma*T_skin^4 = SW_absorbed + geothermal. Setting t_skin
+    // by hand is circular — the first attempt took T_skin = (OLR/2sigma)^(1/4) from a
+    // previously MEASURED OLR, and the model then dutifully reproduced an OLR of
+    // sigma*T_skin^4, which says nothing except that the arithmetic is consistent.
+    //
+    // This is a one-shot estimate, not an iterated fixed point: the albedo it uses is the
+    // clear-sky (molten-surface) value, whereas the cloud deck that forms above the
+    // condensation level will raise it and lower the true balance. Closing that loop
+    // properly means iterating t_skin against the model's own albedo. Stated in the README.
+    {
+        const double sw_mean = 0.5 * (rad_equator_short + rad_pole_short);   // [W/m2] TOA mean
+        const double alb_clear = 0.08;                                       // molten surface, clear sky
+        const double absorbed  = (1.0 - alb_clear) * sw_mean + geothermal_flux;
+        const double t_skin_eq = std::pow(absorbed / sigma, 0.25);
+
+        cout << "        absorbed SW + geothermal ......... = " << absorbed << " W/m2" << endl;
+        cout << "        implied skin temperature ......... = " << t_skin_eq << " K"
+             << "   (configured t_skin = " << t_skin << " K)" << endl;
+        if(std::fabs(t_skin_eq - t_skin) > 5.0)
+            cout << "      NOTE: configured t_skin differs from the energy-balance value by "
+                 << std::fabs(t_skin_eq - t_skin) << " K. The top of the column will emit at the "
+                 << "configured value, so the OLR will follow it rather than the budget." << endl;
+    }
+
     cout << endl << "      AGCM: atmospheric composition ended" << endl << endl;
 }
 /*

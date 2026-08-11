@@ -39,7 +39,8 @@ void cAtmosphereModel::SetDefaultConfig() {
   t_0 = 273.15;
   t_surf_equator = 1500.0;
   t_surf_pole = 1450.0;
-  cosmo_lapse_fraction = 0.5108;
+  cosmo_lapse_fraction = 1.0;
+  t_skin = 254.0;
   r_air = 42.97;
   r_0_water = 997.0;
   t_equat_modern = 15.4;
@@ -75,12 +76,12 @@ void cAtmosphereModel::SetDefaultConfig() {
   evap_model = "Meyer";
   Ma_max = 300;
   Ma_max_half = 150;
-  L_atm = 15718.7;
+  L_atm = 12051.0;
   zeta = 3.0;
-  tropopause_pole = 250000.0;
-  tropopause_equator = 280000.0;
-  albedo_pole = 0.4;
-  albedo_equator = 0.4;
+  tropopause_pole = 195000.0;
+  tropopause_equator = 207000.0;
+  albedo_pole = 0.1;
+  albedo_equator = 0.1;
   epsilon_equator = 0.48;
   epsilon_pole = 0.45;
   epsilon_tropopause = 0.001;

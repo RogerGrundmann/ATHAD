@@ -102,21 +102,48 @@ def main():
             ('t_surf_pole', 'ATHAD: prescribed Hadean surface temperature at the poles in K', 'double', 1450.0),
 
             # ATHAD: the COSMO barometric profile T(h) = T0*sqrt(1 - 2*beta*g*h/(R*T0^2)) has a
-            # near-surface lapse rate beta*g/(R*T0). The inherited beta = 42 K is an EARTH
-            # constant: it gives 4.99 K/km at R=286.9, T0=288 — about 0.511 of the dry adiabat
-            # (beta_adiabatic = R*T0/cp = 82.2), i.e. tuned to the observed moist lapse.
-            #
-            # Carried over unchanged to ATHAD it would give 0.71 K/km — an essentially
-            # ISOTHERMAL 300 km column, because beta*g/(R*T0) falls with both the larger R and
-            # the far larger T0. So beta is derived rather than fixed:
+            # near-surface lapse rate beta*g/(R*T0), so beta is derived rather than fixed:
             #
             #     beta = cosmo_lapse_fraction * R_mix * T_surf / cp
             #
-            # which reproduces Earth's beta at Earth's numbers and gives ~146 K and 2.46 K/km
-            # here. A steam atmosphere releasing this much latent heat should indeed sit well
-            # below its dry adiabat (4.81 K/km), so a sub-adiabatic fraction is right — but the
-            # VALUE 0.511 is inherited Earth tuning, not a Hadean result.
-            ('cosmo_lapse_fraction', 'ATHAD: near-surface lapse rate as a fraction of the dry adiabat; sets the COSMO beta', 'double', 0.5108),
+            # cosmo_lapse_fraction is the lapse as a fraction of the DRY ADIABAT g/cp.
+            #
+            # Earth's value is 0.51: its observed ~5 K/km sits about half way to the 9.8 K/km
+            # dry adiabat. That deficit is not a coincidence or a tuning constant — it is
+            # LATENT HEAT. A rising saturated parcel condenses water and releases heat, which
+            # partly offsets adiabatic cooling and flattens the lapse toward the moist adiabat.
+            #
+            # ATHAD's deep column condenses NOTHING: it is supercritical from the surface to
+            # ~177 km, so no latent heat is released and there is nothing to flatten the lapse.
+            # The physically consistent value is therefore 1.0, the dry adiabat of the mixture,
+            # g/cp = 4.81 K/km. Carrying Earth's 0.51 across gave 2.46 K/km, a column that only
+            # reached 1279 K at 300 km, never crossed the critical temperature, and so could
+            # never condense — a self-fulfilling assumption, since the flattened lapse was
+            # itself justified by condensation that the flattening then prevented.
+            #
+            # On the dry adiabat the column crosses 647 K at 177 km and reaches saturation
+            # (p_H2O > p_sat) near 300 K at ~249 km and 0.04 bar, which is where a runaway
+            # greenhouse should put its cloud deck.
+            ('cosmo_lapse_fraction', 'ATHAD: near-surface lapse rate as a fraction of the dry adiabat; 1.0 = dry adiabat', 'double', 1.0),
+
+            # ATHAD: temperature of the optically thin upper atmosphere, which is radiative
+            # rather than convective. Set from the ENERGY BUDGET, not from a measured OLR:
+            #
+            #     sigma*T_skin^4 = (1 - albedo)*SW + geothermal
+            #                    = 0.92*93.5 + 150 = 236.0 W/m2  ->  254.0 K
+            #
+            # An earlier value of 231.3 K came from T_skin = (OLR/2sigma)^(1/4) using a
+            # previously MEASURED OLR, which is circular — the model then reproduced an OLR of
+            # sigma*T_skin^4 and confirmed nothing but its own arithmetic.
+            #
+            # This is a one-shot estimate, not an iterated fixed point: it uses the clear-sky
+            # albedo, while the cloud deck that now forms above ~207 km will raise it (0.4
+            # would give 245.5 K). initComposition() prints both this value and the balance
+            # value and warns if they diverge.
+            #
+            # It replaces the inherited t_00 = 236.15 K ("-37 C"), which was Earth's
+            # tropopause temperature and landed near the right range here by coincidence.
+            ('t_skin', 'ATHAD: radiative-equilibrium temperature of the optically thin top, in K', 'double', 254.0),
             # ATHAD reference density of the MIXTURE at the surface, not of dry air:
             # rho = p/(R_mix*T) = 25e6 Pa / (387.9 * 1500 K) = 42.97 kg/m³ (Earth: 1.2041).
             # This is what sets the surface pressure, via p = 1e-2*(r_air*R_Air*T).
@@ -241,24 +268,18 @@ def main():
             # L_atm is the AMPLITUDE of the exponential stretch, NOT the shell thickness
             # and NOT a layer spacing. The shell is (exp(zeta) - 1) * L_atm:
             #     Earth: (exp(3.715) - 1) *   400.0 =  16.0 km
-            #     ATHAD: (exp(3.000) - 1) * 15718.7 = 300.0 km
+            #     ATHAD: (exp(3.000) - 1) * 12051.0 = 230.0 km
             #
-            # 300 km is set by where the column reaches the radiating level. With R_mix =
-            # 387.9 and T_surf = 1500 K the scale height is 59 km at the surface, and the
-            # COSMO profile terminates (T -> 0) at 305 km. Measured top pressures:
-            #     150 km -> 13.07 bar     250 km -> 0.679 bar
-            #     200 km ->  3.58 bar     300 km -> 0.033 bar   <- below the 0.1 bar target
+            # 230 km is set by where the column reaches the radiating level. It was 300 km
+            # while the profile still used the inherited COSMO shape with an Earth lapse
+            # fraction; on the proper dry adiabat the atmosphere is far more compressed —
+            # 24.8 bar at 112 km, 5.8 bar at 157 km, 0.069 bar at 218 km — so 300 km put
+            # the top ~90 km into near-vacuum (6e-8 bar), wasting resolution and inviting
+            # divide-by-density trouble. 230 km lands the top near 0.012 bar, comfortably
+            # past the 0.1 bar radiating level and above the condensation level at ~207 km.
             #
-            # zeta was reduced 3.715 -> 3.0 and im raised 41 -> 61 for resolution ALOFT.
-            # The stretch concentrates levels near the surface, where the scale height is
-            # largest, and coarsens them aloft where it is smallest — backwards for
-            # pressure resolution. Top-cell thickness in local scale heights:
-            #     im=41, zeta=3.715 -> 2.92 H   (a cell spanning ~3 scale heights)
-            #     im=61, zeta=3.0   -> 1.65 H   <- chosen
-            #     im=81, zeta=2.5   -> 1.08 H   (better, at 2x the im=41 cost)
-            # Surface spacing at the chosen setting is 806 m (Earth: 39 m), which is fine
-            # against a 59 km scale height.
-            ('L_atm', 'ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 300 km', 'double', 15718.7),
+            # zeta 3.0 with im = 61 keeps the top cell at ~1.7 local scale heights.
+            ('L_atm', 'ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 230 km', 'double', 12051.0),
             ('zeta', 'ATHAD: radial coordinate-stretching factor (was a hard-coded 3.715)', 'double', 3.0),
 
             # ATHAD: the radiative-convective boundary of a runaway steam atmosphere sits
@@ -266,17 +287,20 @@ def main():
             # 290 km at 0.086 bar, so nearly the whole shell convects. ASSUMPTION — these
             # should be derived from the lapse rate once the radiation is right (Phase 5),
             # not prescribed.
-            ('tropopause_pole', 'ATHAD: extension of the troposphere at the poles in m', 'double', 250000.0),
-            ('tropopause_equator', 'ATHAD: extension of the troposphere at the equator in m', 'double', 280000.0),
+            # ATHAD: the convective column now ends where the adiabat meets the skin
+            # temperature, ~207 km. Above that the atmosphere is isothermal and radiative.
+            ('tropopause_pole', 'ATHAD: top of the convective column at the poles in m', 'double', 195000.0),
+            ('tropopause_equator', 'ATHAD: top of the convective column at the equator in m', 'double', 207000.0),
 
 
-            # ATHAD: Earth's 0.294/0.1 split encodes polar ice and open ocean, neither of
-            # which exists here. A runaway steam atmosphere is expected to carry a thick
-            # global cloud deck, so a single high, latitude-independent value is more
-            # defensible than a contrast built from surfaces that are not present.
-            # ASSUMPTION, and a strong lever on the absorbed solar.
-            ('albedo_pole', 'ATHAD: cloud-deck albedo at the poles', 'double', 0.4),
-            ('albedo_equator', 'ATHAD: cloud-deck albedo at the equator', 'double', 0.4),
+            # NOTE these two are INERT: MultiLayerRadiation builds albedo.y from its own
+            # surface constants and then applies a cloud bump on top, never reading these.
+            # Kept only because other inherited code still references them. The albedo that
+            # actually acts is alb_surface_molten in MultiLayerRadiation.h plus the
+            # condensate-driven cloud bump — which is the point: the cloud albedo should be
+            # EARNED by condensate the model produced, not asserted as a constant.
+            ('albedo_pole', 'inherited; unused — MultiLayerRadiation builds the albedo itself', 'double', 0.1),
+            ('albedo_equator', 'inherited; unused — MultiLayerRadiation builds the albedo itself', 'double', 0.1),
 
             ('epsilon_equator', 'emissivity and absorptivity caused by other gases than water vapour/(by Häckel)', 'double', 0.48),
             ('epsilon_pole', 'emissivity and absorptivity caused by other gases than water vapour at the poles', 'double', 0.45),
