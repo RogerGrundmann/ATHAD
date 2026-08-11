@@ -1,0 +1,109 @@
+<!-- THIS FILE IS GENERATED AUTOMATICALLY BY param.py. DO NOT EDIT. --><atom>    <common>
+        <output_path>output-Hadean/</output_path>  <!-- directory where model outputs should be placed(must end in /)(string) -->
+        <bathymetry_path>../data/topo_grids</bathymetry_path>  <!-- directory where the topografic grids are located(string) -->
+        <BathymetrySuffix>Ma_smooth.xyz</BathymetrySuffix>  <!-- suffix of the timesteps Ma in million years(string) -->
+        <config_xml_path>../python</config_xml_path>  <!-- directory where the configuration files are located(string) -->
+        <verbose>false</verbose>  <!-- some description of the module(bool) -->
+        <paraview_panorama_vts_flag>true</paraview_panorama_vts_flag>  <!-- flag to control if create paraview panorama(bool) -->
+        <Coriolis>1</Coriolis>  <!-- Coriolis force(double) -->
+        <centrifugal>1</centrifugal>  <!-- centrifugal force(double) -->
+        <buoyancy>1</buoyancy>  <!-- buoyancy force(double) -->
+        <r_Earth>6370.001</r_Earth>  <!-- radius of the Earth in km(double) -->
+        <omega>7.292e-05</omega>  <!-- rotation rate of the earth in rad/s(double) -->
+        <g>9.8066</g>  <!-- gravitational acceleration of the earth in m/s²(double) -->
+        <time_start>0</time_start>  <!-- start time(int) -->
+        <time_end>0</time_end>  <!-- end time(int) -->
+        <time_step>10</time_step>  <!-- step size between timeslices(int) -->
+        <velocity_v_file>../data/v_surface.txt</velocity_v_file>  <!-- (string) -->
+        <velocity_w_file>../data/w_surface.txt</velocity_w_file>  <!-- (string) -->
+        <temperature_file>../data/SurfaceTemperature_NASA.xyz</temperature_file>  <!-- (string) -->
+        <precipitation_file>../data/SurfacePrecipitation_NASA.xyz</precipitation_file>  <!-- (string) -->
+        <salinity_file>../data/SurfaceSalinity_NASA.xyz</salinity_file>  <!-- (string) -->
+        <temperature_global_file>../data/scotese_etal_2021_global_temp_1my.txt</temperature_global_file>  <!-- (string) -->
+        <temperature_equat_file>../data/scotese_etal_2021_equat_temp_1my.txt</temperature_equat_file>  <!-- (string) -->
+        <temperature_pole_file>../data/scotese_etal_2021_polar_temp_1my.txt</temperature_pole_file>  <!-- (string) -->
+        <reconstruction_script_path>../reconstruction/reconstruct_atom_data.py</reconstruction_script_path>  <!-- (string) -->
+        <use_earthbyte_reconstruction>false</use_earthbyte_reconstruction>  <!-- control whether use earthbyte method to recontruct grids(bool) -->
+        <use_NASA_velocity>false</use_NASA_velocity>  <!-- if use NASA velocity to initialise velocity(bool) -->
+        <use_NASA_temperature>true</use_NASA_temperature>  <!-- if use NASA temperature to initialise surface temperature(bool) -->
+        <use_NASA_salinity>true</use_NASA_salinity>  <!-- if use NASA sea-surface salinity to initialise surface salinity: Ma=0 uses the 2D field, Ma>0 its zonal-mean latitude profile; false = invert the Gill density equation(bool) -->
+        <Ma_switch>100</Ma_switch>  <!-- switch initial temperatur from NASA to parabolic approach(int) -->
+        <CategoryIceScheme>2</CategoryIceScheme>  <!-- number chooses Two(2)-Category Ice Scheme with rain, snow(int) -->
+        <p_0>1013.25</p_0>  <!-- pressure at sea level in hPa(double) -->
+        <t_0>273.15</t_0>  <!-- temperature in K compare to 0°C(double) -->
+        <r_air>1.2041</r_air>  <!-- density of dry air in kg/m³ at 20°C(double) -->
+        <r_0_water>997.0</r_0_water>  <!-- reference density of fresh water in kg/m3(double) -->
+        <t_equat_modern>15.4</t_equat_modern>  <!-- mean temperature of the modern earth in °C(double) -->
+        <t_pole_modern>-15.4</t_pole_modern>  <!-- pole temperature of the modern earth in °C(double) -->
+        <t_paleo_max>10.0</t_paleo_max>  <!-- maximum add of mean temperature in °C during paleo times(double) -->
+        <rad_equator>398.2</rad_equator>  <!-- long wave radiation in W/m2, t_equator = 1.0976 compares to 28.0°C = 299.81 K(double) -->
+        <rad_pole>360.0</rad_pole>  <!-- long wave radiation in W/m2, t_pole = 0.9436 compares to -15.4°C = 257.75 K(double) -->
+        <rad_equator_short>163.3</rad_equator_short>  <!-- short wave radiation in W/m2(double) -->
+        <rad_pole_short>100.0</rad_pole_short>  <!-- short wave radiation in W/m2(double) -->
+        <sigma>5.67028e-08</sigma>  <!-- Stefan-Boltzmann constant W/(m²*K4)(double) -->
+        <eps_residuum>0.0001</eps_residuum>  <!-- relative error, end of iterations reached, 1% error  allowed(double) -->
+        <turb_model>k_omega_SST</turb_model>  <!-- turbulence model: none, k_epsilon, k_omega, k_omega_SST(string) -->
+        <inviscid_spinup_iters>0</inviscid_spinup_iters>  <!-- cumulative iterations to run inviscid (Euler + free-slip mountains) before viscous physics activates; 0 disables(int) -->
+        <inviscid_ramp_iters>20</inviscid_ramp_iters>  <!-- iterations over which diffusion coefficient ramps from 0 to 1 after the inviscid phase(int) -->
+        <moist_phys_start_iter>300</moist_phys_start_iter>  <!-- cumulative iterations before moist physics (SaturationAdjustment, ice scheme, MoistConvection) activates; lets the velocity circulation form on a dry field first; 0 disables (always on)(int) -->
+        <checkpoint_save_iter>300</checkpoint_save_iter>  <!-- dump the full 3D prognostic state to output_path/atm_restart_<iter>.bin when total_iter_count reaches this, for a fast debug restart; -1 disables(int) -->
+        <restart_from_iter>-1</restart_from_iter>  <!-- load output_path/atm_restart_<iter>.bin and resume from it, skipping the dry spin-up (debug shortcut); -1 disables(int) -->
+        <dt_visc>0.0001</dt_visc>  <!-- non-dimensional time step used in the viscous (production) phase(double) -->
+        <dt_inviscid>2e-05</dt_inviscid>  <!-- non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)(double) -->
+    </common>
+    <atmosphere>
+        <nm>400</nm>  <!-- the maximum number of iterations(int) -->
+        <checkpoint>20</checkpoint>  <!-- control when to write output files(int) -->
+        <panorama_print>100</panorama_print>  <!-- control when to write panorama files(int) -->
+        <coeff_Dalton>0.7</coeff_Dalton>  <!-- diffusion coefficient in evaporation by Dalton(double) -->
+        <convection_perturbation>1</convection_perturbation>  <!-- convective trigger perturbation: 0=fixed, 1=Bechtold (2008) surface-flux-based for shallow/fixed for deep(int) -->
+        <convection_mode>1</convection_mode>  <!-- convection type: 0=deep only (precipitating), 1=deep+shallow (non-precipitating if p_diff<p_stat_diff), 2=deep+shallow+midlevel (also non-precipitating for cloud base above p_stat_midlevel/700 hPa)(int) -->
+        <iter_prec>3</iter_prec>  <!-- precipitation sub-iteration count: min 3 for evaporation (e_d, e_p) to act on non-zero P_conv; check convergence at 4-5(int) -->
+        <evap_model>Meyer</evap_model>  <!-- evaporation formula driving surface humidity update: Dalton, Meyer, or Rohwer(string) -->
+        <Ma_max>300</Ma_max>  <!-- parabolic temperature distribution 300 Ma(from Ruddiman)(int) -->
+        <Ma_max_half>150</Ma_max_half>  <!-- half of time scale(int) -->
+        <L_atm>400.0</L_atm>  <!-- extension of the atmosphere shell in m, total height is 16000m*40 steps(double) -->
+        <tropopause_pole>8000.0</tropopause_pole>  <!-- extension of the troposphere at the poles in m(double) -->
+        <tropopause_equator>15000.0</tropopause_equator>  <!-- extension of the troposphere at the equator in m(double) -->
+        <albedo_pole>0.294</albedo_pole>  <!-- albedo around the poles(double) -->
+        <albedo_equator>0.1</albedo_equator>  <!-- albedo around the equator(double) -->
+        <epsilon_equator>0.48</epsilon_equator>  <!-- emissivity and absorptivity caused by other gases than water vapour/(by Häckel)(double) -->
+        <epsilon_pole>0.45</epsilon_pole>  <!-- emissivity and absorptivity caused by other gases than water vapour at the poles(double) -->
+        <epsilon_tropopause>0.001</epsilon_tropopause>  <!-- emissivity and absorptivity caused by other gases than water vapour in the tropopause(double) -->
+        <re>1000.0</re>  <!-- Reynolds number for laminar flows: ratio viscous to inertia forces, Re = u * L/nue(double) -->
+        <sc_WaterVapour>0.61</sc_WaterVapour>  <!-- Schmidt number of water vapour, Sc = nue/D(double) -->
+        <sc_CO2>0.96</sc_CO2>  <!-- Schmidt number of CO2(double) -->
+        <pr>0.7179</pr>  <!-- Prandtl number of air for laminar flows(double) -->
+        <pr_turb>0.9</pr_turb>  <!-- turbulent Prandtl number for temperature transport in turbulent flows(double) -->
+        <abl_height>1500.0</abl_height>  <!-- physical depth of the atmospheric boundary layer in m, sets the top of the surface-driven turbulent TKE seeding profile (decoupled from the L_atm grid length scale)(double) -->
+        <ep>0.62198</ep>  <!-- ratio of the gas constants of dry air to water vapour [kg_air/kg_vapour](double) -->
+        <hp>6.1078</hp>  <!-- water vapour pressure at T = 0°C: E = 6.1 hPa(double) -->
+        <R_Air>286.9</R_Air>  <!-- specific gas constant of air in J/(kg*K)(double) -->
+        <R_WaterVapour>461.4</R_WaterVapour>  <!-- specific gas constant of water vapour in J/(kg*K)(double) -->
+        <r_water_vapour>0.0094</r_water_vapour>  <!-- density of saturated water vapour in kg/m³ at 10°C(double) -->
+        <R_co2>188.91</R_co2>  <!-- specific gas constant of CO2 in J/(kg*4.5K)(double) -->
+        <lv>2520000.0</lv>  <!-- specific latent evaporation heat(condensation heat) in J/kg(double) -->
+        <ls>2830000.0</ls>  <!-- specific latent vaporisation heat(sublimation heat) in J/kg(double) -->
+        <cp_l>1005.0</cp_l>  <!-- specific heat capacity of dry air at constant pressure and 20°C in J/(kg K)(double) -->
+        <cv_l>717.0</cv_l>  <!-- specific heat capacity of dry air at constant volume and 20°C in J/(kg K)(double) -->
+        <lamda>0.0262</lamda>  <!-- heat transfer coefficient of air in W/(m K)(double) -->
+        <r_co2>0.0019767</r_co2>  <!-- density of CO2 in kg/m³ at 25°C(double) -->
+        <gam>0.0065</gam>  <!-- constant slope of temperature    gam = 6.5 K/1000 m(double) -->
+        <u_0>8.0</u_0>  <!-- annual mean of surface wind velocity in m/s, 8 m/s compare to 28.8 km/h(double) -->
+        <t_00>236.15</t_00>  <!-- temperature in K compare to -37°C(double) -->
+        <t_000>253.15</t_000>  <!-- temperature in K compare to -20°C(double) -->
+        <s_0>274515.75</s_0>  <!-- entropy at 0°C, cp_l * t_0 in J/kg(double) -->
+        <c_0>0.035</c_0>  <!-- maximum value of water vapour in kg/kg(double) -->
+        <co2_0>380.0</co2_0>  <!-- maximum value of CO2 in ppm at preindustrial times(double) -->
+        <co2_paleo>330.0</co2_paleo>  <!-- value at modern times(double) -->
+        <co2_tropopause>385.0</co2_tropopause>  <!-- minimum rate CO2 at tropopause 320.0 ppm(double) -->
+        <co2_vegetation>140.0</co2_vegetation>  <!-- value compares to ppm of co2 consumed by the vegetation(double) -->
+        <co2_ocean>0.0</co2_ocean>  <!-- value compares to ppm of co2 consumed by the vegetation(double) -->
+        <co2_land>0.0</co2_land>  <!-- value compares to ppm of co2 consumed by the vegetation(double) -->
+        <co2_scale>1.0</co2_scale>  <!-- multiplier applied to the whole CO2 field for sensitivity experiments (1.0 = field as built; 2.0 = doubled CO2)(double) -->
+        <c_land>66</c_land>  <!-- water vapour reduction on land(60% of the saturation value)(double) -->
+        <c_ocean>70</c_ocean>  <!-- water vapour reduction on sea surface(64% of the saturation value)(double) -->
+        <sst_coupling_alpha>0.0</sst_coupling_alpha>  <!-- outer-loop (Picard) hydrosphere->atmosphere SST coupling strength: blend fraction of the hydrosphere surface SST (read from <stem>_Transfer_Hyd_SST_<iter>.vwtp) into the atmospheric ocean surface temperature t.x[0] at init, t.x[0] <- (1-alpha)*t.x[0] + alpha*SST_hyd, before the t_eq snapshot so it propagates into the Held-Suarez target. 0.0 = OFF (no read; identical to the one-way chain and to round 0 of a Picard loop, which has no SST file yet). Ocean-only, finite-checked, SST-clamped to [-1.8,40] C, ocean-mean-anchored so total energy does not drift. Under-relax across rounds (e.g. 0.3-0.5)(double) -->
+        <hyd_sst_iter>-1</hyd_sst_iter>  <!-- which hydrosphere SST snapshot to read for sst_coupling_alpha: reads <stem>_Transfer_Hyd_SST_<iter>.vwtp for this iteration; -1 = use the latest (highest-iter) snapshot present in the output dir(int) -->
+    </atmosphere>
+</atom>

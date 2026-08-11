@@ -1,0 +1,110 @@
+
+import sys
+
+from athad cimport cAtmosphereModel
+
+from libcpp cimport bool
+from libcpp.string cimport string
+from libcpp.vector cimport vector
+
+class Model:
+    """
+    ATHAD Model Object
+    """
+    def __init__(self):
+        self.atmosphere = Atmosphere()
+        self.output_path = ""
+        self.time_slice = 0
+        self.config_xml = ""
+
+    def run_atm(self, t_s, output_path, cfg_xml):
+        self.time_slice = t_s
+        self.output_path = output_path
+        self.config_xml = cfg_xml
+        print self.time_slice
+        print self.output_path
+        print self.config_xml
+        self.atmosphere.load_config(self.config_xml)
+        self.atmosphere.run_time_slice(self.time_slice)
+
+
+
+
+cdef class Atmosphere:
+    """
+    Cython wrapper class for C++ class Atmosphere
+    """
+    cdef:
+        cAtmosphereModel *_thisptr
+
+    def __cinit__(Atmosphere self):
+        # Initialize the "this pointer" to NULL so __dealloc__
+        # knows if there is something to deallocate. Do not
+        # call new cAtmosphereModel() here.
+        self._thisptr = NULL
+
+    def __init__(Atmosphere self):
+        # Constructing the C++ object might raise std::bad_alloc
+        # which is automatically converted to a Python MemoryError
+        # by Cython. We therefore need to call "new cAtmosphereModel()" in
+        # __init__ instead of __cinit__.
+        self._thisptr = new cAtmosphereModel()
+
+    def __dealloc__(Atmosphere self):
+        # Only call del if the C++ object is alive,
+        # or we will get a segfault.
+        if self._thisptr != NULL:
+            del self._thisptr
+
+    cdef int _check_alive(Atmosphere self) except -1:
+        # Because of the context manager protocol, the C++ object
+        # might die before PyAtmosphere self is reclaimed.
+        # We therefore need a small utility to check for the
+        # availability of self._thisptr
+        if self._thisptr == NULL:
+            raise RuntimeError("Wrapped C++ object is deleted")
+        else:
+            return 0
+
+    def load_config(Atmosphere self, str filename):
+        self._check_alive()
+        self._thisptr.LoadConfig(filename)
+        return None
+
+    def run(Atmosphere self):
+        self._check_alive()
+        self._thisptr.Run()
+        return None
+
+    def run_time_slice(Atmosphere self, int t):
+        self._check_alive()
+        self._thisptr.RunTimeSlice(t)
+        return None
+
+    def get_layer_heights(Atmosphere self):
+        self._check_alive()
+        return self._thisptr.get_layer_heights()
+
+{{ atmosphere_params }}
+
+    # The context manager protocol allows us to precisely
+    # control the liftetime of the wrapped C++ object. del
+    # is called deterministically and independently of
+    # the Python garbage collection.
+
+    def __enter__(Atmosphere self):
+        self._check_alive()
+        return self
+
+    def __exit__(Atmosphere self, exc_tp, exc_val, exc_tb):
+        if self._thisptr != NULL:
+            del self._thisptr
+            self._thisptr = NULL # inform __dealloc__
+        return False # propagate exceptions
+
+
+
+
+cdef public void PythonPrint(const char *s):
+    print s,
+    sys.stdout.flush()
