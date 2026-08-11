@@ -22,9 +22,9 @@ python/pyathad.h
 # parent repo — a param.py change then shows its full effect in the diff.
 
 # Simulation output data
-output-Hadean*/
-python/output-Hadean*/
-cli/output-Hadean*/
+output_Hadean*/
+python/output_Hadean*/
+cli/output_Hadean*/
 atm_log.txt
 atom_log.txt
 

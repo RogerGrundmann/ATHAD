@@ -45,11 +45,13 @@ make all          # CLI + Python extension
 ## Run
 
 ```bash
-cd cli && OMP_NUM_THREADS=1 ./had config_athad.xml
+cd python && OMP_NUM_THREADS=8 ../cli/had config_athad.xml
 ```
 
-Output lands in the directory named by `<output_path>` (default `output-Hadean/`)
-as ParaView `.vtk` slices and `.vts` panoramas.
+Output lands in `python/output_Hadean/` as ParaView `.vtk` slices and `.vts`
+panoramas — the ATOM line's convention (`output_<name>/`, relative to the run
+directory). Run from `cli/` instead and it writes `cli/output_Hadean/`; the
+`<output_path>` entry in the config controls it either way.
 
 ## Configuration
 

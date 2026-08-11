@@ -11,7 +11,12 @@ def main():
 
     PARAMS = {                                                          # dictionary{} (PARAMS) with keys ('common', etc.):[ and their tuples ('output_path', etc.)]
         'common': [
-            ('output_path', 'directory where model outputs should be placed(must end in /)', 'string', 'output-Hadean/'),
+            # Relative to the directory the run is launched from. The ATOM line's convention
+            # is to run from python/ and write to python/output_<name>/ — ATOM itself uses
+            # output_ATOM/ — so a default of output_Hadean/ lands in python/output_Hadean.
+            # (The giant-planet siblings hyphenate, output-Uranus/, but ATHAD is from the
+            # ATOM line and follows it.)
+            ('output_path', 'directory where model outputs should be placed(must end in /)', 'string', 'output_Hadean/'),
 
 
 

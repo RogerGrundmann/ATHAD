@@ -5,7 +5,7 @@
 void cAtmosphereModel::SetDefaultConfig() {
 
   // common section
-  output_path = "output-Hadean/";
+  output_path = "output_Hadean/";
   config_xml_path = "../python";
   verbose = false;
   paraview_panorama_vts_flag = true;
