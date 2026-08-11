@@ -27,6 +27,7 @@
 #include "tinyxml2.h"
 #include "Utils.h"
 #include "Config.h"
+#include "MixtureAtm.h"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -71,6 +72,17 @@ public:
 
     double re_turb;    // set by TurbulenceAtm::init() as vel_star * z_0 / nue_air
 
+    // Composition of the Hadean mixture, resolved once from the configured mole
+    // fractions at the end of LoadConfig. Carries the mass fractions, the mean molar
+    // mass and the background gas constant that R_of/cp_of need.
+    AtmMixture::Composition m_comp;
+    void initComposition();
+
+    // COSMO barometric lapse parameter, derived in initComposition() as
+    // cosmo_lapse_fraction * R_mix * t_surf_equator / cp_l. Earth's hard-coded 42 K is
+    // meaningless at ATHAD's R and T — see param.py, cosmo_lapse_fraction.
+    double m_beta_cosmo = 42.0;
+
     cAtmosphereModel();
     ~cAtmosphereModel();
 
@@ -90,7 +102,9 @@ public:
 
     const int c43 = 4.0/3.0, c13 = 1.0/3.0;
 
-    static const int im = 41, jm = 181, km = 361;
+    // ATHAD: 61 radial levels over a ~300 km shell. See param.py (L_atm, zeta) for the
+    // sizing and lib/Array.cpp MAXI for the matching assertion bound.
+    static const int im = 61, jm = 181, km = 361;
 
     double residuum_old = 1.0e-5;
 
@@ -259,8 +273,9 @@ private:
     bool use_k_omega_SST_turbulence_model  = false;
     bool use_stretched_coordinate_system   = false;
 
-    // Turbulence model parameters
-    double zeta     = 3.715;  // coordinate-stretching factor
+    // NOTE: zeta (the radial coordinate-stretching factor) is a CONFIG PARAMETER in
+    // ATHAD, declared via AtmosphereParams.h.inc — it had to become tunable to resize the
+    // shell, so the hard-coded 3.715 that lived here is gone.
 
     // SST blending: inner (zone 1, near wall) and outer (zone 2, free stream)
     static double blend(double inner, double outer, double F1) {

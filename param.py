@@ -88,7 +88,10 @@ def main():
 #            ('CategoryIceScheme', 'number chooses Zero(0)-Category Ice Scheme with rain (Warm Rain Scheme)', 'int', 0),
 #            ('CategoryIceScheme', 'number chooses no scheme(-1) no precipitation', 'int', -1),
 
-            ('p_0', 'pressure at sea level in hPa', 'double', 1013.25),
+            # ATHAD: 250 bar = 250000 hPa. NOTE the surface pressure is not actually taken
+            # from p_0 — InitValues/ThermoAtm build it as 1e-2*(r_air*R_Air*T), i.e. from the
+            # reference density — so r_air below must be consistent with this value.
+            ('p_0', 'pressure at sea level in hPa', 'double', 250000.0),
             ('t_0', 'temperature in K compare to 0°C', 'double', 273.15),
 
             # ATHAD: the Hadean surface temperature is PRESCRIBED, not read from a
@@ -97,7 +100,27 @@ def main():
             # equator-pole contrast is small; 50 K is an assumption, not a result.
             ('t_surf_equator', 'ATHAD: prescribed Hadean surface temperature at the equator in K', 'double', 1500.0),
             ('t_surf_pole', 'ATHAD: prescribed Hadean surface temperature at the poles in K', 'double', 1450.0),
-            ('r_air', 'density of dry air in kg/m³ at 20°C', 'double', 1.2041),
+
+            # ATHAD: the COSMO barometric profile T(h) = T0*sqrt(1 - 2*beta*g*h/(R*T0^2)) has a
+            # near-surface lapse rate beta*g/(R*T0). The inherited beta = 42 K is an EARTH
+            # constant: it gives 4.99 K/km at R=286.9, T0=288 — about 0.511 of the dry adiabat
+            # (beta_adiabatic = R*T0/cp = 82.2), i.e. tuned to the observed moist lapse.
+            #
+            # Carried over unchanged to ATHAD it would give 0.71 K/km — an essentially
+            # ISOTHERMAL 300 km column, because beta*g/(R*T0) falls with both the larger R and
+            # the far larger T0. So beta is derived rather than fixed:
+            #
+            #     beta = cosmo_lapse_fraction * R_mix * T_surf / cp
+            #
+            # which reproduces Earth's beta at Earth's numbers and gives ~146 K and 2.46 K/km
+            # here. A steam atmosphere releasing this much latent heat should indeed sit well
+            # below its dry adiabat (4.81 K/km), so a sub-adiabatic fraction is right — but the
+            # VALUE 0.511 is inherited Earth tuning, not a Hadean result.
+            ('cosmo_lapse_fraction', 'ATHAD: near-surface lapse rate as a fraction of the dry adiabat; sets the COSMO beta', 'double', 0.5108),
+            # ATHAD reference density of the MIXTURE at the surface, not of dry air:
+            # rho = p/(R_mix*T) = 25e6 Pa / (387.9 * 1500 K) = 42.97 kg/m³ (Earth: 1.2041).
+            # This is what sets the surface pressure, via p = 1e-2*(r_air*R_Air*T).
+            ('r_air', 'ATHAD: reference density of the atmospheric mixture at the surface in kg/m³', 'double', 42.97),
             ('r_0_water', 'reference density of fresh water in kg/m3', 'double', 997.0),
             ('t_equat_modern', 'mean temperature of the modern earth in °C', 'double', 15.4),
             ('t_pole_modern', 'pole temperature of the modern earth in °C', 'double', - 15.4),
@@ -142,8 +165,12 @@ def main():
             # spacing, the explicit diffusion CFL limit at the surface tightens to
             # dt ~ dr^2/(2D) ~ 1e-4. dt_visc=5e-4 was ~5x over it and blew up the
             # near-surface cells at iter 174. 1e-4 is CFL-safe (validated: passes 174).
-            ('dt_visc', 'non-dimensional time step used in the viscous (production) phase', 'double', 0.0001),
-            ('dt_inviscid', 'non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)', 'double', 0.00002),
+            # ATHAD: im 41 -> 61 shrinks the radial step dr from 1/40 to 1/60, and the
+            # explicit diffusion CFL limit goes as dr^2 — a factor (40/60)^2 = 0.44. The
+            # inherited 1e-4 was validated at im=41 and would be ~2.2x over the limit here,
+            # so it is scaled to 4e-5. Verify against a long run before trusting it.
+            ('dt_visc', 'non-dimensional time step used in the viscous (production) phase', 'double', 0.00004),
+            ('dt_inviscid', 'non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)', 'double', 0.000008),
 #            ('dt_inviscid', 'non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)', 'double', 0.0005),
 #            ('dt_inviscid', 'non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)', 'double', 0.0003),
         ],
@@ -175,10 +202,39 @@ def main():
             ('Ma_max', 'parabolic temperature distribution 300 Ma(from Ruddiman)', 'int', 300),
             ('Ma_max_half', 'half of time scale', 'int', 150),
 
-            ('L_atm', 'extension of the atmosphere shell in m, total height is 16000m*40 steps', 'double', 400.0),
+            # ==================================================================
+            # ATHAD vertical grid.
+            #
+            # L_atm is the AMPLITUDE of the exponential stretch, NOT the shell thickness
+            # and NOT a layer spacing. The shell is (exp(zeta) - 1) * L_atm:
+            #     Earth: (exp(3.715) - 1) *   400.0 =  16.0 km
+            #     ATHAD: (exp(3.000) - 1) * 15718.7 = 300.0 km
+            #
+            # 300 km is set by where the column reaches the radiating level. With R_mix =
+            # 387.9 and T_surf = 1500 K the scale height is 59 km at the surface, and the
+            # COSMO profile terminates (T -> 0) at 305 km. Measured top pressures:
+            #     150 km -> 13.07 bar     250 km -> 0.679 bar
+            #     200 km ->  3.58 bar     300 km -> 0.033 bar   <- below the 0.1 bar target
+            #
+            # zeta was reduced 3.715 -> 3.0 and im raised 41 -> 61 for resolution ALOFT.
+            # The stretch concentrates levels near the surface, where the scale height is
+            # largest, and coarsens them aloft where it is smallest — backwards for
+            # pressure resolution. Top-cell thickness in local scale heights:
+            #     im=41, zeta=3.715 -> 2.92 H   (a cell spanning ~3 scale heights)
+            #     im=61, zeta=3.0   -> 1.65 H   <- chosen
+            #     im=81, zeta=2.5   -> 1.08 H   (better, at 2x the im=41 cost)
+            # Surface spacing at the chosen setting is 806 m (Earth: 39 m), which is fine
+            # against a 59 km scale height.
+            ('L_atm', 'ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 300 km', 'double', 15718.7),
+            ('zeta', 'ATHAD: radial coordinate-stretching factor (was a hard-coded 3.715)', 'double', 3.0),
 
-            ('tropopause_pole', 'extension of the troposphere at the poles in m', 'double', 8000.0),
-            ('tropopause_equator', 'extension of the troposphere at the equator in m', 'double', 15000.0),
+            # ATHAD: the radiative-convective boundary of a runaway steam atmosphere sits
+            # far higher than Earth's. At 250 km the column is still at 0.68 bar and at
+            # 290 km at 0.086 bar, so nearly the whole shell convects. ASSUMPTION — these
+            # should be derived from the lapse rate once the radiation is right (Phase 5),
+            # not prescribed.
+            ('tropopause_pole', 'ATHAD: extension of the troposphere at the poles in m', 'double', 250000.0),
+            ('tropopause_equator', 'ATHAD: extension of the troposphere at the equator in m', 'double', 280000.0),
 
 
             ('albedo_pole', 'albedo around the poles', 'double', 0.294),
@@ -193,38 +249,78 @@ def main():
             ('sc_CO2', 'Schmidt number of CO2', 'double', 0.96),
             ('pr', 'Prandtl number of air for laminar flows', 'double', 0.7179),
             ('pr_turb', 'turbulent Prandtl number for temperature transport in turbulent flows', 'double', 0.9),
-            ('abl_height', 'physical depth of the atmospheric boundary layer in m, sets the top of the surface-driven turbulent TKE seeding profile (decoupled from the L_atm grid length scale)', 'double', 1500.0),
-            ('ep', 'ratio of the gas constants of dry air to water vapour [kg_air/kg_vapour]', 'double', 0.62198),
+            # ATHAD: the boundary layer scales with the scale height, which is 59 km here
+            # against Earth's 8.4 km — a ~7x ratio applied to Earth's 1500 m. At the chosen
+            # grid this puts ~12 cells inside the ABL. ASSUMPTION.
+            ('abl_height', 'ATHAD: physical depth of the atmospheric boundary layer in m', 'double', 10000.0),
+            # ==================================================================
+            # ATHAD atmospheric composition — MOLE fractions of the Hadean mixture.
+            # The residual 7% beyond H2O/CO2/N2 is split evenly across five trace gases.
+            # These are the INPUT; MixtureAtm.h derives the mass fractions and the
+            # mixture gas constant from them and checks they sum to 1.
+            # ==================================================================
+            ('x_H2O', 'ATHAD: mole fraction of H2O', 'double', 0.800),
+            ('x_CO2', 'ATHAD: mole fraction of CO2', 'double', 0.100),
+            ('x_N2',  'ATHAD: mole fraction of N2',  'double', 0.030),
+            ('x_CH4', 'ATHAD: mole fraction of CH4', 'double', 0.014),
+            ('x_NH3', 'ATHAD: mole fraction of NH3', 'double', 0.014),
+            ('x_H2',  'ATHAD: mole fraction of H2',  'double', 0.014),
+            ('x_CO',  'ATHAD: mole fraction of CO',  'double', 0.014),
+            ('x_SO2', 'ATHAD: mole fraction of SO2', 'double', 0.014),
+
+            # ep = R_background / R_H2O = 317.3/461.5. NOTE: the dilute approximation this
+            # constant serves, q_sat = ep*E/(p-(1-ep)*E), is INVALID here because H2O is the
+            # bulk gas, not a trace. Phase 4 replaces it with the exact mass-fraction form;
+            # ep remains only where a genuine gas-constant ratio is wanted.
+            ('ep', 'ATHAD: ratio of the background-mixture to water-vapour gas constants', 'double', 0.6875),
             ('hp', 'water vapour pressure at T = 0°C: E = 6.1 hPa', 'double', 6.1078),
-            ('R_Air', 'specific gas constant of air in J/(kg*K)', 'double', 286.9),
-            ('R_WaterVapour', 'specific gas constant of water vapour in J/(kg*K)', 'double', 461.4),
+
+            # ATHAD: "Air" now means the NON-CONDENSABLE BACKGROUND (everything but H2O and
+            # CO2): x_bg = 0.100, M_bg = 26.207 g/mol -> R_bg = 317.3 J/(kg K). It is not air.
+            ('R_Air', 'ATHAD: specific gas constant of the non-condensable background in J/(kg*K)', 'double', 317.3),
+            ('R_WaterVapour', 'specific gas constant of water vapour in J/(kg*K)', 'double', 461.5),
             ('r_water_vapour', 'density of saturated water vapour in kg/m³ at 10°C', 'double', 0.0094),
-            ('R_co2', 'specific gas constant of CO2 in J/(kg*4.5K)', 'double', 188.91),
+            ('R_co2', 'specific gas constant of CO2 in J/(kg*K)', 'double', 188.9),
             ('lv', 'specific latent evaporation heat(condensation heat) in J/kg', 'double', 2.52e6),
             ('ls', 'specific latent vaporisation heat(sublimation heat) in J/kg', 'double', 2.83e6),
-            ('cp_l', 'specific heat capacity of dry air at constant pressure and 20°C in J/(kg K)', 'double', 1005.0),
-            ('cv_l', 'specific heat capacity of dry air at constant volume and 20°C in J/(kg K)', 'double', 717.0),
+
+            # ATHAD: cp of the MIXTURE at Hadean temperatures, ~2x Earth's 1005. Mass-weighted
+            # from H2O ~2400, CO2 ~1280, background ~1300 J/(kg K) at 1000-1500 K. This constant
+            # is the fallback; MixtureAtm::cp_of() gives the local, temperature-dependent value.
+            # cv_l = cp_l - R_mix = 2040 - 387.9.
+            ('cp_l', 'ATHAD: specific heat capacity of the mixture at constant pressure in J/(kg K)', 'double', 2040.0),
+            ('cv_l', 'ATHAD: specific heat capacity of the mixture at constant volume in J/(kg K)', 'double', 1652.1),
             ('lamda', 'heat transfer coefficient of air in W/(m K)', 'double', 0.0262),
             ('r_co2', 'density of CO2 in kg/m³ at 25°C', 'double', 0.0019767),
             ('gam', 'constant slope of temperature    gam = 6.5 K/1000 m', 'double', 0.0065),
 
             ('u_0', 'annual mean of surface wind velocity in m/s, 8 m/s compare to 28.8 km/h', 'double', 8.0),
+            # ATHAD: an upper PHYSICAL bound on the prognostic temperature, replacing the
+            # hard-coded 333.15 K (60 °C) literal in SaturationAdjustment. That literal was
+            # justified as "well above any physical surface temperature" — true on Earth,
+            # but a factor of 4.5 BELOW ATHAD's 1500 K surface, and it was written back into
+            # the prognostic field, collapsing 250 bar to 30 bar in one iteration.
+            # 2000 K leaves headroom over the surface and stays inside the cp Shomate fits.
+            ('t_max_phys', 'ATHAD: upper physical bound on the prognostic temperature in K', 'double', 2000.0),
+
             ('t_00', 'temperature in K compare to -37°C', 'double', 236.15),
             ('t_000', 'temperature in K compare to -20°C', 'double', 253.15),
             ('s_0', 'entropy at 0°C, cp_l * t_0 in J/kg', 'double', 274515.75),
-            ('c_0', 'maximum value of water vapour in kg/kg', 'double', 0.035),
+            # ATHAD: the water-vapour scale is the Hadean mass fraction q_H2O = 0.6724, not
+            # Earth's 0.035 trace. c_0 is a normalisation in the RHS energy/moisture
+            # coefficients (RHS_Atm_Turb.cpp: coeff_energy, coeff_MC_q, coeff_L).
+            ('c_0', 'ATHAD: reference water vapour mass fraction in kg/kg', 'double', 0.6724),
 
-#            ('co2_0', 'maximum value of CO2 in ppm at preindustrial times', 'double', 280.0),
-            ('co2_0', 'maximum value of CO2 in ppm at preindustrial times', 'double', 380.0),
-            ('co2_paleo', 'value at modern times', 'double', 330.0),
-            ('co2_tropopause', 'minimum rate CO2 at tropopause 320.0 ppm', 'double', 385.0),
-            ('co2_vegetation', 'value compares to ppm of co2 consumed by the vegetation', 'double', 140.0),
-            ('co2_ocean', 'value compares to ppm of co2 consumed by the vegetation', 'double', 0.0),
-            ('co2_land', 'value compares to ppm of co2 consumed by the vegetation', 'double', 0.0),
+            # ATHAD: the CO2 field is a MASS FRACTION, not ppm. At 20.5% by mass, ppm is
+            # meaningless. The Hadean has no biosphere, no vegetation and no carbonate ocean
+            # sink, so CO2 is simply well mixed — the Earth surface-source/tropopause-sink
+            # parabola and the vegetation/ocean/land ppm budgets have no subject here.
+            ('co2_0', 'ATHAD: reference CO2 mass fraction in kg/kg', 'double', 0.2053),
             ('co2_scale', 'multiplier applied to the whole CO2 field for sensitivity experiments (1.0 = field as built; 2.0 = doubled CO2)', 'double', 1.0),
 
-            ('c_land', 'water vapour reduction on land(60% of the saturation value)', 'double', 66),
-            ('c_ocean', 'water vapour reduction on sea surface(64% of the saturation value)', 'double', 70),
+            # ATHAD: no land, so no land/ocean humidity split — a single surface relative
+            # humidity applies everywhere. Kept as one knob rather than two identical ones.
+            ('c_ocean', 'ATHAD: surface water vapour as a fraction of the saturation value, in %', 'double', 70),
 
             ('sst_coupling_alpha', 'outer-loop (Picard) hydrosphere->atmosphere SST coupling strength: blend fraction of the hydrosphere surface SST (read from <stem>_Transfer_Hyd_SST_<iter>.vwtp) into the atmospheric ocean surface temperature t.x[0] at init, t.x[0] <- (1-alpha)*t.x[0] + alpha*SST_hyd, before the t_eq snapshot so it propagates into the Held-Suarez target. 0.0 = OFF (no read; identical to the one-way chain and to round 0 of a Picard loop, which has no SST file yet). Ocean-only, finite-checked, SST-clamped to [-1.8,40] C, ocean-mean-anchored so total energy does not drift. Under-relax across rounds (e.g. 0.3-0.5)', 'double', 0.0),
             ('hyd_sst_iter', 'which hydrosphere SST snapshot to read for sst_coupling_alpha: reads <stem>_Transfer_Hyd_SST_<iter>.vwtp for this iteration; -1 = use the latest (highest-iter) snapshot present in the output dir', 'int', -1),

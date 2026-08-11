@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MixtureAtm.h"
 #include "cAtmosphereModel.h"
 #include "Utils.h"
 
@@ -149,6 +150,26 @@ public:
             for (int k = 0; k < m.km; k++) {
 
                 if (is_land(m.h, 0, j, k)) {
+                    m.Evaporation_Dalton.y[j][k] = 0.0;
+                    m.Evaporation_Meyer.y[j][k]  = 0.0;
+                    m.Evaporation_Rohwer.y[j][k] = 0.0;
+                    m.Evaporation.y[j][k]        = 0.0;
+                    continue;
+                }
+
+                // ATHAD: no evaporation from a supercritical surface.
+                //
+                // Dalton, Meyer and Rohwer all drive evaporation from the saturation
+                // DEFICIT (e_s - e_a) across a liquid-vapour interface. Above the critical
+                // point there is no interface and no e_s: the surface and the atmosphere
+                // are one fluid. Evaluated anyway at 1500 K, the Magnus e_s returns
+                // ~1.2e7 hPa against a 250 bar column, and the resulting c_eq drove the
+                // surface water mass fraction to 21 — twenty times the mass present.
+                //
+                // Guarding here rather than clamping downstream keeps the surface cell's
+                // mixture properties (R, cp, density) meaningful, which matters because
+                // the whole column is anchored on them.
+                if (m.t.x[0][j][k] * m.t_0 >= AtmMixture::T_CRIT_H2O) {
                     m.Evaporation_Dalton.y[j][k] = 0.0;
                     m.Evaporation_Meyer.y[j][k]  = 0.0;
                     m.Evaporation_Rohwer.y[j][k] = 0.0;
@@ -696,100 +717,153 @@ public:
     }
 
     // ------------------------------------------------------------------
+    // ATHAD: CO2 is a well-mixed MASS FRACTION, uniform in the vertical.
+    //
+    // The Earth version built a ppm profile — a surface value scaled by local
+    // temperature plus a paleo increment, decaying parabolically to a fixed tropopause
+    // concentration, with separate vegetation / ocean / land ppm budgets and an Earth
+    // regression in t_equat_modern for the "mean CO2 at modern times".
+    //
+    // None of that has a subject in the Hadean: there is no biosphere to draw CO2 down,
+    // no carbonate-silicate ocean sink to absorb it, and no land. CO2 is simply 10 % of
+    // the atmosphere by mole (20.5 % by mass) and stays where it is put. The vertical
+    // gradient the parabola imposed encoded Earth's surface sources and stratospheric
+    // depletion, so imposing it here would be inventing structure.
+    //
+    // Units: the field is now kg/kg, not ppm. At 20.5 % by mass ppm is meaningless, and
+    // every consumer (the mixture properties, the radiative optical depth) wants a
+    // fraction. co2_scale still multiplies the field for sensitivity experiments.
     void co2Atmosphere()
     {
         using namespace std;
         cout << endl << endl << endl << "      AGCM: co2_atmosphere" << endl;
 
-        // ATHAD is a single epoch, so there is no preceding slice to difference against
-        // and no paleo-temperature curve to difference with — the increment is zero by
-        // construction. NOTE: everything below is an Earth ppm regression in t_equat_modern
-        // and is meaningless for a 20 %-by-mass CO2 atmosphere; it is replaced when co2
-        // becomes a mass fraction.
-        const double t_paleo_add = 0.0;
-
-        m.co2_paleo = t_paleo_add * (3.2886 * t_paleo_add
-            + 6.5772 * m.t_equat_modern - 32.8859);
-
-        double co2_average = 3.2886 * m.t_equat_modern * m.t_equat_modern
-            - 32.8859 * m.t_equat_modern + 102.2148;
-
-        cout.precision(3);
-
-        const char* temperature_comment = "      temperature increase at paleo times: ";
-        const char* temperature_gain    = " t increase";
-        const char* temperature_unit    = "°C ";
-        const char* co_comment          = "      co2 increase at paleo times: ";
-        const char* co_gain             = " co2 increase";
-        const char* co_modern           = "      mean co2 at modern times: ";
-        const char* co_paleo_str        = "      mean co2 at paleo times: ";
-        const char* co_average_str      = " co2 modern";
-        const char* co_average_pal      = " co2 paleo";
-        const char* co_unit             = "ppm ";
-
-        cout << setiosflags(ios::left) << setw(55) << setfill('.')
-            << temperature_comment << resetiosflags(ios::left) << setw(13)
-            << temperature_gain << " = " << setw(7) << setfill(' ')
-            << t_paleo_add << setw(5) << temperature_unit << endl
-            << setiosflags(ios::left) << setw(55) << setfill('.')
-            << co_comment << resetiosflags(ios::left) << setw(12) << co_gain << " = "
-            << setw(7) << setfill(' ') << m.co2_paleo << setw(5) << co_unit
-            << endl << setw(55) << setfill('.') << setiosflags(ios::left) << co_modern
-            << resetiosflags(ios::left) << setw(13) << co_average_str << " = "
-            << setw(7) << setfill(' ') << co2_average << setw(5) << co_unit
-            << endl << setw(55) << setfill('.') << setiosflags(ios::left)
-            << co_paleo_str << resetiosflags(ios::left) << setw(13) << co_average_pal
-            << " = " << setw(7) << setfill(' ') << co2_average + m.co2_paleo
-            << setw(5) << co_unit << endl;
-
-        double co2_max   = 397.0;
-        double inv_h_top = 1.0 / m.get_layer_height(m.im - 1);
+        const double co2_ref = m.co2_0 * m.co2_scale;                   // [kg/kg]
 
         #pragma omp parallel for collapse(2) schedule(static)
-        for (int j = 0; j < m.jm; j++) {
-            for (int k = 0; k < m.km; k++) {
-                double co2_surf      = m.t.x[0][j][k] * co2_max + m.co2_paleo;
-                m.co2.x[0][j][k]    = co2_surf;
+        for (int j = 0; j < m.jm; j++)
+            for (int k = 0; k < m.km; k++)
+                for (int i = 0; i < m.im; i++)
+                    m.co2.x[i][j][k] = co2_ref;
 
-                int    i_mount       = m.i_topography[j][k];
-                double co2_at_mount  = 0.0;
-
-                if (i_mount > 0) {
-                    double x_mount  = m.get_layer_height(i_mount) * inv_h_top;
-                    co2_at_mount    = parabola_interp(m.co2_tropopause, co2_surf, x_mount);
-                }
-
-                for (int i = 1; i < m.im; i++) {
-                    if (i <= i_mount && is_land(m.h, i, j, k)) {
-                        m.co2.x[i][j][k] = co2_at_mount;
-                    } else {
-                        double x = m.get_layer_height(i) * inv_h_top;
-                        m.co2.x[i][j][k] = parabola_interp(m.co2_tropopause, co2_surf, x);
-                    }
-                }
-
-                if (i_mount > 0 && is_land(m.h, 0, j, k))
-                    m.co2.x[0][j][k] = co2_at_mount;
-            }
-        }
-
-        // CO2 sensitivity multiplier: scale the whole (ppm) field uniformly. co2_scale=1 leaves
-        // the field as built; co2_scale=2 is a clean CO2 doubling (modern base + paleo increment),
-        // so the mode-3 radiation sees 2x the ppm and the perturbation MLR(2x field) - MLR(280 ppm)
-        // carries the doubling forcing. Leaves the paleo-CO2 construction (co2_max, co2_paleo)
-        // untouched — this is a dedicated experiment knob (default 1.0).
-        if (m.co2_scale != 1.0) {
-            #pragma omp parallel for collapse(2) schedule(static)
-            for (int j = 0; j < m.jm; j++)
-                for (int k = 0; k < m.km; k++)
-                    for (int i = 0; i < m.im; i++)
-                        m.co2.x[i][j][k] *= m.co2_scale;
-        }
-        cout << "      AGCM: co2_atmosphere  co2_scale = " << m.co2_scale << endl;
+        cout.precision(6);
+        cout << "      AGCM: co2 well mixed at " << co2_ref
+             << " kg/kg (co2_0 = " << m.co2_0
+             << ", co2_scale = " << m.co2_scale << ")" << endl;
         cout << "      AGCM: co2_atmosphere ended" << endl;
     }
 
     // ------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Column profile diagnostic, ported from ATURAN 73406af.
+    //
+    // Prints height, temperature, pressure and density down one meridian column. This is
+    // the single most useful check that a re-based atmosphere is hydrostatically sane —
+    // it is what caught ATNEPT's pressure defect (ffee191). The top row answers the
+    // question the domain sizing turns on: does the shell actually reach the radiating
+    // level (~0.1 bar)?
+    void printColumnProfile(int j_lat, const char* label)
+    {
+        using namespace std;
+        const int k = 0;
+        if (j_lat < 0 || j_lat >= m.jm) return;
+
+        cout << endl << "      Column profile — " << label
+             << "  (j = " << j_lat << ", k = " << k << ")" << endl;
+        cout << "        "
+             << setw(4)  << "i"      << setw(12) << "height[km]"
+             << setw(11) << "T[K]"   << setw(14) << "p[bar]"
+             << setw(12) << "rho[kg/m3]" << setw(11) << "R[J/kgK]"
+             << setw(10) << "q_H2O" << endl;
+
+        cout.precision(4);
+        for (int i = 0; i < m.im; i++) {
+            const double T   = m.t.x[i][j_lat][k] * m.t_0;
+            const double p   = m.p_stat.x[i][j_lat][k];
+            const double rho = m.r_humid.x[i][j_lat][k];
+            const double R   = AtmMixture::R_of(m.c.x[i][j_lat][k],
+                                                m.co2.x[i][j_lat][k], m.m_comp.R_bg);
+            cout << "        " << setw(4) << i
+                 << setw(12) << fixed << m.get_layer_height(i) * 1.0e-3
+                 << setw(11) << setprecision(1) << T
+                 << setw(14) << setprecision(5) << p * 1.0e-3
+                 << setw(12) << setprecision(4) << rho
+                 << setw(11) << setprecision(1) << R
+                 << setw(10) << setprecision(4) << m.c.x[i][j_lat][k] << endl;
+        }
+
+        // The two facts the sizing depends on, stated rather than left to be read off.
+        const double p_top = m.p_stat.x[m.im-1][j_lat][k] * 1.0e-3;
+        cout << "        top of domain: " << setprecision(5) << p_top << " bar"
+             << (p_top <= 0.1 ? "  (reaches the radiating level)"
+                              : "  <-- ABOVE 0.1 bar: shell too shallow") << endl;
+        if (p_top <= 0.0)
+            cout << "        ERROR: non-positive pressure at the domain top" << endl;
+        cout << endl;
+    }
+
+    // ------------------------------------------------------------------------
+    // Per-level global summary: min / mean / max of temperature and pressure on every
+    // radial level, plus an explicit non-positive-pressure count with its location.
+    //
+    // The column profile shows one meridian; this shows whether ANY column is
+    // misbehaving, which is what a single profile cannot tell you.
+    void printLevelSummary(const char* label)
+    {
+        using namespace std;
+        cout << endl << "      Level summary — " << label << endl;
+        cout << "        " << setw(4) << "i" << setw(11) << "height[km]"
+             << setw(10) << "T_min" << setw(10) << "T_mean" << setw(10) << "T_max"
+             << setw(13) << "p_min[bar]" << setw(13) << "p_mean[bar]"
+             << setw(13) << "p_max[bar]" << setw(8) << "p<=0" << endl;
+
+        int    bad_total = 0;
+        int    bad_i = -1, bad_j = -1, bad_k = -1;
+        double bad_p = 0.0;
+
+        cout.precision(2);
+        for (int i = 0; i < m.im; i++) {
+            double t_min = 1e30, t_max = -1e30, t_sum = 0.0;
+            double p_min = 1e30, p_max = -1e30, p_sum = 0.0;
+            int    bad = 0;
+
+            for (int j = 0; j < m.jm; j++) {
+                for (int k = 0; k < m.km; k++) {
+                    const double T = m.t.x[i][j][k] * m.t_0;
+                    const double P = m.p_stat.x[i][j][k];
+                    t_min = min(t_min, T); t_max = max(t_max, T); t_sum += T;
+                    p_min = min(p_min, P); p_max = max(p_max, P); p_sum += P;
+                    if (P <= 0.0) {
+                        bad++;
+                        if (P < bad_p) { bad_p = P; bad_i = i; bad_j = j; bad_k = k; }
+                    }
+                }
+            }
+            const double n = (double)(m.jm * m.km);
+            bad_total += bad;
+
+            cout << "        " << setw(4) << i
+                 << setw(11) << fixed << setprecision(2) << m.get_layer_height(i) * 1.0e-3
+                 << setw(10) << setprecision(1) << t_min
+                 << setw(10) << t_sum / n
+                 << setw(10) << t_max
+                 << setw(13) << setprecision(5) << p_min * 1.0e-3
+                 << setw(13) << p_sum / n * 1.0e-3
+                 << setw(13) << p_max * 1.0e-3
+                 << setw(8)  << bad << endl;
+        }
+
+        if (bad_total > 0) {
+            cout << "        WARNING: " << bad_total
+                 << " cells with non-positive static pressure; worst " << bad_p
+                 << " hPa at (i=" << bad_i << ", j=" << bad_j << ", k=" << bad_k << ")" << endl;
+        } else {
+            cout << "        static pressure positive everywhere" << endl;
+        }
+        cout << endl;
+    }
+
+    // ------------------------------------------------------------------------
     void densities()
     {
         using namespace std;
@@ -797,13 +871,25 @@ public:
 
         auto begin = std::chrono::high_resolution_clock::now();
 
-        const double R_W_R_A_m1       = m.R_WaterVapour / m.R_Air - 1.0;
-        const double inv_R_Air        = 1.0 / m.R_Air;
-        const double scale            = 1e2 * inv_R_Air;
-        const double p_sl_factor      = 1e-2 * m.r_air * m.R_Air;
-        const double beta             = 42.0;                           // K, COSMO
+        // ATHAD: the gas constant is LOCAL, not a constant.
+        //
+        // The Earth version used R_Air everywhere because water vapour was a ~1 % trace on a
+        // fixed N2/O2 carrier, so R varied by well under a percent. Here H2O is 67 % of the
+        // mass, so R of a parcel is set by its own composition and moves as the water field
+        // does: pure background is 317 J/(kg K), pure steam 462, the reference mixture 388.
+        //
+        // Two distinct gas constants appear below and must not be confused:
+        //   R_mix  — the COLUMN reference, which sets the surface pressure and scale height.
+        //            p_sl uses it because r_air was calibrated as p/(R_mix*T); using R_Air
+        //            here instead yields 204 bar rather than the intended 250.
+        //   R_of() — the LOCAL value at each cell, used for the densities.
+        const double R_mix            = m.m_comp.R_mix;
+        const double p_sl_factor      = 1e-2 * m.r_air * R_mix;
+        const double beta             = m.m_beta_cosmo;                 // K, COSMO — derived, see initComposition()
         const double inv_beta         = 1.0 / beta;
-        const double two_beta_g_inv_R = 2.0 * beta * m.g * inv_R_Air;
+        const double two_beta_g_inv_R = 2.0 * beta * m.g / R_mix;
+        const double M_bg             = m.m_comp.M_bg;
+        const double R_bg             = m.m_comp.R_bg;
 
         std::vector<double> height_table(m.im);
         for (int i = 0; i < m.im; i++)
@@ -822,6 +908,10 @@ public:
                 const double t_0_inv_beta = t_u_0 * inv_beta;
                 const double coeff        = two_beta_g_inv_R / (t_u_0 * t_u_0);
 
+                // Level at which the COSMO temperature falls to the floor t_00, and the
+                // pressure there — the anchor for the isothermal continuation above it.
+                double h_iso = -1.0, p_iso = 0.0;
+
                 for (int i = 0; i < m.im; i++) {
                     const double h_i = height_table[i];
                     const double t_u = m.t.x[i][j][k] * m.t_0;
@@ -830,14 +920,52 @@ public:
                     // sqrt(NaN) → p_i/r_humid NaN → whole-field blow-up. The init-time copy of
                     // this formula (InitValues_Atm.cpp:644) already clamps with max(0,…); this
                     // in-loop version had dropped it. See [[project_upper_velocity_secular_growth]].
-                    const double p_i = p_sl * exp(-t_0_inv_beta
-                        * (1.0 - sqrt(std::max(0.0, 1.0 - coeff * h_i))));  // COSMO barometric formula
+                    const double s_i     = sqrt(std::max(0.0, 1.0 - coeff * h_i));
+                    const double t_cosmo = t_u_0 * s_i;                     // [K] profile value
 
-                    m.p_stat.x[i][j][k]  = p_i;
-                    m.r_dry.x[i][j][k]   = scale * p_i / t_u;
-                    m.r_humid.x[i][j][k] = scale * p_i
-                        / ((1.0 + R_W_R_A_m1 * m.c.x[i][j][k]
-                            - m.cloud.x[i][j][k] - m.ice.x[i][j][k]) * t_u);
+                    // ATHAD: isothermal continuation above the level where T hits the floor.
+                    //
+                    // The COSMO profile T(h) = T0*sqrt(1 - coeff*h) reaches ZERO at h = 1/coeff
+                    // — 305 km at the 1500 K equator, but only 285 km at the 1450 K pole, since
+                    // coeff goes as 1/T0^2. Over Earth's 16 km shell that singularity was far
+                    // outside the domain; over 300 km it is inside it.
+                    //
+                    // The temperature was already floored at t_00, but the PRESSURE kept using
+                    // the raw profile, so it went on falling at a rate its own temperature no
+                    // longer justified and crossed zero near the pole (measured: -8.9 hPa at
+                    // the domain top). Above the floor the column is isothermal, so continue
+                    // hydrostatically at t_00 instead: p = p_iso * exp(-g*(h - h_iso)/(R*t_00)).
+                    double p_i;
+                    if (t_cosmo > m.t_00) {
+                        p_i = p_sl * exp(-t_0_inv_beta * (1.0 - s_i));      // COSMO barometric formula
+                        h_iso = h_i;
+                        p_iso = p_i;
+                    } else {
+                        if (h_iso < 0.0) { h_iso = 0.0; p_iso = p_sl; }     // floor reached at the ground
+                        p_i = p_iso * exp(-m.g * (h_i - h_iso) / (R_mix * m.t_00));
+                    }
+
+                    m.p_stat.x[i][j][k] = p_i;
+
+                    // Local mixture gas constant from this cell's own composition.
+                    const double R_loc = AtmMixture::R_of(m.c.x[i][j][k],
+                                                          m.co2.x[i][j][k], R_bg);
+
+                    // r_humid: the true density of the parcel, p/(R_loc*T), reduced by the
+                    // condensate loading. The Earth form reached the same place by a virtual
+                    // temperature correction (1 + (R_v/R_a - 1)*c) applied to a FIXED R_Air —
+                    // a first-order expansion in c that is only valid while c is small. At
+                    // c = 0.67 it is not, so the local R is used directly instead.
+                    const double water_factor = std::max(0.5, 1.0
+                                        - m.cloud.x[i][j][k] - m.ice.x[i][j][k]);
+                    m.r_humid.x[i][j][k] = 1e2 * p_i / (R_loc * t_u * water_factor);
+
+                    // r_dry: the density the same parcel would have with the water removed
+                    // (background + CO2 only). It is a diagnostic — the momentum equations
+                    // and the buoyancy use r_humid — but keeping its name honest matters.
+                    const double R_dry_loc = AtmMixture::R_of(0.0,
+                                                              m.co2.x[i][j][k], R_bg);
+                    m.r_dry.x[i][j][k]   = 1e2 * p_i / (R_dry_loc * t_u);
                 }
 
                 const int    i_m = m.i_topography[j][k];

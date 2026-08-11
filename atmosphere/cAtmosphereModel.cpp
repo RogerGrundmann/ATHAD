@@ -46,7 +46,15 @@ const double cAtmosphereModel::pi180 = 180.0/M_PI;                      // pi180
 const double cAtmosphereModel::the_degree = 1.0;                        // compares to 1° step size laterally
 const double cAtmosphereModel::phi_degree = 1.0;                        // compares to 1° step size longitudinally
 
-const double cAtmosphereModel::dr = 0.025;                              // 0.025 x 40 = 1.0 compares to 16 km : 40 == 400 m for 1 radial step
+// The radial step must span exactly 1.0 over the im levels, so that rad.z runs 1.0 .. 2.0
+// and metricShellLength() reads one rad.z unit as the shell thickness.
+//
+// This was a hard-coded 0.025, silently tied to im = 41 (0.025 x 40 = 1.0). The two
+// constants were independent and consistent only by coincidence: raising im to 61 left
+// dr at 0.025, so rad.z ran 1.0 .. 2.5, one rad.z unit was read as 932 km instead of
+// 300 km, and the domain top landed at 1399 km with the whole column clamped to t_00.
+// Deriving it from im removes the coupling.
+const double cAtmosphereModel::dr = 1.0/(double)(cAtmosphereModel::im - 1);
 
 const double cAtmosphereModel::dthe = the_degree/pi180; 
 const double cAtmosphereModel::dphi = phi_degree/pi180;
@@ -114,6 +122,77 @@ void cAtmosphereModel::LoadConfig(const char *filename){
         return;
     }
 #include "AtmosphereLoadConfig.cpp.inc"
+
+    initComposition();
+}
+/*
+*
+*/
+// Resolve the configured mole fractions into the mass fractions, molar masses and gas
+// constants the physics actually uses, and report them. Called once, at the end of
+// LoadConfig, so every later consumer sees a populated m_comp.
+void cAtmosphereModel::initComposition(){
+
+    m_comp = AtmMixture::resolve(x_H2O, x_CO2, x_N2, x_CH4,
+                                 x_NH3, x_H2,  x_CO, x_SO2);
+
+    cout << endl << endl << "      AGCM: atmospheric composition (ATHAD)" << endl << endl;
+    cout.precision(6);
+    cout << "        species    mole frac.    mass frac." << endl;
+    auto line = [&](const char* n, double x, double q){
+        cout << "        " << setw(8) << left << n << resetiosflags(ios::left)
+             << setw(12) << fixed << x << setw(14) << q << endl;
+    };
+    line("H2O", x_H2O, m_comp.q_H2O);
+    line("CO2", x_CO2, m_comp.q_CO2);
+    line("bkgnd", 1.0 - x_H2O - x_CO2, m_comp.q_bg);
+    cout << endl;
+    cout << "        mean molar mass ......... M_mean = " << m_comp.M_mean * 1.0e3 << " g/mol" << endl;
+    cout << "        mixture gas constant .... R_mix  = " << m_comp.R_mix  << " J/(kg K)" << endl;
+    cout << "        background molar mass ... M_bg   = " << m_comp.M_bg * 1.0e3 << " g/mol" << endl;
+    cout << "        background gas constant . R_bg   = " << m_comp.R_bg   << " J/(kg K)" << endl;
+
+    // The mole fractions are a hand-entered table; a typo that makes them sum to
+    // something other than 1 would silently rescale every derived property.
+    if(!m_comp.valid){
+        cout << endl << "      ERROR: mole fractions sum to " << m_comp.x_sum
+             << ", not 1. Fix x_* in param.py." << endl;
+        throw std::invalid_argument("   ATHAD: atmospheric mole fractions do not sum to 1");
+    }
+
+    // R_Air is the CONFIGURED background gas constant; m_comp.R_bg is the one implied by
+    // the mole fractions. They are independent inputs, so a composition edit that forgets
+    // R_Air would leave the two disagreeing and the barometric profile subtly wrong.
+    if(std::fabs(R_Air - m_comp.R_bg) > 1.0){
+        cout << endl << "      WARNING: R_Air = " << R_Air
+             << " J/(kg K) disagrees with the background gas constant implied by the mole "
+             << "fractions, R_bg = " << m_comp.R_bg << " J/(kg K)." << endl;
+    }
+
+    // The reference density must reproduce the intended surface pressure, since
+    // p_stat.x[0] is built as 1e-2*(r_air*R_mix*T) and NOT from p_0. R_mix, not R_Air:
+    // r_air was calibrated as p/(R_mix*T), so the background constant would give 204 bar.
+    const double p_surf_implied = 1.0e-2 * r_air * m_comp.R_mix * t_surf_equator;
+    cout << "        implied equatorial surface pressure = " << p_surf_implied * 1.0e-3
+         << " bar, p_0 = " << p_0 * 1.0e-3 << " bar" << endl;
+    if(std::fabs(p_surf_implied - p_0) > 0.01 * p_0){
+        cout << "      WARNING: r_air is inconsistent with p_0 by more than 1%. "
+             << "Set r_air = p_0*1e2/(R_mix*t_surf_equator) = "
+             << p_0 * 1.0e2 / (m_comp.R_mix * t_surf_equator) << " kg/m³." << endl;
+    }
+
+    // COSMO barometric lapse parameter. See param.py (cosmo_lapse_fraction) for why this
+    // is derived and not the inherited constant 42 K.
+    m_beta_cosmo = cosmo_lapse_fraction * m_comp.R_mix * t_surf_equator / cp_l;
+
+    const double lapse_K_per_km = m_beta_cosmo * g / (m_comp.R_mix * t_surf_equator) * 1.0e3;
+    const double adiabat_K_per_km = g / cp_l * 1.0e3;
+
+    cout << "        COSMO lapse parameter ... beta   = " << m_beta_cosmo << " K" << endl;
+    cout << "        near-surface lapse rate .......... = " << lapse_K_per_km
+         << " K/km   (dry adiabat " << adiabat_K_per_km << " K/km)" << endl;
+
+    cout << endl << "      AGCM: atmospheric composition ended" << endl << endl;
 }
 /*
 *
@@ -309,7 +388,8 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
 
     read_Atmosphere_Surface_Data(Ma);                                   // reading topography data and NASA measurements
 
-    LandOceanFraction();                                                // ratio of land to sea surface of the various time slices
+    LandOceanFraction();
+                                                // ratio of land to sea surface of the various time slices
 
     if(!use_NASA_velocity){
         VelocityInitializer(*this).compute();                           // construction of zonal initial velocities from measurements
@@ -399,13 +479,27 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     }
 
     UtilsAtm(*this) .precipitationSum();
+    // ATHAD: co2Atmosphere() must run BEFORE densities(). The CO2 field is now a
+    // mass fraction that enters the local mixture gas constant R_of(c, co2), so a
+    // density built before it is set uses R_of(c, 0) = 414.2 instead of 387.9 —
+    // a 7 % density error through the whole column. On Earth the ordering was
+    // harmless because co2 was in ppm and never touched the density.
+    ThermoAtm(*this).co2Atmosphere();                                   // well-mixed CO2 mass fraction
     ThermoAtm(*this).densities();
     ThermoAtm(*this).forces();
     ThermoAtm(*this).standAtm_DewPoint_HumidRel();                      // International Standard Atmosphere temperature profile, dew point temperature, relative humidity profile
     ThermoAtm(*this).waterVapourEvaporation();                          // correction of surface water vapour by evaporation
     ThermoAtm(*this).latentSensibleHeat();                              // latent and sensible heat
     ThermoAtm(*this).vegetationLand();                                  // vegetation on land
-    ThermoAtm(*this).co2Atmosphere();                                   // greenhouse gas co2 as function of temperature
+
+    {   // ATHAD: hydrostatic sanity of the initial state, equator and pole. Placed after
+        // co2Atmosphere() so every field the profile prints is populated.
+        ThermoAtm probe(*this);
+        probe.printColumnProfile((jm - 1) / 2, "equator");
+        probe.printColumnProfile(4,            "near north pole");
+        probe.printLevelSummary("initial state");
+    }
+
 //    UtilsAtm(*this) .valueLimitationAtm();                              // value limitation prevents local formation of NANs
 
     BC_Atm(*this).bcRadius();                                           // extrapolation in i-direction alomg grid boundaries
@@ -1081,13 +1175,18 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 }
             }  // moist_phys_active
 
+            // ATHAD: co2Atmosphere() must run BEFORE densities(). The CO2 field is now a
+            // mass fraction that enters the local mixture gas constant R_of(c, co2), so a
+            // density built before it is set uses R_of(c, 0) = 414.2 instead of 387.9 —
+            // a 7 % density error through the whole column. On Earth the ordering was
+            // harmless because co2 was in ppm and never touched the density.
+            ThermoAtm(*this).co2Atmosphere();                           // well-mixed CO2 mass fraction
             ThermoAtm(*this).densities();
             ThermoAtm(*this).forces();
             ThermoAtm(*this).standAtm_DewPoint_HumidRel();              // International Standard Atmosphere temperature profile, dew point temperature, relative humidity profile
             ThermoAtm(*this).waterVapourEvaporation();                  // correction of surface water vapour by evaporation
             ThermoAtm(*this).latentSensibleHeat();                      // latent and sensible heat
             ThermoAtm(*this).vegetationLand();                          // vegetation on land
-            ThermoAtm(*this).co2Atmosphere();                           // greenhouse gas co2 as function of temperature
 
             if(turb_model != "laminar" && !inviscid_phase) {
                 TurbulenceAtm(*this).run();                             // update turbulence sources (skipped in laminar mode / inviscid spin-up)
@@ -1114,6 +1213,17 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
 
             if(iter_n % checkpoint == 0){
                 print_min_max_atm();
+
+                // ATHAD: the hydrostatic state of the column, every checkpoint. The
+                // equatorial profile shows the structure; the level summary answers
+                // whether ANY column has gone non-physical, which one profile cannot.
+                {
+                    ThermoAtm probe(*this);
+                    std::string tag = "iter " + std::to_string(iter_n);
+                    probe.printColumnProfile((jm - 1) / 2, ("equator, " + tag).c_str());
+                    probe.printLevelSummary(tag.c_str());
+                }
+
                 write_meridional_streamfunction(iter_n);   // Hadley/Ferrel cell strength (zonal-mean v + Ψ) per vtk checkpoint
                 UtilsAtm(*this).writeFile(bathymetry_name, output_path, false);
                 cout << endl << "      AGCM: write_file in run_3D_loop atm ......................." << endl;

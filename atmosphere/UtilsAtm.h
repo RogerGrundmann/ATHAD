@@ -213,7 +213,15 @@ public:
                     if (m.r_dry.x[i][j][k]   <= 0.0)  m.r_dry.x[i][j][k]   = 1e-6;
                     if (m.r_humid.x[i][j][k] <= 0.0)  m.r_humid.x[i][j][k] = 1e-6;
 
+                    // A mass fraction lives in [0,1]. The upper bound is not defensive
+                    // padding: without it the Earth surface-evaporation scheme, driven by a
+                    // Magnus saturation pressure evaluated far outside its validity range,
+                    // wrote c = 20.8 — twenty times the total mass present — and every
+                    // mixture property derived from it followed.
                     if (m.c.x[i][j][k] < 0.0)  m.c.x[i][j][k] = 0.0;
+                    if (m.c.x[i][j][k] > 1.0)  m.c.x[i][j][k] = 1.0;
+                    if (m.co2.x[i][j][k] < 0.0)  m.co2.x[i][j][k] = 0.0;
+                    if (m.co2.x[i][j][k] > 1.0)  m.co2.x[i][j][k] = 1.0;
                     if (m.cloud.x[i][j][k] >= 0.02)  m.cloud.x[i][j][k] = 0.02;
                     if (m.cloud.x[i][j][k] <  0.0)   m.cloud.x[i][j][k] = 0.0;
                     if (m.ice.x[i][j][k]   >= 0.01)  m.ice.x[i][j][k]   = 0.01;

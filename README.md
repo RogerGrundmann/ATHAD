@@ -108,4 +108,73 @@ the measurements that did not work out — rather than what is intended.
    thresholds (1000/970/900/800 hPa) are absolute Earth surface pressures and never
    fire here. Phases 2–5 address these.
 
+3. **Composition and mixture thermodynamics (done).** `MixtureAtm.h` derives the mass
+   fractions, mean molar mass and gas constants from the configured mole fractions and
+   supplies the *local* mixture properties `R_of(c, co2)`, `cp_of(c, co2, T)` (Shomate
+   fits, 298–2000 K) and `M_of(c, co2)`. The constant `R_Air` / `cp_l` were replaced at
+   the sites that set the pressure, density and Poisson exponent. CO₂ became a well-mixed
+   mass fraction (ppm is meaningless at 20 % by mass) and water is initialised well-mixed
+   rather than as a fraction of a saturation value that does not exist.
+
+   Measured at the equator, initial state — every target hit exactly:
+
+   | quantity | target | measured |
+   |---|---|---|
+   | surface pressure | 250 bar | 249.947 bar |
+   | surface temperature | 1500 K | 1499.5 K |
+   | surface density | 42.97 kg/m³ | 42.9695 kg/m³ |
+   | mixture gas constant | 387.9 J/(kg·K) | 387.915 |
+   | mean molar mass | 21.434 g/mol | 21.4337 |
+   | H₂O mass fraction | 0.6724 | 0.6724 |
+
+4. **Domain and non-dimensionalisation (done).** The shell went from 16 km to 300 km
+   (`L_atm` is the stretch *amplitude*, so the shell is `(exp(zeta)−1)·L_atm`), `zeta`
+   3.715 → 3.0 and `im` 41 → 61. The top cell now spans 1.65 local scale heights instead
+   of 2.92. The column reaches **0.0237 bar** at the equator and 0.0051 bar at the pole,
+   both below the 0.1 bar radiating level. `dt_visc` was scaled by the `dr²` CFL ratio,
+   `abl_height` by the scale-height ratio, and the COSMO lapse parameter `beta` is now
+   *derived* (`cosmo_lapse_fraction · R_mix · T_surf / cp`) rather than Earth's 42 K —
+   which would have given a 0.71 K/km, essentially isothermal, 300 km column.
+
+   Diagnostics added: a per-column profile and a per-level global summary
+   (`ThermoAtm::printColumnProfile` / `printLevelSummary`), printed at init and every
+   checkpoint. The level summary is what located two of the defects below.
+
+   Five more inherited defects surfaced, all latent on Earth:
+
+   - **`dr` was hard-coded to 0.025**, silently tied to `im = 41` (0.025 × 40 = 1). With
+     61 levels the radial span became 1.5, one rad.z unit was read as 932 km instead of
+     300, and the domain top landed at 1399 km. Now derived as `1/(im−1)`.
+   - **`SaturationAdjustment` capped the prognostic temperature at 333.15 K and wrote the
+     cap back** — "well above any physical surface temperature" is an Earth statement, and
+     it collapsed 250 bar to 30 bar in one iteration. Replaced by a physical bound plus
+     the correct statement: above 647.096 K water is supercritical and there is nothing to
+     condense, so the adjustment is a genuine no-op there.
+   - **The COSMO profile drives T → 0 at finite height** (305 km at the 1500 K equator,
+     285 km at the 1450 K pole, since the coefficient goes as 1/T²). Temperature was
+     floored at `t_00` but pressure kept falling at a rate its own temperature no longer
+     justified. Now continues isothermally above the floor.
+   - **`initCloudIce` manufactured cloud from a negative `q_sat`.** Magnus `E_sat` at
+     1500 K (~1.2 × 10⁷ hPa) exceeds the 250 bar column, so `ep·E_sat/(p−E_sat)` goes
+     negative and `c − H_crit·q_sat` *adds* water. It produced a condensate mass fraction
+     of 0.47, inflating density by 1.87×. Same root cause drove the surface evaporation
+     scheme to write a water mass fraction of 21.
+   - **`bcRadius` extrapolated `p_stat`, `r_humid` and `r_dry` cubically at the lid.** The
+     file already documents this stencil overshooting through zero for velocity and
+     amplifying concavity for turbulence — but the hydrostatic quantities were left on it.
+     On a 300 km shell it drove `p_stat` to −36 hPa across ~11 500 top-level cells. They
+     now use log-linear extrapolation, which is exact for an isothermal layer and positive
+     by construction.
+
+   Also fixed: `co2Atmosphere()` ran *after* `densities()`, so the density was built with
+   `R_of(c, 0) = 414.2` instead of 387.9 — a 7 % error through the whole column. Harmless
+   on Earth, where CO₂ was ppm and never entered the density.
+
+   **What is not yet right.** Radiation is still the inherited Earth scheme (Bignami /
+   Atwater–Ball emissivity, `radiation_mode = 5` relaxing toward a target that no longer
+   exists), so the model does not yet hold its temperature over many iterations. Deep
+   convection remains inactive — its trigger thresholds are absolute Earth surface
+   pressures. Between 373 K and 647 K the saturation curve is still Magnus, far outside
+   its validity. These are Phases 4 and 5.
+
 *(Further entries are added as each phase is measured.)*

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MixtureAtm.h"
 #include "cAtmosphereModel.h"
 
 #include <vector>
@@ -678,9 +679,19 @@ void findCloudBaseLFS() {
                 {
                     const int i_base_col = i_Base_local[j][k];
                     if (i_base_col > 0) {
-                        const double p0    = 1000.0;                          // reference pressure [hPa]
-                        const double kappa = m.R_Air / m.cp_l;                // R/cp  (Poisson exponent)
+                        // ATHAD: the potential-temperature reference is the SURFACE pressure,
+                        // not Earth's 1000 hPa — at 250 bar that constant would put the
+                        // reference level ~250 scale-pressures above the ground and make
+                        // theta_e meaningless. The Poisson exponent uses the local mixture
+                        // R and cp, both of which move with composition and temperature here.
+                        const double p0    = m.p_0;                           // reference pressure [hPa]
                         const double T_b   = m.t.x[i_base_col][j][k] * m.t_0 + t_add_u;
+                        const double kappa = AtmMixture::R_of(m.c.x[i_base_col][j][k],
+                                                              m.co2.x[i_base_col][j][k],
+                                                              m.m_comp.R_bg)
+                                           / AtmMixture::cp_of(m.c.x[i_base_col][j][k],
+                                                               m.co2.x[i_base_col][j][k],
+                                                               T_b, m.m_comp.M_bg);
                         const double p_b   = m.p_stat.x[i_base_col][j][k];
                         const double qsb   = q_sat_col[i_base_col];
                         const double L_b   = (T_b >= m.t_0) ? m.lv : m.ls;
@@ -894,8 +905,11 @@ void findCloudBaseLFS() {
 
                 m.q_v_d.x[i_lfs][j][k] = 0.5 * (cloud.x[i_lfs][j][k] + scale * q_sat);
 
+                // ATHAD: local mixture gas constant, not R_Air with a virtual-temperature
+                // expansion that assumes water is a trace. Matches ThermoAtm::densities().
                 double r_humid_lfs = 1e2 * p_u
-                    / (m.R_Air * (1.0 + (R_W_R_A - 1.0) * m.c.x[i_lfs][j][k]) * t_u);
+                    / (AtmMixture::R_of(m.c.x[i_lfs][j][k], m.co2.x[i_lfs][j][k],
+                                        m.m_comp.R_bg) * t_u);
                 double inv_a_d = 1.0 / (a_d * m.u_0);
 
                 m.u_d.x[i_lfs][j][k] = m.u.x[i_lfs][j][k]

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MixtureAtm.h"
 #include "cAtmosphereModel.h"
 
 #include <algorithm>
@@ -100,17 +101,21 @@ private:
                     double q_i_old = std::max(0.0, ice_row[k]);
 
                     double T       = t_row[k] * m.t_0;
-                    // Cap T to the Magnus-formula validity range. Above ~101°C the
-                    // saturation vapor pressure exceeds p_local and the q_sat fallback
-                    // (ep * 1e-5) collapses by 5000×, triggering runaway condensation
-                    // that releases lv/cp * q_v ≈ 87 K of latent heat per call and drives
-                    // T further out of range. Cap at 60°C — well above any physical
-                    // surface temperature — so a single corrupt cell cannot poison the run.
-                    constexpr double T_max = 333.15;
-                    if (T > T_max) {
-                        T = T_max;
-                        t_row[k] = T_max / m.t_0;
-                    }
+
+                    // ATHAD: above the critical point there is NO saturation to adjust to.
+                    //
+                    // The inherited code capped T at 333.15 K here and WROTE THE CAP BACK
+                    // into the prognostic field, on the reasoning that 60 °C is "well above
+                    // any physical surface temperature". That is an Earth statement. ATHAD's
+                    // surface is 1500 K, so the cap destroyed the entire temperature field on
+                    // the first call — 250 bar became 30 bar within one iteration.
+                    //
+                    // The cap existed only to keep T inside the Magnus formula's validity
+                    // range. The physically correct statement is stronger and needs no cap:
+                    // above 647.096 K water is supercritical, liquid and vapour are one phase,
+                    // and there is nothing to condense. So skip the cell entirely.
+                    if (T >= AtmMixture::T_CRIT_H2O) continue;
+
                     double p_local = p_row[k];
 
                     double E_sat  = m.hp * exp_func(T, 17.2694, 35.86);
@@ -192,12 +197,15 @@ private:
 
                         // Cap T after the Newton loop. The q_v_hyp = 0.5*(q_v_target + q_v_b)
                         // damping is too weak when dq_sat/dT is steep (marginal saturation),
-                        // so the iteration's amplitude grows. Within one call T can swing from
-                        // a physical entry value into the Magnus-cliff regime (>101 °C at
-                        // p = 1080 hPa), and the write-back below would persist that bad value.
-                        // The entry-time cap is not enough because the runaway happens during
-                        // the loop, not between calls.
-                        if (T > T_max) T = T_max;
+                        // so the iteration's amplitude grows. Within one call T can swing to a
+                        // value the write-back below would persist. The entry guard is not
+                        // enough because the runaway happens during the loop, not between calls.
+                        //
+                        // The bound is the critical temperature, not an arbitrary cap: this
+                        // branch only runs on cells that entered SUBcritical, and a
+                        // condensation adjustment cannot legitimately heat one past the point
+                        // where the phase it is condensing into ceases to exist.
+                        if (T > AtmMixture::T_CRIT_H2O) T = AtmMixture::T_CRIT_H2O;
 
                         if (!std::isnan(T) && !std::isnan(q_v_b)) {
                             S_c_c_row[k] = alpha_entry * (q_c_b - q_c_old) / dt_dim;
@@ -235,10 +243,13 @@ private:
         const double inv_t_0    = 1.0 / m.t_0;
         const double lv_over_cp = m.lv / m.cp_l;
         const double ls_over_cp = m.ls / m.cp_l;
-        // Defensive physical bounds. T_max mirrors the Magnus-validity cap used in
-        // adjustSaturation; cloud_cap is ~50× the largest physical cloud/ice mixing
-        // ratio (a few g/kg), so it never clips a real cloud — it only stops a runaway.
-        constexpr double T_max     = 333.15;   // 60 °C
+        // Defensive physical bounds. The upper temperature bound is now a configured
+        // PHYSICAL constant (t_max_phys) rather than the 333.15 K literal: a bound
+        // expressed as "no air parcel exceeds 60 °C" is an Earth fact, and on ATHAD it sat
+        // a factor of 4.5 below the surface temperature it was supposed to be protecting.
+        // cloud_cap is ~50x the largest physical cloud/ice mixing ratio, so it never clips
+        // a real cloud — it only stops a runaway.
+        const double T_max         = m.t_max_phys;
         constexpr double cloud_cap = 0.05;     // kg/kg condensate ceiling
 
         #pragma omp parallel for collapse(2) schedule(static)
@@ -256,9 +267,11 @@ private:
                     if (ice_row[k]   < 0.0) ice_row[k]   = 0.0;
 
                     double T_dim = t_row_nd[k] * m.t_0;
-                    // Upper temperature bound first (no air parcel exceeds ~60 °C); keeps
-                    // q_sat below finite and bounds the latent-heat release that follows.
+                    // Upper physical bound, well above the prescribed surface temperature.
                     if (T_dim > T_max) { T_dim = T_max; t_row_nd[k] = T_max * inv_t_0; }
+
+                    // Supercritical cells carry no condensate and need no fade.
+                    if (T_dim >= AtmMixture::T_CRIT_H2O) continue;
 
                     // ---- Always-on supersaturation removal (ROOT FIX) ----
                     // adjustSaturation scales its condensation by alpha_entry, so in cold

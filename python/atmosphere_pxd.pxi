@@ -44,6 +44,7 @@ cdef extern from "cAtmosphereModel.h":
         double t_0
         double t_surf_equator
         double t_surf_pole
+        double cosmo_lapse_fraction
         double r_air
         double r_0_water
         double t_equat_modern
@@ -75,6 +76,7 @@ cdef extern from "cAtmosphereModel.h":
         int Ma_max
         int Ma_max_half
         double L_atm
+        double zeta
         double tropopause_pole
         double tropopause_equator
         double albedo_pole
@@ -88,6 +90,14 @@ cdef extern from "cAtmosphereModel.h":
         double pr
         double pr_turb
         double abl_height
+        double x_H2O
+        double x_CO2
+        double x_N2
+        double x_CH4
+        double x_NH3
+        double x_H2
+        double x_CO
+        double x_SO2
         double ep
         double hp
         double R_Air
@@ -102,18 +112,13 @@ cdef extern from "cAtmosphereModel.h":
         double r_co2
         double gam
         double u_0
+        double t_max_phys
         double t_00
         double t_000
         double s_0
         double c_0
         double co2_0
-        double co2_paleo
-        double co2_tropopause
-        double co2_vegetation
-        double co2_ocean
-        double co2_land
         double co2_scale
-        double c_land
         double c_ocean
         double sst_coupling_alpha
         int hyd_sst_iter

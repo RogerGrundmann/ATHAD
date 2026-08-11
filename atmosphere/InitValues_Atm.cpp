@@ -1,3 +1,4 @@
+#include "MixtureAtm.h"
 #include "cAtmosphereModel.h"
 #include "Utils.h"
 
@@ -487,8 +488,10 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
     // ========================================================================
     // Step 8: Vertical Temperature Profile & Potential Temperature
     // ========================================================================
-    const double beta = BETA_COSMO;
-    const double R_W_R_A = R_WaterVapour / R_Air;
+    // ATHAD: beta is derived per-composition in initComposition(), not the Earth constant.
+    const double beta  = m_beta_cosmo;
+    const double R_mix = m_comp.R_mix;
+    const double R_bg  = m_comp.R_bg;
 
     #pragma omp parallel for collapse(2)
     for (int k = 0; k < km; k++) {
@@ -496,43 +499,15 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
             int i_mount = i_topography[j][k];
             double t_u_init = t.x[0][j][k] * t_0;                       // [K]
 
-            // OPTION B: broad land-sea thermal contrast (stacks on top of Option A).
-            // The high-heat-capacity ocean stays near the zonal parabola; land equilibrates
-            // closer to radiative equilibrium -> WARMER than the zonal reference in low
-            // latitudes (subtropical/tropical continents -> thermal lows / monsoons) and
-            // COLDER at high latitudes (continental interiors). cos(2*lat) gives +amp at the
-            // equator, 0 near 45 deg, -amp at the poles. Applied to the SEA-LEVEL reference,
-            // so Option A's elevation cooling still stacks on top. Paleo land only; the modern
-            // NASA field and all ocean cells are untouched.
-            constexpr double LANDSEA_AMP = 8.0;                        // [K] land-sea contrast amplitude (prototype, tunable)
-            if (*get_current_time() != 0 && is_land(h, 0, j, k)) {
-                const double lat_rad = (90.0 - (double)j * 180.0 / (double)(jm - 1)) * M_PI / 180.0;
-                t_u_init += LANDSEA_AMP * cos(2.0 * lat_rad);
-            }
-
-            // Surface-temperature anchor.
-            // Modern (Ma==0): the NASA field is observed AT the terrain top, so project it
-            // dry-adiabatically to sea level; the COSMO column build below then reproduces it
-            // exactly at i_mount (legacy behaviour, unchanged).
-            // Paleo (Ma>0, OPTION A): the Scotese parabola is the SEA-LEVEL latitudinal
-            // reference, NOT the mountain-top value. Anchor it at i=0 WITHOUT projecting, so
-            // the COSMO vertical profile cools each column by its own DEM elevation:
-            //     t.x[i_mount] = sqrt(T_sl^2 - 2*beta*g*h_mount/R)      (~5.5 K/km)
-            // -> cold plateaus / warm lowlands -> zonal thermal structure that restores the
-            // topographically-anchored baroclinic eddies the zonally-constant profile killed.
-            // Ocean columns (i_mount=0) carry no elevation, so they stay at the parabola.
-            if (*get_current_time() == 0) {                             // modern: project mountain-top NASA value up to sea level
-                auto [t_pot, p_stat_0] = project_to_sea_level(
-                    t_u_init,
-                    get_layer_height(i_mount),
-                    beta, R_Air, r_air, g
-                );
-                t.x[0][j][k] = t_pot;
-                p_stat.x[0][j][k] = p_stat_0;
-            } else {                                                    // paleo OPTION A: parabola IS the sea-level reference (no projection)
-                p_stat.x[0][j][k] = 1e-2 * (r_air * R_Air * t_u_init);
-                t.x[0][j][k]      = t_u_init;
-            }
+            // ATHAD: no land, so no land-sea thermal contrast and no elevation to project
+            // through. i_mount is 0 in every column, so the surface IS the reference level
+            // and t_u_init stands as prescribed by initTemperatureData.
+            //
+            // Surface pressure uses R_mix, the COLUMN reference gas constant, because r_air
+            // was calibrated as p/(R_mix*T) — using R_Air (the non-condensable background,
+            // 317.3) here instead gives 204 bar rather than the intended 250.
+            p_stat.x[0][j][k] = 1e-2 * (r_air * R_mix * t_u_init);
+            t.x[0][j][k]      = t_u_init;
 
             temp_pot.y[j][k]     = t.x[0][j][k];
             temp_reconst.y[j][k] = t.x[0][j][k];
@@ -561,17 +536,39 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
             // ================================================================
             const double t_safe = std::max(MIN_SAFE_TEMP, t.x[0][j][k]);
             const double tu_be     = t_safe / beta;
-            const double c_inv_tu2 = (2.0 * beta * g) / (R_Air * t_safe * t_safe);
-            const double inv_R_Air = 1.0 / R_Air;
+            const double c_inv_tu2 = (2.0 * beta * g) / (R_mix * t_safe * t_safe);
             const double p_basis   = p_stat.x[0][j][k];
 
             // Removed inner #pragma omp simd to avoid nested parallelization issues
+            double h_iso = -1.0, p_iso = 0.0;
+
             for (int i = 0; i < im; i++) {
                 const double height = get_layer_height(i);
                 const double s_i    = sqrt(std::max(0.0, 1.0 - height * c_inv_tu2));
 
                 const double t_curr = t_safe * s_i;  // [K]
-                const double p_val  = p_basis * exp(-tu_be * (1.0 - s_i));
+
+                // ATHAD: isothermal continuation above the level where T hits the floor.
+                //
+                // The COSMO profile T(h) = T0*sqrt(1 - coeff*h) reaches ZERO at h = 1/coeff
+                // — 305 km at the 1500 K equator, but only 285 km at the 1450 K pole, since
+                // coeff goes as 1/T0^2. Over Earth's 16 km shell that singularity was far
+                // outside the domain; over 300 km it is inside it.
+                //
+                // The temperature was already floored at t_00, but the PRESSURE kept using
+                // the raw profile, so it went on falling at a rate its own temperature no
+                // longer justified and crossed zero near the pole (measured: -8.9 hPa at
+                // the domain top). Above the floor the column is isothermal, so continue
+                // hydrostatically at t_00 instead: p = p_iso * exp(-g*(h - h_iso)/(R*t_00)).
+                double p_val;
+                if (t_curr > t_00) {
+                    p_val = p_basis * exp(-tu_be * (1.0 - s_i));
+                    h_iso = height;
+                    p_iso = p_val;
+                } else {
+                    if (h_iso < 0.0) { h_iso = 0.0; p_iso = p_basis; }
+                    p_val = p_iso * exp(-g * (height - h_iso) / (R_mix * t_00));
+                }
 
                 // Smooth lower bound: approaches t_00 asymptotically rather than clamping hard
                 const double delta = t_curr - t_00;
@@ -581,18 +578,18 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
                 t.x[i][j][k] = std::max(t_00, t_curr);                  // Ensure minimum temperature
                 p_stat.x[i][j][k] = p_val;
 
-                // Density calculations
-                const double rho_base   = (p_val * 100.0 * inv_R_Air);
-                const double inv_t_curr = 1.0 / std::max(MIN_SAFE_TEMP, t_curr);
+                // Densities from the LOCAL mixture gas constant, matching ThermoAtm::densities().
+                // The Earth virtual-temperature form (1 + (R_v/R_a - 1)*c) is a first-order
+                // expansion in c, valid only while water is a trace; at c = 0.67 it is not.
+                const double t_dens = std::max(MIN_SAFE_TEMP, t_curr);
+                const double R_loc  = AtmMixture::R_of(c.x[i][j][k], co2.x[i][j][k], R_bg);
+                const double R_dloc = AtmMixture::R_of(0.0,          co2.x[i][j][k], R_bg);
 
-                const double virtual_mult = 1.0 + (R_W_R_A - 1.0) * c.x[i][j][k];
-                const double total_water_factor = 
+                const double total_water_factor =
                     std::max(MIN_WATER_FACTOR, 1.0 - (cloud.x[i][j][k] + ice.x[i][j][k]));
 
-                const double mask = is_land(h, i, j, k) ? r_air : 1.0;
-
-                r_dry.x[i][j][k]   = (rho_base * inv_t_curr) * mask;
-                r_humid.x[i][j][k] = (rho_base / (t_curr * virtual_mult * total_water_factor)) * mask;
+                r_dry.x[i][j][k]   = p_val * 100.0 / (R_dloc * t_dens);
+                r_humid.x[i][j][k] = p_val * 100.0 / (R_loc * t_dens * total_water_factor);
             }
 
             temp_landscape.y[j][k]   = t.x[i_mount][j][k] - t_0;        // [°C]
@@ -787,52 +784,46 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
 /*
 *
 */
+// ATHAD: the surface is entirely water, so this only confirms the invariant.
+//
+// The Earth version also reported the per-point CO2 budget added by the ocean and land
+// surfaces and removed by vegetation. The Hadean has no vegetation, no land and no
+// carbonate ocean sink, so those terms are gone with their parameters. Note this
+// function divided by h_land to form the ocean/land ratio — with no land that is a
+// division by zero, which is the other reason it could not be left as it was.
 void cAtmosphereModel::LandOceanFraction(){
-// calculation of the ratio ocean to land, also addition and subtraction of CO2 of land, ocean and vegetation
 
     cout << endl << endl << endl << "      AGCM: LandOceanFraction" << endl;
 
-    int h_point_max = (jm-1) * (km-1);
     int h_land = 0;
+    for(int j = 0; j < jm; j++)
+        for(int k = 0; k < km; k++)
+            if(is_land(h, 0, j, k)) h_land++;
 
-    for(int j = 0; j < jm; j++){
-        for(int k = 0; k < km; k++){
-            if(is_land(h, 0, j, k))  h_land = h_land + h.x[0][j][k];
-        }
-    }
-
-    int h_ocean = h_point_max - h_land;
-    double ocean_land = (double)h_ocean/(double)h_land;
+    const int h_point_max = jm * km;
 
     cout.precision(3);
     cout << endl;
-    cout << setiosflags(ios::left) << setw(50) << setfill('.') 
-        << "      total number of points at constant height " << " = " 
-        << resetiosflags(ios::left) << setw(7) << fixed << setfill(' ') 
-        << h_point_max << endl << setiosflags(ios::left) << setw(50) 
-        << setfill('.') << "      number of points on the ocean surface " 
-        << " = " << resetiosflags(ios::left) << setw(7) << fixed 
-        << setfill(' ') << h_ocean << endl << setiosflags(ios::left) 
-        << setw(50) << setfill('.') << "      number of points on the land surface " 
-        << " = " << resetiosflags(ios::left) << setw(7) << fixed 
-        << setfill(' ') << h_land << endl << setiosflags(ios::left) 
-        << setw(50) << setfill('.') << "      ocean/land ratio " 
-        << " = " << resetiosflags(ios::left) << setw(7) << fixed 
-        << setfill(' ') << ocean_land 
-        << endl << endl;
-    cout << setiosflags(ios::left) << setw(50) << setfill('.') 
-        << "      addition of CO2 by ocean surface " << " = " 
-        << resetiosflags(ios::left) << setw(7) << fixed << setfill(' ') 
-        << co2_ocean << endl << setiosflags(ios::left) << setw(50) 
-        << setfill('.') << "      addition of CO2 by land surface " 
-        << " = " << resetiosflags(ios::left) << setw(7) << fixed 
-        << setfill(' ') << co2_land << endl << setiosflags(ios::left) 
-        << setw(50) << setfill('.') << "      subtraction of CO2 by vegetation " 
-        << " = " << resetiosflags(ios::left) << setw(7) << fixed 
-        << setfill(' ') << co2_vegetation << endl << setiosflags(ios::left) 
-        << setw(50) << "      valid for one single point on the surface"<< endl << endl;
-    cout << endl;
+    cout << setiosflags(ios::left) << setw(50) << setfill('.')
+        << "      total number of surface points " << " = "
+        << resetiosflags(ios::left) << setw(7) << fixed << setfill(' ')
+        << h_point_max << endl << setiosflags(ios::left) << setw(50)
+        << setfill('.') << "      number of points on the water surface " << " = "
+        << resetiosflags(ios::left) << setw(7) << fixed << setfill(' ')
+        << h_point_max - h_land << endl << setiosflags(ios::left) << setw(50)
+        << setfill('.') << "      number of points on the land surface " << " = "
+        << resetiosflags(ios::left) << setw(7) << fixed << setfill(' ')
+        << h_land << endl << endl;
 
+    // Invariant 1 in CLAUDE.md: there is no topography, so is_land() must be false
+    // everywhere. If that ever stops holding, every land branch in the RHS, the BCs,
+    // the turbulence and the ice schemes silently comes back to life.
+    if(h_land != 0){
+        cout << "      ERROR: " << h_land << " land points found on a surface that must be "
+             << "entirely water. ATHAD prescribes no topography." << endl;
+        throw std::logic_error("   ATHAD: land points found on the flat Hadean surface");
+    }
+    cout << "      flat Hadean surface confirmed: 100% water, no land points" << endl << endl;
 
     cout << "      AGCM: LandOceanFraction ended" << endl;
 }
@@ -853,21 +844,24 @@ void cAtmosphereModel::initWaterWapour() {
         for (int k = 0; k < km; k++) {
             int i_mount = i_topography[j][k];
 
-            const double RH_init = is_land(h, i_mount, j, k) ? 0.60 : 0.75;
+            // ATHAD: water vapour is WELL MIXED at its composition mass fraction.
+            //
+            // The Earth version set c to a fraction of the local saturation mixing ratio,
+            // because on Earth water vapour is a condensable trace whose abundance IS set
+            // by saturation. Here it is 67 % of the atmosphere's mass and, below the
+            // condensation level, supercritical — there is no saturation to be a fraction
+            // of. Evaluating the Magnus formula at 1500 K returns E_sat ~ 1.2e7 hPa, far
+            // above the 250 bar total pressure, so the q_sat branch collapsed to its
+            // fallback and the surface scheme then drove c to 20.8 — a mass fraction twenty
+            // times larger than all the mass present.
+            //
+            // So c is initialised exactly as co2 is: uniform at the configured value. Where
+            // the column does rise above the condensation level (T < 647 K, the top ~50 km),
+            // the saturation adjustment will draw it down — once Phase 4 gives it a
+            // saturation curve that is valid there.
+            (void)i_mount;
             for (int i = 0; i < im; i++) {
-                double t_u = t.x[i][j][k] * t_0;
-                double p_u = p_stat.x[i][j][k];
-
-                const double E_sat = (t_u >= t_0)
-                    ? hp * AtomUtils::exp_func(t_u, MAGNUS_A_WATER, MAGNUS_B_WATER)
-                    : hp * AtomUtils::exp_func(t_u, MAGNUS_A_ICE,   MAGNUS_B_ICE);
-
-                const double q_sat = (p_u > E_sat) ? ep * E_sat / (p_u - E_sat)
-                                                    : ep * FALLBACK_Q_FACTOR;
-
-                c.x[i][j][k]     = (i >= i_mount) ? RH_init * q_sat : 0.0;
-//                c.x[i][j][k]     = 1.5 * c.x[i][j][k];                  // a very big cloud at 2 km and tends to reach the ground in higher latitudes
-                c.x[i][j][k]     = 1.25 * c.x[i][j][k];                 // gives a nice cloud around 1 km height
+                c.x[i][j][k]     = c_0;
                 cloud.x[i][j][k] = 0.0;
             }
         }
@@ -928,6 +922,14 @@ void cAtmosphereModel::initCloudIce() {
                 const double t_u = t.x[i][j][k] * t_0;
                 const double p_u = p_stat.x[i][j][k];
 
+                // ATHAD: nothing condenses above the critical point. Without this guard the
+                // Magnus E_sat at 1500 K (~1.2e7 hPa) EXCEEDS the 250 bar column pressure, so
+                // q_sat = ep*E_sat/(p_u - E_sat) comes out NEGATIVE, and (c - H_crit*q_sat)
+                // then manufactures cloud out of the subtraction of a negative number. That
+                // produced a condensate mass fraction of ~0.47, which inflated the density by
+                // a factor 1.87 through the (1 - cloud - ice) loading term.
+                if (t_u >= AtmMixture::T_CRIT_H2O) continue;
+
                 const double E_sat = (t_u >= t_0)
                     ? hp * AtomUtils::exp_func(t_u, MAGNUS_A_WATER, MAGNUS_B_WATER)
                     : hp * AtomUtils::exp_func(t_u, MAGNUS_A_ICE,   MAGNUS_B_ICE);
@@ -969,6 +971,19 @@ void cAtmosphereModel::initCloudIce() {
             for (int i = 0; i < im; i++) {
                 const double t_u = t.x[i][j][k] * t_0;
                 const double p_u = p_stat.x[i][j][k];
+
+                // ATHAD: nothing condenses above the critical point. Without this guard the
+                // Magnus E_sat at 1500 K (~1.2e7 hPa) EXCEEDS the 250 bar column pressure, so
+                // q_sat = ep*E_sat/(p_u - E_sat) comes out NEGATIVE, and (c - H_crit*q_sat)
+                // then manufactures cloud out of the subtraction of a negative number. That
+                // produced a condensate mass fraction of ~0.47, which inflated the density by
+                // a factor 1.87 through the (1 - cloud - ice) loading term.
+                if (t_u >= AtmMixture::T_CRIT_H2O) {
+                    cloud.x[i][j][k] = 0.0;
+                    ice.x[i][j][k]   = 0.0;
+                    gr.x[i][j][k]    = 0.0;
+                    continue;
+                }
 
                 const double E_sat = (t_u >= t_0)
                     ? hp * AtomUtils::exp_func(t_u, MAGNUS_A_WATER, MAGNUS_B_WATER)

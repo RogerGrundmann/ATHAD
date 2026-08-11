@@ -565,7 +565,6 @@ public:
         // (e.g. +0.01,-0.01,+0.01 → 0.07 at i=0), reintroducing the unbounded MC forcing
         // at the surface and driving the Gulf-of-Alaska coastal velocity runaway.
         Array* both_cubic[] = {
-            &m.p_stat, &m.r_humid, &m.r_dry,
             &m.PrecipitableWaterLocal,
             &m.CoriolisForce, &m.CentrifugalForce, &m.BuoyancyForce, &m.PresGradForce,
             &m.Q_Latent, &m.Q_Sensible,
@@ -638,6 +637,36 @@ public:
                     double*** xf = both_cubic[f]->x;
                     xf[0][j][k]   = xf[3][j][k]     - 3.0 * xf[2][j][k]     + 3.0 * xf[1][j][k];
                     xf[iml][j][k] = xf[iml-3][j][k] - 3.0 * xf[iml-2][j][k] + 3.0 * xf[iml-1][j][k];
+                }
+
+                // Pattern D — hydrostatic quantities: cubic at i=0, LOG-LINEAR at the lid.
+                //
+                // p_stat, r_humid and r_dry were on Pattern A (cubic at both ends). The
+                // cubic x[iml] = x[iml-3] - 3x[iml-2] + 3x[iml-1] preserves curvature and
+                // projects it past the boundary — the same defect this file already
+                // documents for v/w ("overshoots THROUGH zero") and for the turbulence
+                // scalars ("amplifies the concavity"). Pressure and density are not just
+                // concave at the lid, they decay EXPONENTIALLY, so on ATHAD's 300 km shell
+                // the cubic drove p_stat to -36 hPa across ~11500 cells at the top level.
+                // Harmless on Earth's 16 km shell, where the profile is nearly linear over
+                // the last three cells.
+                //
+                // In log space a hydrostatic profile is straight — exactly straight for an
+                // isothermal layer, which is what the top of this column is. So extrapolate
+                // the LOGARITHM linearly: x[iml] = x[iml-1]^2 / x[iml-2]. That is the
+                // correct continuation of exponential decay and is positive by
+                // construction. Falls back to a zero-gradient copy if either sample is
+                // non-positive, so it can never introduce the value it exists to prevent.
+                {
+                    Array* hydro[] = { &m.p_stat, &m.r_humid, &m.r_dry };
+                    for (int f = 0; f < 3; f++) {
+                        double*** xf = hydro[f]->x;
+                        xf[0][j][k] = xf[3][j][k] - 3.0 * xf[2][j][k] + 3.0 * xf[1][j][k];
+
+                        const double x1 = xf[iml-1][j][k];
+                        const double x2 = xf[iml-2][j][k];
+                        xf[iml][j][k] = (x1 > 0.0 && x2 > 0.0) ? (x1 * x1 / x2) : x1;
+                    }
                 }
 
                 // Pattern B — von Neumann at i=0, zero-gradient copy at the lid.

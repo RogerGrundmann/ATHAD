@@ -12,7 +12,10 @@
 using namespace std;
 using namespace AtomUtils;
 
-#define MAXI 41
+// ATHAD raised im from 41 to 61: a 250 bar atmosphere needs a ~300 km shell, and at
+// 41 levels the top cell spanned ~2.9 local scale heights. These are assertion bounds
+// only (the arrays are heap-allocated), but the asserts are live in this build.
+#define MAXI 81
 #define MAXJ 181
 #define MAXK 361
 

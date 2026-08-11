@@ -29,11 +29,12 @@
         <use_NASA_salinity>true</use_NASA_salinity>  <!-- if use NASA sea-surface salinity to initialise surface salinity: Ma=0 uses the 2D field, Ma>0 its zonal-mean latitude profile; false = invert the Gill density equation(bool) -->
         <Ma_switch>100</Ma_switch>  <!-- switch initial temperatur from NASA to parabolic approach(int) -->
         <CategoryIceScheme>2</CategoryIceScheme>  <!-- number chooses Two(2)-Category Ice Scheme with rain, snow(int) -->
-        <p_0>1013.25</p_0>  <!-- pressure at sea level in hPa(double) -->
+        <p_0>250000.0</p_0>  <!-- pressure at sea level in hPa(double) -->
         <t_0>273.15</t_0>  <!-- temperature in K compare to 0°C(double) -->
         <t_surf_equator>1500.0</t_surf_equator>  <!-- ATHAD: prescribed Hadean surface temperature at the equator in K(double) -->
         <t_surf_pole>1450.0</t_surf_pole>  <!-- ATHAD: prescribed Hadean surface temperature at the poles in K(double) -->
-        <r_air>1.2041</r_air>  <!-- density of dry air in kg/m³ at 20°C(double) -->
+        <cosmo_lapse_fraction>0.5108</cosmo_lapse_fraction>  <!-- ATHAD: near-surface lapse rate as a fraction of the dry adiabat; sets the COSMO beta(double) -->
+        <r_air>42.97</r_air>  <!-- ATHAD: reference density of the atmospheric mixture at the surface in kg/m³(double) -->
         <r_0_water>997.0</r_0_water>  <!-- reference density of fresh water in kg/m3(double) -->
         <t_equat_modern>15.4</t_equat_modern>  <!-- mean temperature of the modern earth in °C(double) -->
         <t_pole_modern>-15.4</t_pole_modern>  <!-- pole temperature of the modern earth in °C(double) -->
@@ -50,8 +51,8 @@
         <moist_phys_start_iter>300</moist_phys_start_iter>  <!-- cumulative iterations before moist physics (SaturationAdjustment, ice scheme, MoistConvection) activates; lets the velocity circulation form on a dry field first; 0 disables (always on)(int) -->
         <checkpoint_save_iter>300</checkpoint_save_iter>  <!-- dump the full 3D prognostic state to output_path/atm_restart_<iter>.bin when total_iter_count reaches this, for a fast debug restart; -1 disables(int) -->
         <restart_from_iter>-1</restart_from_iter>  <!-- load output_path/atm_restart_<iter>.bin and resume from it, skipping the dry spin-up (debug shortcut); -1 disables(int) -->
-        <dt_visc>0.0001</dt_visc>  <!-- non-dimensional time step used in the viscous (production) phase(double) -->
-        <dt_inviscid>2e-05</dt_inviscid>  <!-- non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)(double) -->
+        <dt_visc>4e-05</dt_visc>  <!-- non-dimensional time step used in the viscous (production) phase(double) -->
+        <dt_inviscid>8e-06</dt_inviscid>  <!-- non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)(double) -->
     </common>
     <atmosphere>
         <nm>400</nm>  <!-- the maximum number of iterations(int) -->
@@ -64,9 +65,10 @@
         <evap_model>Meyer</evap_model>  <!-- evaporation formula driving surface humidity update: Dalton, Meyer, or Rohwer(string) -->
         <Ma_max>300</Ma_max>  <!-- parabolic temperature distribution 300 Ma(from Ruddiman)(int) -->
         <Ma_max_half>150</Ma_max_half>  <!-- half of time scale(int) -->
-        <L_atm>400.0</L_atm>  <!-- extension of the atmosphere shell in m, total height is 16000m*40 steps(double) -->
-        <tropopause_pole>8000.0</tropopause_pole>  <!-- extension of the troposphere at the poles in m(double) -->
-        <tropopause_equator>15000.0</tropopause_equator>  <!-- extension of the troposphere at the equator in m(double) -->
+        <L_atm>15718.7</L_atm>  <!-- ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 300 km(double) -->
+        <zeta>3.0</zeta>  <!-- ATHAD: radial coordinate-stretching factor (was a hard-coded 3.715)(double) -->
+        <tropopause_pole>250000.0</tropopause_pole>  <!-- ATHAD: extension of the troposphere at the poles in m(double) -->
+        <tropopause_equator>280000.0</tropopause_equator>  <!-- ATHAD: extension of the troposphere at the equator in m(double) -->
         <albedo_pole>0.294</albedo_pole>  <!-- albedo around the poles(double) -->
         <albedo_equator>0.1</albedo_equator>  <!-- albedo around the equator(double) -->
         <epsilon_equator>0.48</epsilon_equator>  <!-- emissivity and absorptivity caused by other gases than water vapour/(by Häckel)(double) -->
@@ -77,34 +79,37 @@
         <sc_CO2>0.96</sc_CO2>  <!-- Schmidt number of CO2(double) -->
         <pr>0.7179</pr>  <!-- Prandtl number of air for laminar flows(double) -->
         <pr_turb>0.9</pr_turb>  <!-- turbulent Prandtl number for temperature transport in turbulent flows(double) -->
-        <abl_height>1500.0</abl_height>  <!-- physical depth of the atmospheric boundary layer in m, sets the top of the surface-driven turbulent TKE seeding profile (decoupled from the L_atm grid length scale)(double) -->
-        <ep>0.62198</ep>  <!-- ratio of the gas constants of dry air to water vapour [kg_air/kg_vapour](double) -->
+        <abl_height>10000.0</abl_height>  <!-- ATHAD: physical depth of the atmospheric boundary layer in m(double) -->
+        <x_H2O>0.8</x_H2O>  <!-- ATHAD: mole fraction of H2O(double) -->
+        <x_CO2>0.1</x_CO2>  <!-- ATHAD: mole fraction of CO2(double) -->
+        <x_N2>0.03</x_N2>  <!-- ATHAD: mole fraction of N2(double) -->
+        <x_CH4>0.014</x_CH4>  <!-- ATHAD: mole fraction of CH4(double) -->
+        <x_NH3>0.014</x_NH3>  <!-- ATHAD: mole fraction of NH3(double) -->
+        <x_H2>0.014</x_H2>  <!-- ATHAD: mole fraction of H2(double) -->
+        <x_CO>0.014</x_CO>  <!-- ATHAD: mole fraction of CO(double) -->
+        <x_SO2>0.014</x_SO2>  <!-- ATHAD: mole fraction of SO2(double) -->
+        <ep>0.6875</ep>  <!-- ATHAD: ratio of the background-mixture to water-vapour gas constants(double) -->
         <hp>6.1078</hp>  <!-- water vapour pressure at T = 0°C: E = 6.1 hPa(double) -->
-        <R_Air>286.9</R_Air>  <!-- specific gas constant of air in J/(kg*K)(double) -->
-        <R_WaterVapour>461.4</R_WaterVapour>  <!-- specific gas constant of water vapour in J/(kg*K)(double) -->
+        <R_Air>317.3</R_Air>  <!-- ATHAD: specific gas constant of the non-condensable background in J/(kg*K)(double) -->
+        <R_WaterVapour>461.5</R_WaterVapour>  <!-- specific gas constant of water vapour in J/(kg*K)(double) -->
         <r_water_vapour>0.0094</r_water_vapour>  <!-- density of saturated water vapour in kg/m³ at 10°C(double) -->
-        <R_co2>188.91</R_co2>  <!-- specific gas constant of CO2 in J/(kg*4.5K)(double) -->
+        <R_co2>188.9</R_co2>  <!-- specific gas constant of CO2 in J/(kg*K)(double) -->
         <lv>2520000.0</lv>  <!-- specific latent evaporation heat(condensation heat) in J/kg(double) -->
         <ls>2830000.0</ls>  <!-- specific latent vaporisation heat(sublimation heat) in J/kg(double) -->
-        <cp_l>1005.0</cp_l>  <!-- specific heat capacity of dry air at constant pressure and 20°C in J/(kg K)(double) -->
-        <cv_l>717.0</cv_l>  <!-- specific heat capacity of dry air at constant volume and 20°C in J/(kg K)(double) -->
+        <cp_l>2040.0</cp_l>  <!-- ATHAD: specific heat capacity of the mixture at constant pressure in J/(kg K)(double) -->
+        <cv_l>1652.1</cv_l>  <!-- ATHAD: specific heat capacity of the mixture at constant volume in J/(kg K)(double) -->
         <lamda>0.0262</lamda>  <!-- heat transfer coefficient of air in W/(m K)(double) -->
         <r_co2>0.0019767</r_co2>  <!-- density of CO2 in kg/m³ at 25°C(double) -->
         <gam>0.0065</gam>  <!-- constant slope of temperature    gam = 6.5 K/1000 m(double) -->
         <u_0>8.0</u_0>  <!-- annual mean of surface wind velocity in m/s, 8 m/s compare to 28.8 km/h(double) -->
+        <t_max_phys>2000.0</t_max_phys>  <!-- ATHAD: upper physical bound on the prognostic temperature in K(double) -->
         <t_00>236.15</t_00>  <!-- temperature in K compare to -37°C(double) -->
         <t_000>253.15</t_000>  <!-- temperature in K compare to -20°C(double) -->
         <s_0>274515.75</s_0>  <!-- entropy at 0°C, cp_l * t_0 in J/kg(double) -->
-        <c_0>0.035</c_0>  <!-- maximum value of water vapour in kg/kg(double) -->
-        <co2_0>380.0</co2_0>  <!-- maximum value of CO2 in ppm at preindustrial times(double) -->
-        <co2_paleo>330.0</co2_paleo>  <!-- value at modern times(double) -->
-        <co2_tropopause>385.0</co2_tropopause>  <!-- minimum rate CO2 at tropopause 320.0 ppm(double) -->
-        <co2_vegetation>140.0</co2_vegetation>  <!-- value compares to ppm of co2 consumed by the vegetation(double) -->
-        <co2_ocean>0.0</co2_ocean>  <!-- value compares to ppm of co2 consumed by the vegetation(double) -->
-        <co2_land>0.0</co2_land>  <!-- value compares to ppm of co2 consumed by the vegetation(double) -->
+        <c_0>0.6724</c_0>  <!-- ATHAD: reference water vapour mass fraction in kg/kg(double) -->
+        <co2_0>0.2053</co2_0>  <!-- ATHAD: reference CO2 mass fraction in kg/kg(double) -->
         <co2_scale>1.0</co2_scale>  <!-- multiplier applied to the whole CO2 field for sensitivity experiments (1.0 = field as built; 2.0 = doubled CO2)(double) -->
-        <c_land>66</c_land>  <!-- water vapour reduction on land(60% of the saturation value)(double) -->
-        <c_ocean>70</c_ocean>  <!-- water vapour reduction on sea surface(64% of the saturation value)(double) -->
+        <c_ocean>70</c_ocean>  <!-- ATHAD: surface water vapour as a fraction of the saturation value, in %(double) -->
         <sst_coupling_alpha>0.0</sst_coupling_alpha>  <!-- outer-loop (Picard) hydrosphere->atmosphere SST coupling strength: blend fraction of the hydrosphere surface SST (read from <stem>_Transfer_Hyd_SST_<iter>.vwtp) into the atmospheric ocean surface temperature t.x[0] at init, t.x[0] <- (1-alpha)*t.x[0] + alpha*SST_hyd, before the t_eq snapshot so it propagates into the Held-Suarez target. 0.0 = OFF (no read; identical to the one-way chain and to round 0 of a Picard loop, which has no SST file yet). Ocean-only, finite-checked, SST-clamped to [-1.8,40] C, ocean-mean-anchored so total energy does not drift. Under-relax across rounds (e.g. 0.3-0.5)(double) -->
         <hyd_sst_iter>-1</hyd_sst_iter>  <!-- which hydrosphere SST snapshot to read for sst_coupling_alpha: reads <stem>_Transfer_Hyd_SST_<iter>.vwtp for this iteration; -1 = use the latest (highest-iter) snapshot present in the output dir(int) -->
     </atmosphere>

@@ -1,0 +1,208 @@
+#ifndef MIXTUREATM_H
+#define MIXTUREATM_H
+
+// ============================================================================
+// MixtureAtm — thermodynamic properties of the Hadean atmospheric mixture
+// ============================================================================
+//
+// The inherited Earth model could treat R and cp as constants because water vapour was
+// a trace (~1 % by mass) riding on a fixed N2/O2 carrier. ATHAD cannot: H2O is 67 % of
+// the mass and CO2 another 21 %, so the gas constant and heat capacity of a parcel are
+// set by its own composition and vary as the water field evolves.
+//
+// This header provides the local mixture properties as functions of the two prognostic
+// mass fractions (c = H2O, co2 = CO2), with everything else lumped into a fixed
+// non-condensable background.
+//
+//   R_of  (c, co2)     specific gas constant       [J/(kg K)]
+//   cp_of (c, co2, T)  specific heat, T-dependent  [J/(kg K)]
+//   M_of  (c, co2)     mean molar mass             [kg/mol]
+//
+// MASS weighting, not mole weighting: for specific (per-kilogram) quantities the
+// mixture value is the mass-fraction-weighted sum. Mole-weighting them is a real and
+// easy mistake — ATNEPT c116d71 ("Weight the mixture properties by mass fraction") is
+// the family's precedent for getting it wrong first.
+//
+// cp is strongly temperature-dependent over the 300–1500 K range ATHAD spans: H2O rises
+// from ~1.86 to ~2.6 kJ/(kg K), CO2 from ~0.85 to ~1.33. A constant cp misplaces the
+// lapse rate everywhere, so cp_i(T) uses Shomate-form fits (NIST/JANAF) per species.
+
+#include <cmath>
+#include <algorithm>
+
+namespace AtmMixture {
+
+    // ---- water critical point -----------------------------------------------
+    // Above these, liquid and vapour are one phase: there is no saturation vapour
+    // pressure, no condensation and no latent heat. ATHAD's surface sits at 1500 K and
+    // p_H2O = 200 bar, i.e. deeply supercritical, so every condensation path must be a
+    // genuine NO-OP there — not a clamp. See CLAUDE.md, invariant 2.
+    constexpr double T_CRIT_H2O = 647.096;       // [K]
+    constexpr double P_CRIT_H2O = 220640.0;      // [hPa] = 22.064 MPa
+
+    // ---- universal constant and molar masses [kg/mol] ----------------------
+    constexpr double R_STAR  = 8.314462618;      // [J/(mol K)]
+
+    constexpr double M_H2O   = 0.018015;
+    constexpr double M_CO2   = 0.044010;
+    constexpr double M_N2    = 0.028014;
+    constexpr double M_CH4   = 0.016043;
+    constexpr double M_NH3   = 0.017031;
+    constexpr double M_H2    = 0.002016;
+    constexpr double M_CO    = 0.028010;
+    constexpr double M_SO2   = 0.064066;
+
+    // Specific gas constants [J/(kg K)] — R*/M.
+    constexpr double R_H2O   = R_STAR / M_H2O;   // 461.5
+    constexpr double R_CO2   = R_STAR / M_CO2;   // 188.9
+
+    // ------------------------------------------------------------------------
+    // Composition, resolved once from the configured mole fractions.
+    //
+    // Everything that is neither H2O nor CO2 is collapsed into one "background"
+    // pseudo-species, because ATHAD transports only H2O and CO2; the rest stay well
+    // mixed and can be represented by their aggregate molar mass and heat capacity.
+    // ------------------------------------------------------------------------
+    struct Composition {
+        double M_mean   = 0.0;   // mean molar mass of the full mixture   [kg/mol]
+        double R_mix    = 0.0;   // gas constant of the full mixture      [J/(kg K)]
+
+        double q_H2O    = 0.0;   // mass fractions of the full mixture    [kg/kg]
+        double q_CO2    = 0.0;
+        double q_bg     = 0.0;
+
+        double M_bg     = 0.0;   // background pseudo-species             [kg/mol]
+        double R_bg     = 0.0;   //                                       [J/(kg K)]
+
+        bool   valid    = false; // mole fractions summed to 1
+        double x_sum    = 0.0;
+    };
+
+    // Build the composition from the eight configured mole fractions.
+    inline Composition resolve(double x_H2O, double x_CO2, double x_N2,
+                               double x_CH4, double x_NH3, double x_H2,
+                               double x_CO,  double x_SO2)
+    {
+        Composition C;
+
+        C.x_sum = x_H2O + x_CO2 + x_N2 + x_CH4 + x_NH3 + x_H2 + x_CO + x_SO2;
+        C.valid = std::fabs(C.x_sum - 1.0) < 1.0e-9;
+
+        // Mean molar mass: sum of x_i * M_i.
+        const double m_H2O = x_H2O * M_H2O;
+        const double m_CO2 = x_CO2 * M_CO2;
+        const double m_bg  = x_N2  * M_N2  + x_CH4 * M_CH4 + x_NH3 * M_NH3
+                           + x_H2  * M_H2  + x_CO  * M_CO  + x_SO2 * M_SO2;
+
+        C.M_mean = m_H2O + m_CO2 + m_bg;
+        C.R_mix  = R_STAR / C.M_mean;
+
+        C.q_H2O = m_H2O / C.M_mean;
+        C.q_CO2 = m_CO2 / C.M_mean;
+        C.q_bg  = m_bg  / C.M_mean;
+
+        const double x_bg = x_N2 + x_CH4 + x_NH3 + x_H2 + x_CO + x_SO2;
+        C.M_bg = (x_bg > 0.0) ? (m_bg / x_bg) : M_N2;
+        C.R_bg = R_STAR / C.M_bg;
+
+        return C;
+    }
+
+    // ------------------------------------------------------------------------
+    // Specific heat capacities [J/(kg K)] as a function of temperature.
+    //
+    // Shomate form  cp_molar = A + B*t + C*t^2 + D*t^3 + E/t^2   with t = T/1000 [K],
+    // cp_molar in J/(mol K); divided by the molar mass to get the specific value.
+    // Coefficients are the NIST/JANAF gas-phase fits valid over roughly 300–2000 K,
+    // which is the range ATHAD spans. T is clamped to that range rather than
+    // extrapolated — beyond it the polynomials diverge fast.
+    // ------------------------------------------------------------------------
+    constexpr double T_FIT_MIN = 298.0;
+    constexpr double T_FIT_MAX = 2000.0;
+
+    inline double shomate(double T, double A, double B, double Cc, double D, double E)
+    {
+        const double t  = std::min(std::max(T, T_FIT_MIN), T_FIT_MAX) * 1.0e-3;
+        const double t2 = t * t;
+        return A + B * t + Cc * t2 + D * t2 * t + E / t2;      // [J/(mol K)]
+    }
+
+    // H2O (gas), NIST 500–1700 K fit.
+    inline double cp_H2O(double T) {
+        return shomate(T, 30.09200, 6.832514, 6.793435, -2.534480, 0.082139) / M_H2O;
+    }
+    // CO2, NIST 298–1200 K fit.
+    inline double cp_CO2(double T) {
+        return shomate(T, 24.99735, 55.18696, -33.69137, 7.948387, -0.136638) / M_CO2;
+    }
+    // Background: dominated by N2 and CO (both 28 g/mol, near-identical cp), with CH4,
+    // NH3, H2 and SO2 minor by mole. The N2 fit (100–500 K extended) is representative
+    // to a few per cent, which is well inside the uncertainty of the composition itself.
+    inline double cp_bg(double T, double M_background) {
+        return shomate(T, 28.98641, 1.853978, -9.647459, 16.63537, 0.000117) / M_background;
+    }
+
+    // ------------------------------------------------------------------------
+    // Local mixture properties from the two prognostic mass fractions.
+    //
+    // c and co2 are mass fractions in [0,1]; the background takes up the remainder.
+    // Both are clamped and the background floored at zero, so a transport overshoot
+    // degrades the properties smoothly instead of producing a negative gas constant.
+    // ------------------------------------------------------------------------
+    inline void split(double c, double co2, double& q_v, double& q_c, double& q_b)
+    {
+        q_v = std::min(std::max(c,   0.0), 1.0);
+        q_c = std::min(std::max(co2, 0.0), 1.0);
+        const double sum = q_v + q_c;
+        if (sum > 1.0) {                      // renormalise rather than go negative
+            q_v /= sum;
+            q_c /= sum;
+        }
+        q_b = std::max(0.0, 1.0 - q_v - q_c);
+    }
+
+    // Specific gas constant of the local mixture [J/(kg K)].
+    inline double R_of(double c, double co2, double R_background)
+    {
+        double q_v, q_c, q_b;
+        split(c, co2, q_v, q_c, q_b);
+        return q_v * R_H2O + q_c * R_CO2 + q_b * R_background;
+    }
+
+    // Specific heat at constant pressure of the local mixture [J/(kg K)].
+    inline double cp_of(double c, double co2, double T, double M_background)
+    {
+        double q_v, q_c, q_b;
+        split(c, co2, q_v, q_c, q_b);
+        return q_v * cp_H2O(T) + q_c * cp_CO2(T) + q_b * cp_bg(T, M_background);
+    }
+
+    // Mean molar mass of the local mixture [kg/mol]. 1/M = sum(q_i / M_i).
+    inline double M_of(double c, double co2, double M_background)
+    {
+        double q_v, q_c, q_b;
+        split(c, co2, q_v, q_c, q_b);
+        const double inv = q_v / M_H2O + q_c / M_CO2 + q_b / M_background;
+        return (inv > 0.0) ? 1.0 / inv : M_background;
+    }
+
+    // Mole fraction of CO2 given the local mass fractions — what an optical-depth or
+    // partial-pressure calculation needs. x_i = q_i * M_mix / M_i.
+    inline double x_CO2_of(double c, double co2, double M_background)
+    {
+        double q_v, q_c, q_b;
+        split(c, co2, q_v, q_c, q_b);
+        return q_c * M_of(c, co2, M_background) / M_CO2;
+    }
+
+    // Mole fraction of H2O, likewise.
+    inline double x_H2O_of(double c, double co2, double M_background)
+    {
+        double q_v, q_c, q_b;
+        split(c, co2, q_v, q_c, q_b);
+        return q_v * M_of(c, co2, M_background) / M_H2O;
+    }
+
+}   // namespace AtmMixture
+
+#endif

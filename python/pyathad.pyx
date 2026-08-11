@@ -395,6 +395,15 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.t_surf_pole = <double> value
     
+    property cosmo_lapse_fraction:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.cosmo_lapse_fraction
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.cosmo_lapse_fraction = <double> value
+    
     property r_air:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -666,6 +675,15 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.L_atm = <double> value
     
+    property zeta:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.zeta
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.zeta = <double> value
+    
     property tropopause_pole:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -782,6 +800,78 @@ cdef class Atmosphere:
         def __set__(Atmosphere self, value):
             self._check_alive()
             self._thisptr.abl_height = <double> value
+    
+    property x_H2O:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.x_H2O
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.x_H2O = <double> value
+    
+    property x_CO2:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.x_CO2
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.x_CO2 = <double> value
+    
+    property x_N2:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.x_N2
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.x_N2 = <double> value
+    
+    property x_CH4:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.x_CH4
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.x_CH4 = <double> value
+    
+    property x_NH3:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.x_NH3
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.x_NH3 = <double> value
+    
+    property x_H2:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.x_H2
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.x_H2 = <double> value
+    
+    property x_CO:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.x_CO
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.x_CO = <double> value
+    
+    property x_SO2:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.x_SO2
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.x_SO2 = <double> value
     
     property ep:
         def __get__(Atmosphere self):
@@ -909,6 +999,15 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.u_0 = <double> value
     
+    property t_max_phys:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.t_max_phys
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.t_max_phys = <double> value
+    
     property t_00:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -954,51 +1053,6 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.co2_0 = <double> value
     
-    property co2_paleo:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.co2_paleo
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.co2_paleo = <double> value
-    
-    property co2_tropopause:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.co2_tropopause
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.co2_tropopause = <double> value
-    
-    property co2_vegetation:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.co2_vegetation
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.co2_vegetation = <double> value
-    
-    property co2_ocean:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.co2_ocean
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.co2_ocean = <double> value
-    
-    property co2_land:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.co2_land
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.co2_land = <double> value
-    
     property co2_scale:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -1007,15 +1061,6 @@ cdef class Atmosphere:
         def __set__(Atmosphere self, value):
             self._check_alive()
             self._thisptr.co2_scale = <double> value
-    
-    property c_land:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.c_land
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.c_land = <double> value
     
     property c_ocean:
         def __get__(Atmosphere self):
