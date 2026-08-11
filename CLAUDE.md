@@ -1,30 +1,37 @@
 # ATHAD — Atmosphere of the Earth in the Hadean Eon
 
 An atmospheric general-circulation model of the Earth as it was in the Hadean
-(~4.4 Ga): a ~250 bar, water-vapour-dominated atmosphere over a molten or
-quenching surface with no known topography.
+(~4.4 Ga): a ~250 bar, water-vapour-dominated atmosphere over a molten or quenching
+surface with no known topography.
 
 **Forked from `ATOM_Precipitation` @ `1e3f319` (2026-07-28), atmosphere half only.**
 Started 2026-08-11. There is no hydrosphere, no paleogeography, and no time-slice
 series — ATHAD is one epoch.
 
-## Build and run
+## Build, run, test
 
 ```bash
-make had
-cd cli && OMP_NUM_THREADS=1 ./had config_athad.xml
+make had                                        # -> cli/had
+make test                                       # IAPWS self-test, run this first
+cd python && OMP_NUM_THREADS=8 ../cli/had config_athad.xml
 ```
 
-`make` regenerates the parameter bindings from `param.py` first. The generated
-files (`atmosphere/*.inc`, `python/atmosphere_pxd.pxi`, `python/pyathad.pyx`,
+Output lands in `python/output_Hadean/` — the ATOM line's convention
+(`output_<name>/`, underscore, relative to the run directory; the giant-planet
+siblings hyphenate instead).
+
+`make` regenerates the parameter bindings from `param.py` first. The generated files
+(`atmosphere/*.inc`, `python/atmosphere_pxd.pxi`, `python/pyathad.pyx`,
 `cli/config_athad.xml`, `python/config_athad.xml`) are **tracked on purpose**, so a
-`param.py` change shows its full effect in the diff. Regenerate and commit them
-together.
+`param.py` change shows its full effect in the diff. Regenerate and commit them together.
+
+Removing a parameter from `param.py` deletes a C++ member, so it must be removed
+together with its uses or the build breaks.
 
 ## Atmospheric composition
 
-Mole fractions are the input; the model works in mass fractions. The residual
-7 % is split evenly across the five trace gases.
+Mole fractions are the input; the model works in mass fractions. The residual 7 % is
+split evenly across the five trace gases.
 
 | Species | Mole frac. xᵢ | Mᵢ [g/mol] | Mass frac. qᵢ | Rᵢ [J/(kg·K)] |
 |---|---|---|---|---|
@@ -38,91 +45,124 @@ Mole fractions are the input; the model works in mass fractions. The residual
 | SO₂ | 0.014 | 64.066 | 0.0418 | 129.8 |
 
 - **M_mean = 21.434 g/mol**, **R_mix = 387.9 J/(kg·K)** (dry air is 286.9)
-- **Background** (everything except H₂O and CO₂): x_bg = 0.100, q_bg = 0.1223,
-  M_bg = 26.207 g/mol, **R_bg = 317.3 J/(kg·K)**. This is what ATHAD's `R_Air`
-  parameter now means — it is no longer "air".
-- **p_surf = 250 bar**, **T_surf ≈ 1500 K**, **ρ_surf = 43.0 kg/m³** (Earth: 1.2)
-- Scale height R_mix·T/g: **59 km** at 1500 K, 24 km at 600 K. Reaching the
-  ~0.1 bar radiating level takes ln(2500) ≈ 7.8 e-foldings, hence a shell
-  ~300 km deep rather than Earth's 16 km.
-- cp ≈ 2040 J/(kg·K) and strongly T-dependent across 300–1500 K — roughly 2×
-  Earth's 1005. A constant cp misplaces the lapse rate everywhere.
+- **Background** (everything except H₂O and CO₂): M_bg = 26.207 g/mol,
+  **R_bg = 317.3 J/(kg·K)**. This is what the `R_Air` parameter now means — it is not air.
+- **p_surf = 250 bar**, **T_surf = 1500 K** (prescribed), **ρ_surf = 42.97 kg/m³**
+- cp ≈ 2040 J/(kg·K), strongly T-dependent across 300–1500 K — roughly 2× Earth's.
 
-Only **H₂O (`c`) and CO₂ (`co2`) are prognostic**. The other six gases are a
-fixed well-mixed background entering R_mix, cp_mix and the opacity.
+Only **H₂O (`c`) and CO₂ (`co2`) are prognostic**, both as **mass fractions** (not ppm —
+at 20 % by mass ppm is meaningless). The other six are a fixed well-mixed background
+entering R_mix, cp_mix and the opacity.
 
-## Three invariants — do not silently break these
+## Where the physics lives
 
-1. **There is no topography.** `h ≡ 0`, `i_topography ≡ 0`, `Topography ≡ 0`
-   everywhere, so `AtomUtils::is_land()` is false at every point. The Hadean
-   surface is unknown; a featureless global surface is the deliberate choice, not
-   a missing data file. Do not reintroduce a bathymetry read, and do not "fix"
-   `is_land()` — the land branches are dead by construction and that is correct.
+| File | What it owns |
+|---|---|
+| `MixtureAtm.h` | Composition → mass fractions, `R_of`, `cp_of` (Shomate), `M_of`, `M_nonwater`, water's critical point |
+| `SaturationH2O.h` | IAPWS saturation + sublimation curves, Watson `latentHeat(T)`, exact `saturationMassFraction`, `dewPoint` (bisection), `dqSatdT` |
+| `MultiLayerRadiation.h` | Grey optical depth from column mass with pressure broadening; surface energy balance |
+| `ThermoAtm.h` | Densities and the hydrostatic column; `printColumnProfile` / `printLevelSummary` diagnostics |
+| `test/saturation_selftest.cpp` | IAPWS reference-point checks — `make test` |
 
-2. **Water is supercritical below the condensation level.** The critical point is
-   647.096 K / 220.64 bar; p_H₂O at the surface is 0.8 × 250 = 200 bar at 1500 K.
-   The inherited Magnus formula (`hp·exp_func(T, 17.2694, 35.86)`) is capped at
-   ~101 °C and is invalid here — use the IAPWS curve in `SaturationH2O.h`. The
-   dilute approximation `q_sat = ep·E/(p − (1−ep)E)` is also invalid, because H₂O
-   *is* the bulk gas, not a trace: use the exact mass-fraction form. Every
-   condensation path must be guarded on `T < T_crit`, and be a genuine no-op below
-   the condensation level rather than a clamped Magnus value. `lv` is not a
-   constant — it vanishes at the critical point.
+## Four invariants — do not silently break these
 
-3. **Radiation runs in mode 2 (direct σT⁴).** The inherited default was mode 5,
-   Newtonian relaxation toward the Scotese paleo-temperature curve. **No Scotese
-   curve exists for 4.4 Ga.** The empirical emissivity fits ATHAD inherited
-   (Bignami 1995 `eps_dry = 0.684 + 0.0056·e_surf`, a Mediterranean sea-surface
-   regression; CO₂ via Atwater & Ball) are calibrated on present-day Earth columns
-   and are meaningless at 250 bar — they are replaced by a column-mass optical
-   depth with pressure broadening.
+1. **There is no topography.** `h ≡ 0`, `i_topography ≡ 0` everywhere, so
+   `AtomUtils::is_land()` is false at every point. The Hadean surface is unknown; a
+   featureless global surface is the deliberate choice, not a missing data file. Do not
+   reintroduce a bathymetry read, and do not "fix" the dead land branches.
+   `LandOceanFraction()` throws if a land point ever appears.
+
+2. **Water is supercritical below ~177 km.** Critical point 647.096 K / 220.64 bar.
+   Every condensation path must be a genuine no-op there, not a clamp. Use
+   `SaturationH2O.h`; **never reintroduce Magnus** (calibrated to ~320 K, returns 1.2e7 hPa
+   at 1500 K, which flips the sign of any `p − E` denominator) and never the dilute
+   `q_sat = ep·E/(p−E)` (water is the bulk gas, so there is no small parameter).
+
+3. **Radiation runs in mode 2** (direct σT⁴). Modes 0/1/3/4/5 all lean on the Scotese
+   snapshot or the 280 ppm CO₂ reference; neither exists at 4.4 Ga. Radiation must *set*
+   the profile, not nudge it toward a prescribed one.
+
+4. **The column is on its own adiabat, integrated not fitted.** `dT/dz = −g/cp` with local
+   cp, hydrostatic on the layer-mean T, isothermal above `t_skin`. Do **not** restore the
+   COSMO `T = T₀√(1−coeff·h)` form: it is a sqrt in height, so matching its near-surface
+   slope to the adiabat does not make it an adiabat — it reaches zero at 156 km, inside
+   the domain.
+
+## Assumptions vs. results — read this before quoting any number
+
+The model reproduces its design targets exactly and its energy balance closes. That does
+**not** make its outputs predictions. These are inputs, in rough order of how much they
+move the answer:
+
+| Parameter | Value | Status |
+|---|---|---|
+| `kappa_H2O` / `kappa_CO2` / `kappa_bg` | 0.01 / 0.001 / 1e-6 m²/kg | **Biggest lever on OLR**, factor-of-2 uncertain |
+| `geothermal_flux` | 150 W/m² | See below — the model now argues against this value |
+| `t_surf_equator` / `t_surf_pole` | 1500 / 1450 K | **Prescribed, not solved** |
+| `t_skin` | 254.0 K | From energy balance, but clear-sky albedo — not a fixed point |
+| insolation | 0.71 S₀ | Faint young Sun at 4.4 Ga |
+| `omega` | 3.17e-4 (5.5 h day) | Estimates range 4–6 h |
+| `cosmo_lapse_fraction` | 1.0 (dry adiabat) | Justified: nothing condenses in the deep column |
+
+A grey scheme also cannot represent the window regions that set the real runaway limit.
+
+## What the model currently says
+
+- Shell 230 km, 61 levels; equator column 1499 K / 249.9 bar at the surface, reaching
+  ~0.023 bar at the top.
+- **A cloud deck forms from ~207 km (0.09 bar) upward** — the only place where p_H₂O
+  finally exceeds p_sat. Everything below is supercritical or superheated.
+- **OLR = 236.0 W/m² = absorbed SW + geothermal.** Energy balance closes; surface
+  suppressed ×1214.
+- **236 W/m² is below the 280–310 W/m² Nakajima / Komabayashi–Ingersoll runaway limit.**
+  So at 0.71 S₀ with 150 W/m² geothermal the planet does not absorb enough to sustain a
+  runaway greenhouse, and the 1500 K surface is held by fiat. A self-consistent 1500 K
+  runaway needs **geothermal ≥ ~195 W/m²**. That is the one claim the model makes rather
+  than receives — check it against magma-ocean cooling estimates.
+
+Bit-identical at 1, 4 and 8 OpenMP threads. Text diagnostics print every 10 iterations for
+short runs (`nm ≤ 100`), every 100 for longer ones; `diagnostic_stride` overrides.
 
 ## Relationship to the family
 
-Sibling models live beside this directory: `ATOM_Precipitation` (modern Earth),
-`ATJUP`, `ATSAT`, `ATURAN`, `ATNEPT` (giants), `ASTIM` (impacts).
+Siblings live beside this directory: `ATOM_Precipitation` (modern Earth), `ATJUP`,
+`ATSAT`, `ATURAN`, `ATNEPT` (giants), `ASTIM` (impacts).
 
-C++ class, file and function names are kept **identical to `ATOM_Precipitation`**
-(`cAtmosphereModel`, `ThermoAtm.h`, `RHS_Atm_Turb.cpp`, …) so fixes can be
-cherry-picked in both directions; only the outer shell is renamed (`libathad.a`,
-`cli/had`, `config_athad.xml`, `pyathad`). Preserve that property.
+C++ class, file and function names are kept **identical to `ATOM_Precipitation`** so fixes
+cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
+`config_athad.xml`, `pyathad`). Preserve that.
 
-Known traps already solved elsewhere in the family — check these before
-re-deriving:
+**Thirteen defects found in the inherited code so far, all latent on Earth and live here.**
+The pattern is consistent and worth expecting: *Earth's numbers as bare literals inside
+physics kernels, each with a comment justifying it by Earth's conditions.* Examples —
+`dr = 0.025` silently tied to `im = 41`; a 333.15 K cap written back into the prognostic
+temperature; `287.0` J/(kg·K) as the density gas constant; convective triggers as absolute
+hPa; `p_stat` cubically extrapolated at the lid. When something behaves oddly, look for a
+constant that was true at 1 bar and 288 K.
 
-- Coriolis / centrifugal sign and projection errors: ATURAN `8b284cb`, `4201957`;
-  ATNEPT `024c37f`, `e412b1b`.
-- Mixture properties must be weighted by **mass** fraction, not mole: ATNEPT `c116d71`.
-- In-place Gauss–Seidel in the pressure solver is a threading defect: ATURAN `ffd0e0e`.
-- Report failures and limits in the README, including the measurements that did
-  not work out: ATURAN `74b4ded`, ATNEPT `34286b8`.
+**Fixes worth porting back upstream** (not yet applied to ATOM_Precipitation as of
+2026-08-11): the `t.x[-1]` out-of-bounds in `MoistConvection::findCloudBaseLFS`; the
+`m_node_weights` OpenMP race in `GetMean_2D/3D`; the UB in `get_temperatures_from_curve`;
+and `-MMD -MP` header dependencies in the Makefile.
 
-## Stated assumptions, open for revision
+Traps already solved elsewhere in the family — check before re-deriving:
+Coriolis/centrifugal signs (ATURAN `8b284cb`, `4201957`; ATNEPT `024c37f`, `e412b1b` —
+ATHAD's dynamics already agree, its *diagnostics* did not); mass- not mole-weighted mixture
+properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (ATURAN
+`ffd0e0e`); report failures and limits in the README (ATURAN `74b4ded`, ATNEPT `34286b8`).
 
-These were chosen to get a running model and are not settled results:
+## Open risks
 
-- **ω = 3.17e-4 rad/s** (a 5.5 h Hadean day, 4.35× modern)
-- **Insolation 0.71 S₀ = 966 W/m²** (faint young Sun at 4.4 Ga)
-- Albedo of a global cloud deck over a molten surface (~0.3–0.5)
-- Geothermal / magma-ocean bottom heat flux — at 1500 K plausibly comparable to
-  or larger than absorbed solar, so it cannot be omitted
-- Tropopause height, currently inherited from Earth and certainly wrong
-- The cp(T) polynomial fit range
-
-## Known open risks
-
-- **Boussinesq.** The solver rests on the Boussinesq buoyancy approximation, but
-  density varies by ~2 orders of magnitude across a 250 bar column. This may force
-  an anelastic or fully compressible formulation. The family's existing partial
-  answer is the ATJUP hydrostatic split (ported in ATURAN `302a51e`) — and it did
-  not cure the giants' problem.
-- **Radiation is the project.** The domain, composition and surface changes are
-  mechanical; the emissivity rewrite decides whether ATHAD produces a meaningful
-  Hadean climate. The sharpest single check is OLR at the top of the atmosphere:
-  it should sit near the **280–310 W/m² Nakajima / Komabayashi–Ingersoll runaway
-  limit**, not the ~287 kW/m² that σT⁴(1500 K) through a transparent atmosphere
-  would give.
-- Inherited from the parent (`ATOM_Precipitation/docs/co2_sensitivity.md`):
-  radiation mode 2 gives the correct-sign hydrological response but a
-  structurally weak temperature response on Earth. Hadean forcing is ~250× larger,
-  so this may not bite here — but it is not yet demonstrated.
+- **`t_skin` is not a fixed point.** It uses the clear-sky albedo while the cloud deck
+  raises it (albedo 0.4 would give 245.5 K). Closing it means iterating `t_skin` against
+  the model's own albedo. `initComposition()` prints both values and warns on divergence.
+- **The surface temperature is prescribed, not solved.** Every result is conditional on it.
+- **Boussinesq.** The solver rests on the Boussinesq buoyancy approximation, but density
+  varies by ~2 orders of magnitude across the column. This may force an anelastic or
+  compressible formulation. The family's partial answer is the ATJUP hydrostatic split
+  (ported in ATURAN `302a51e`) — and it did not cure the giants' problem. **Untested here.**
+- **Deep convection is inactive.** Its trigger thresholds (1000/970/900/800 hPa) are
+  absolute Earth surface pressures and never fire at 250 bar. They need to become
+  fractions of surface pressure.
+- `time_start/end/step` remain because the time-slice loop is still structural, though only
+  one slice ever runs.
