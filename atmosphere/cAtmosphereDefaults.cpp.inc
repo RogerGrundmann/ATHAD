@@ -37,6 +37,8 @@ void cAtmosphereModel::SetDefaultConfig() {
   CategoryIceScheme = 2;
   p_0 = 1013.25;
   t_0 = 273.15;
+  t_surf_equator = 1500.0;
+  t_surf_pole = 1450.0;
   r_air = 1.2041;
   r_0_water = 997.0;
   t_equat_modern = 15.4;

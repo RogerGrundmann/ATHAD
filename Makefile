@@ -2,7 +2,12 @@
 # Builds the atmosphere model, the Python interface and the CLI interface.
 # Forked from ATOM_Precipitation @ 1e3f319; the hydrosphere half is not part of ATHAD.
 
-CFLAGS = -ggdb -Wall -ffast-math -march=native -fPIC -std=c++17 -Ilib -Iatmosphere -Itinyxml2 -fopenmp
+# -MMD -MP emits a .d file per object listing the headers it includes, so editing a
+# header rebuilds every .cpp that pulls it in. Without this the build silently keeps
+# stale objects — and ATHAD's physics lives almost entirely in headers (ThermoAtm.h,
+# MoistConvection.h, SaturationAdjustment.h, MultiLayerRadiation.h, TurbulenceAtm.h),
+# so a header edit that does not recompile is the normal case, not the exception.
+CFLAGS = -ggdb -Wall -ffast-math -march=native -fPIC -std=c++17 -Ilib -Iatmosphere -Itinyxml2 -fopenmp -MMD -MP
 
 # Common files for the shared lib(libathad.a)
 LIB_OBJ = lib/Array.o lib/Array_2D.o lib/Array_1D.o lib/Config.o lib/Utils.o lib/FFT.o
@@ -63,8 +68,13 @@ tinyxml2/%.o: tinyxml2/%.cpp
 %.o: %.cpp
 	$(CXX) $(CFLAGS) -c $<
 
+# Header dependencies emitted by -MMD, one .d per object. The '-' suppresses the
+# "no such file" noise on the first build, before any .d exists.
+DEPS = $(LIB_OBJ:.o=.d) $(ATM_OBJ:.o=.d) $(XML_OBJ:.o=.d) $(ATM_CLI_OBJ:.o=.d)
+-include $(DEPS)
+
 .PHONY: clean
 clean:
-	\rm -vf $(LIB_OBJ) $(ATM_OBJ) $(XML_OBJ) $(ATM_CLI_OBJ) $(PARAM_OUTPUTS) cli/had libathad.a
+	\rm -vf $(LIB_OBJ) $(ATM_OBJ) $(XML_OBJ) $(ATM_CLI_OBJ) $(DEPS) $(PARAM_OUTPUTS) cli/had libathad.a
 	\rm -vf python/*.so python/*.o python/pyathad.cpp
 	\rm -rf python/build/

@@ -434,170 +434,55 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
     auto begin = std::chrono::high_resolution_clock::now();
 
     // ========================================================================
-    // Temperature Variables Declaration
+    // ATHAD: prescribed Hadean surface temperature
     // ========================================================================
-    double t_equat = 0.0; 
-    double t_pole = 0.0; 
-    double t_equat_add = 0.0; 
-    double t_pole_add = 0.0; 
-    double t_global_mean_exp = 0.0;
-    double t_equat_curr = 0.0; 
-    double t_pole_curr = 0.0; 
-    double t_equat_prev = 0.0; 
-    double t_pole_prev = 0.0;
+    //
+    // The inherited Earth code built t.x[0] from the NASA surface field (Ma == 0) or a
+    // Scotese pole→equator parabola (Ma > 0), with EarthByte reconstruction corrections
+    // between slices. None of that exists for 4.4 Ga, so ATHAD prescribes the surface
+    // temperature directly from two parameters and keeps the parabola SHAPE only:
+    //
+    //     T_s(j) = (t_surf_pole - t_surf_equator) * parabola(ratio) + t_surf_pole
+    //
+    // with parabola(x) = x² - 2x, ratio = j / ((jm-1)/2), so ratio = 1 at the equator
+    // (parabola = -1, giving t_surf_equator) and ratio = 0 or 2 at the poles (parabola = 0,
+    // giving t_surf_pole). This is the identical algebra the paleo branch used, which keeps
+    // the correspondence with ATOM_Precipitation readable.
+    //
+    // t.x[0] is stored non-dimensional (T / t_0), the convention Step 8 reads back.
+    //
+    // ASSUMPTION, not a result: a 250 bar steam atmosphere is optically thick enough that
+    // the equator-pole surface contrast should be small, and 1500/1450 K is a guess at it.
+    // See CLAUDE.md, "Stated assumptions".
 
-    // ========================================================================
-    // Step 1: Fix NASA Temperature Data Artifact at 180°E
-    // ========================================================================
-    if (is_first_time_slice()) {
-        int k_half = (km - 1) / 2;
+    const double inv_t0    = 1.0 / t_0;
+    const double d_j_half  = 0.5 * (jm - 1);
 
-        // Interpolate bad data at dateline
-        #pragma omp parallel for
-        for (int j = 0; j < jm; j++) {
-            temperature_NASA.y[j][k_half] = 
-                0.5 * (temperature_NASA.y[j][k_half + 1] + 
-                       temperature_NASA.y[j][k_half - 1]);              // [°C]
-        }
-    }
+    double t_surf_sum = 0.0;
 
-    // ========================================================================
-    // Step 2: Initialize Temperature Field
-    // ========================================================================
-    const double inv_t0 = 1.0 / t_0;
-
-    if (is_first_time_slice()) {
-        // First time slice: Use NASA data directly
-        #pragma omp parallel for collapse(2)
-        for (int k = 0; k < km; k++) {
-            for (int j = 0; j < jm; j++) {
-                t.x[0][j][k] = (temperature_NASA.y[j][k] + t_0) * inv_t0;// Non-dimensional
-            }
-        }
-    }
-
-    // ========================================================================
-    // Step 3: Apply EarthByte Reconstruction (if enabled)
-    // ========================================================================
-    if (!is_first_time_slice() && use_earthbyte_reconstruction) {
-        #pragma omp parallel for collapse(2)
-        for (int k = 0; k < km; k++) {
-            for (int j = 0; j < jm; j++) {
-                double val_nd = (t.x[0][j][k] + t_0) * inv_t0;
-                t.x[0][j][k] = val_nd;                                  // Non-dimensional
-                temp_reconst.y[j][k] = val_nd;                          // Store for later use
-            }
-        }
-    }
-
-    // ========================================================================
-    // Step 4: Extract Temperature Values from Curves
-    // ========================================================================
-    t_equat_modern = get_temperatures_from_curve(0, m_equat_temperature_curve);
-    t_pole_modern = get_temperatures_from_curve(0, m_pole_temperature_curve);
-    t_global_mean_exp = get_temperatures_from_curve(*get_current_time(), 
-                                                     m_global_temperature_curve);
-
-    if (is_first_time_slice()) {
-        t_global_mean_exp = get_temperatures_from_curve(0, m_global_temperature_curve);
-        t_global_mean = GetMean_2D(jm, km, temperature_NASA);
-    }
-
-    t_global_mean = get_temperatures_from_curve(*get_current_time(), 
-                                                 m_global_temperature_curve);
-
-    // ========================================================================
-    // Step 5: Calculate Temperature Increments (for non-first time slices)
-    // ========================================================================
-    // Current-Ma equatorial/polar temperatures from the Scotese curves. These
-    // ALONE define the parabolic paleo profile applied in Step 7 — there is no
-    // dependence on any foregoing Ma. Computed for every paleo slice, whether or
-    // not a preceding slice exists, so a single-Ma run (time_start == time_end)
-    // works without prior-slice reconstruction.
-    if (*get_current_time() > 0) {
-        t_equat = get_temperatures_from_curve(*get_current_time(), m_equat_temperature_curve);
-        t_pole  = get_temperatures_from_curve(*get_current_time(), m_pole_temperature_curve);
-    }
-
-    // The inter-slice increments below feed ONLY the optional EarthByte
-    // reconstruction correction and need a preceding slice — get_previous_time()
-    // throws on the first slice — so keep them guarded by !is_first_time_slice().
-    if (!is_first_time_slice()) {
-        // Temperature changes between time steps
-        t_equat_add = get_temperatures_from_curve(*get_current_time(), m_equat_temperature_curve)
-                    - get_temperatures_from_curve(*get_previous_time(), m_equat_temperature_curve);
-
-        t_pole_add = get_temperatures_from_curve(*get_current_time(), m_pole_temperature_curve)
-                   - get_temperatures_from_curve(*get_previous_time(), m_pole_temperature_curve);
-
-        // Current and previous values
-        t_equat_curr = get_temperatures_from_curve(*get_current_time(), m_equat_temperature_curve);
-        t_equat_prev = get_temperatures_from_curve(*get_previous_time(), m_equat_temperature_curve);
-        t_pole_curr = get_temperatures_from_curve(*get_current_time(), m_pole_temperature_curve);
-        t_pole_prev = get_temperatures_from_curve(*get_previous_time(), m_pole_temperature_curve);
-    }
-
-    // ========================================================================
-    // Step 6: Print Diagnostics
-    // ========================================================================
-    std::cout.precision(3);
-    std::cout << "\n       Time slice of Paleo-AGCM: ...................... Ma = " << Ma << " million years\n";
-    std::cout << "\n       Equatorial temperature increase: ................ t_equat_add      = " << t_equat_add << " °C";
-    std::cout << "\n       Polar temperature increase: ..................... t_pole_add       = " << t_pole_add << " °C";
-    std::cout << "\n       Equatorial temperature at paleo times: .......... t_equat_paleo    = " << t_equat << " °C";
-    std::cout << "\n       Polar temperature at paleo times: ............... t_pole_paleo     = " << t_pole << " °C";
-    std::cout << "\n       Mean temperature at paleo times: ................ t_global_mean    = " << t_global_mean << " °C";
-    std::cout << "\n       Expected mean temperature at paleo times: ....... t_global_mean_exp= " << t_global_mean_exp << " °C";
-    std::cout << "\n       Equatorial temperature at modern times: ......... t_modern_equat   = " << t_equat_modern << " °C";
-    std::cout << "\n       Polar temperature at modern times: .............. t_modern_pole    = " << t_pole_modern << " °C\n\n";
-
-    // ========================================================================
-    // Step 7: Apply Latitudinal Temperature Distribution
-    // ========================================================================
-    const double d_j_half = 0.5 * (jm - 1);
-    const double t_0_inv = 1.0 / t_0;
-
-    // Convert to non-dimensional
-    t_equat = (t_equat + t_0) * t_0_inv;
-    t_pole = (t_pole + t_0) * t_0_inv;
-    t_equat_add = (t_equat_add + t_0) * t_0_inv;
-    t_pole_add = (t_pole_add + t_0) * t_0_inv;
-
-    // Effective temperature gradients
-    const double delta_equat_nd = (t_equat_curr - t_equat_prev) / t_0;
-    const double delta_pole_nd = (t_pole_curr - t_pole_prev) / t_0;
-    const double delta_t_eff = delta_pole_nd - delta_equat_nd;
-    const double t_eff = t_pole - t_equat;
-
-    // Modern slice (Ma == 0) retains the observed NASA field assigned in Step 2;
-    // paleo slices (Ma > 0) get the Scotese pole→equator parabola.
-    const bool modern = (*get_current_time() == 0);
-
-    #pragma omp parallel for collapse(2)
+    #pragma omp parallel for collapse(2) reduction(+: t_surf_sum)
     for (int k = 0; k < km; k++) {
         for (int j = 0; j < jm; j++) {
-            double ratio = (double)j / d_j_half;
+            const double ratio = (double)j / d_j_half;
+            const double T_s   = (t_surf_pole - t_surf_equator) * AtomUtils::parabola(ratio)
+                               + t_surf_pole;                            // [K]
 
-            if (!use_earthbyte_reconstruction) {
-                // Standard parabolic pole-to-pole distribution, built solely from
-                // the current Ma's Scotese equator/pole temperatures — no foregoing
-                // Ma required. Ma == 0 keeps the NASA field set in Step 2.
-                if (!modern) {
-                    t.x[0][j][k] = t_eff * AtomUtils::parabola(ratio) + t_pole;
-                }
-            } else {
-                // EarthByte reconstruction active
-                if (*get_current_time() == 0) {
-                    // Initial state from NASA data
-                    t.x[0][j][k] = (temperature_NASA.y[j][k] + t_0) * t_0_inv;
-                } else {
-                    // Apply correction to maintain latitudinal gradient evolution
-                    double correction_nd = delta_t_eff * AtomUtils::parabola(ratio) + delta_pole_nd;
-                    t.x[0][j][k] = temp_reconst.y[j][k] + correction_nd;
-                }
-            }
+            t.x[0][j][k] = T_s * inv_t0;                                 // non-dimensional
+            t_surf_sum  += T_s;
         }
     }
+
+    // Diagnostic mean, in °C to match the units the reporting code expects.
+    t_global_mean = t_surf_sum / (double)(jm * km) - t_0;
+
+    std::cout.precision(4);
+    std::cout << "\n       ATHAD: prescribed Hadean surface temperature"
+              << "\n       equator ......................................... t_surf_equator   = "
+              << t_surf_equator << " K"
+              << "\n       pole ............................................ t_surf_pole      = "
+              << t_surf_pole << " K"
+              << "\n       area mean ....................................... t_global_mean    = "
+              << t_global_mean + t_0 << " K\n\n";
 
     // ========================================================================
     // Step 8: Vertical Temperature Profile & Potential Temperature
@@ -889,81 +774,16 @@ void cAtmosphereModel::initTemperatureData(int Ma) {
     std::cout << "      Initialization completed in " << duration.count() << " ms\n";
 }
 /*
+*  ATHAD: the Scotese et al. (2021) paleo-temperature curve loaders and the
+*  interpolating accessor get_temperatures_from_curve() lived here. They are gone:
+*  the curves stop at ~540 Ma and nothing reaches 4.4 Ga, so ATHAD prescribes its
+*  surface temperature from t_surf_equator / t_surf_pole instead (initTemperatureData).
 *
+*  The accessor was also unsafe as written — it dereferenced m.begin() and decremented
+*  m.end() BEFORE its own m.size() < 2 guard, so calling it on an empty map was
+*  undefined behaviour rather than the intended NAN return. With the curves removed
+*  that path was live on every printDataAtm() call.
 */
-void cAtmosphereModel::load_global_temperature_curve(){
-    load_map_from_file(temperature_global_file, m_global_temperature_curve);
-/*
-    cout << "   m_global_temperature_curve" << endl;
-    for(const auto &printout : m_global_temperature_curve){
-        cout << printout.first << " ..... " << printout.second << '\n';
-    }
-*/
-}
-/*
-*
-*/
-void cAtmosphereModel::load_equat_temperature_curve(){
-    load_map_from_file(temperature_equat_file, m_equat_temperature_curve);
-/*
-    cout << "   m_equat_temperature_curve" << endl;
-    for(const auto &printout : m_equat_temperature_curve){
-        cout << printout.first << " ..... " << printout.second << '\n';
-    }
-*/
-}
-/*
-*
-*/
-void cAtmosphereModel::load_pole_temperature_curve(){
-    load_map_from_file(temperature_pole_file, m_pole_temperature_curve);
-/*
-    cout << "   m_pole_temperature_curve" << endl;
-    for(const auto &printout : m_pole_temperature_curve){
-        cout << printout.first << " ..... " << printout.second << '\n';
-    }
-*/
-}
-/*
-*
-*/
-float cAtmosphereModel::get_temperatures_from_curve(float time, 
-    std::map<float, float>& m) const{
-    if(time < m.begin()->first 
-        || time > (--m.end())->first){
-        std::cout << "Input time out of range: " << time << std::endl;    
-        return NAN;
-    }
-    if(m.size() < 2){
-        std::cout << "No enough data in map m" << std::endl;
-        return NAN;
-    }
-    map<float, float>::const_iterator upper = m.begin(), 
-        bottom = ++m.begin(); 
-    for(map<float, float>::const_iterator it = m.begin();
-            it != m.end(); ++it){
-        if(time < it->first){
-            bottom = it;
-            break;
-        }else{
-            upper = it;
-        }
-    }
-/*
-    std::cout << "   get_temperatures_from_curve" << std::endl;
-    std::cout << "   Ma ->   " << upper->first << " " 
-        << bottom->first << std::endl;
-    std::cout << "   temp-range ->   "<< upper->second 
-        << " " << bottom->second << std::endl;
-    std::cout << "   temp-interpolation ->   " 
-        << upper->second + (time - upper->first) 
-       /(bottom->first - upper->first) 
-        * (bottom->second - upper->second) << std::endl << std::endl;
-*/
-    return upper->second + (time - upper->first) 
-       /(bottom->first - upper->first) 
-        * (bottom->second - upper->second);
-}
 /*
 *
 */

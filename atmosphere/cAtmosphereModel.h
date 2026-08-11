@@ -124,7 +124,6 @@ public:
     std::vector<std::vector<int> > i_landscape;
 
     std::map<float,float> m;
-    float get_temperatures_from_curve(float time, std::map<float, float>& m) const;
 
     std::set<float>::const_iterator get_current_time() const{
         if(m_time_list.empty()){
@@ -227,15 +226,6 @@ private:
 
     bool has_printed_welcome_msg;
 
-    bool is_global_temperature_curve_loaded(){
-        return !m_global_temperature_curve.empty();
-    }
-    bool is_equat_temperature_curve_loaded(){
-        return !m_equat_temperature_curve.empty();
-    }
-    bool is_pole_temperature_curve_loaded(){
-        return !m_pole_temperature_curve.empty();
-    }
 
     int panorama_cnt, iter_n;
 
@@ -280,9 +270,6 @@ private:
     std::set<float> m_time_list;
     std::set<float>::const_iterator m_current_time;
 
-    std::map<float,float> m_global_temperature_curve;
-    std::map<float,float> m_equat_temperature_curve;
-    std::map<float,float> m_pole_temperature_curve;
 
     std::vector<double> alfa;
     std::vector<double> beta;
@@ -354,9 +341,6 @@ private:
         const std::vector<std::vector<double> >& dw_orog,
         const std::vector<std::vector<double> >& dw_radial);
     void run_3D_loop(int Ma);
-    void load_global_temperature_curve();
-    void load_equat_temperature_curve();
-    void load_pole_temperature_curve();
     void calculate_node_weights();
     void init_steps();
     void init_tropopause_layers();
@@ -402,7 +386,7 @@ private:
         return (exp(zeta * span) - 1.0) * L_atm / span;
     }
 
-    void init_topography(const string &topo_filename);
+    void init_topography();                                             // ATHAD: flat featureless surface, no file read
     void save_data();
     void save_array(const string& fn, const Array& a);
     std::vector<Array*> restart_arrays();   // the prognostic 3D fields a checkpoint serializes

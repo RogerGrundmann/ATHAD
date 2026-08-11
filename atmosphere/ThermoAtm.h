@@ -583,23 +583,19 @@ public:
         cout << endl << endl << endl << "      print_data_atm" << endl;
         cout << endl << " properties of the atmosphere at the surface: " << endl;
 
-        double temperature_NASA_average, temperature_average, temperature_expected_average,
-               precipitablewater_average, precipitation_average, precipitation_NASA_average,
+        double temperature_average,
+               precipitablewater_average, precipitation_average,
                co2_average, Evaporation_average, Evaporation_Dalton_average,
                Evaporation_Meyer_average, Evaporation_Rohwer_average;
 
         #pragma omp parallel sections
         {
             #pragma omp section
-                { temperature_NASA_average    = AtomUtils::GetMean_2D(m.jm, m.km, m.temperature_NASA); }
-            #pragma omp section
                 { temperature_average         = (AtomUtils::GetMean_3D(m.jm, m.km, m.t) - 1.0) * m.t_0; }
             #pragma omp section
                 { precipitablewater_average   = AtomUtils::GetMean_2D(m.jm, m.km, m.precipitable_water); }
             #pragma omp section
                 { precipitation_average       = 365.0 * AtomUtils::GetMean_3D(m.jm, m.km, m.Precipitation); }
-            #pragma omp section
-                { precipitation_NASA_average  = 365.0 * AtomUtils::GetMean_2D(m.jm, m.km, m.precipitation_NASA); }
             #pragma omp section
                 { co2_average                 = AtomUtils::GetMean_2D(m.jm, m.km, m.co2_total); }
             #pragma omp section
@@ -611,8 +607,11 @@ public:
             #pragma omp section
                 { Evaporation_average         = 365.0 * AtomUtils::GetMean_2D(m.jm, m.km, m.Evaporation); }
         }
-        temperature_expected_average =
-            m.get_temperatures_from_curve(*m.get_current_time(), m.m_global_temperature_curve);
+        // ATHAD: no "expected" mean temperature. That line looked the value up in the
+        // Scotese global paleo-temperature curve, which is empty here (no curve reaches
+        // 4.4 Ga) — and get_temperatures_from_curve() dereferences begin() and
+        // decrements end() without checking emptiness, so the lookup was UB on an empty
+        // map. Removed together with the curve machinery rather than guarded.
 
         cout.precision(2);
         cout << endl << endl;
@@ -667,10 +666,6 @@ public:
         }
 
         row(" precipitable water average", precipitablewater_average, " mm",
-            " precipitation NASA average per year", precipitation_NASA_average, " mm/a",
-            " precipitation NASA average per day", precipitation_NASA_average / 365.0, " mm/d");
-
-        row(" precipitable water average", precipitablewater_average, " mm",
             " Evaporation_Dalton_average per year", Evaporation_Dalton_average, " mm/a",
             " Evaporation_Dalton_average per day", Evaporation_Dalton_average / 365.0, " mm/d");
 
@@ -689,17 +684,13 @@ public:
         cout << endl;
 
         cout << setiosflags(ios::left) << setw(40) << setfill('.')
-             << " temperature_NASA_average" << " = " << resetiosflags(ios::left)
-             << setw(7) << fixed << setfill(' ') << temperature_NASA_average
-             << setw(6) << " deg" << "   "
-             << setiosflags(ios::left) << setw(40) << setfill('.')
              << " temperature_average" << " = " << resetiosflags(ios::left)
              << setw(7) << fixed << setfill(' ') << temperature_average
              << setw(6) << " deg" << "   "
              << setiosflags(ios::left) << setw(40) << setfill('.')
-             << " temperature_expected_average" << " = " << resetiosflags(ios::left)
-             << setw(7) << fixed << setfill(' ') << temperature_expected_average
-             << setw(6) << " deg" << endl << endl << endl;
+             << " temperature_average" << " = " << resetiosflags(ios::left)
+             << setw(7) << fixed << setfill(' ') << temperature_average + m.t_0
+             << setw(6) << " K" << endl << endl << endl;
 
         cout << "      print_data_atm ended" << endl;
     }
@@ -710,15 +701,12 @@ public:
         using namespace std;
         cout << endl << endl << endl << "      AGCM: co2_atmosphere" << endl;
 
-        double t_paleo_add = 0.0;
-
-        // The paleo CO2 increment is defined relative to the preceding slice. On a
-        // single-Ma run there is no foregoing slice to difference against (and
-        // get_previous_time() would throw), so leave t_paleo_add = 0 in that case.
-        if ((!m.use_NASA_temperature || *m.get_current_time() > 0) && !m.is_first_time_slice())
-            t_paleo_add =
-                m.get_temperatures_from_curve(*m.get_current_time(),  m.m_global_temperature_curve)
-              - m.get_temperatures_from_curve(*m.get_previous_time(), m.m_global_temperature_curve);
+        // ATHAD is a single epoch, so there is no preceding slice to difference against
+        // and no paleo-temperature curve to difference with — the increment is zero by
+        // construction. NOTE: everything below is an Earth ppm regression in t_equat_modern
+        // and is meaningless for a 20 %-by-mass CO2 atmosphere; it is replaced when co2
+        // becomes a mass fraction.
+        const double t_paleo_add = 0.0;
 
         m.co2_paleo = t_paleo_add * (3.2886 * t_paleo_add
             + 6.5772 * m.t_equat_modern - 32.8859);

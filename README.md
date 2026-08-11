@@ -74,6 +74,38 @@ the measurements that did not work out — rather than what is intended.
 
 1. **Bootstrap (done).** The tree builds and links as `libathad.a` + `cli/had`.
    Hydrosphere, paleogeography and the NASA/Scotese data pipeline are removed.
-   Physics at this point is still the inherited Earth physics.
+
+2. **Flat surface (done).** `init_topography()` prescribes `h ≡ 0`,
+   `i_topography ≡ 0`; the run reports 65341 surface points, all water. The surface
+   temperature is prescribed from `t_surf_equator` / `t_surf_pole` (1500 K / 1450 K,
+   area mean 1483 K) instead of read from a paleo curve. A 2-iteration run completes
+   and writes 20 ParaView files, **bit-identically at 1, 4 and 8 OpenMP threads**.
+
+   Three defects had to be fixed to get there, all inherited and all latent on Earth:
+
+   - `MoistConvection::findCloudBaseLFS` indexed `t.x[-1][j][k]`. Its scan for
+     `p_stat <= 1000 hPa` leaves the index at its `-1` sentinel when no level
+     qualifies; the two other consumers of that index guard the sentinel, this one
+     did not. Latent on Earth (p_surf ≈ 1013 hPa always fires by level 1), live on a
+     column that sits entirely above 1000 hPa.
+   - `AtomUtils::GetMean_2D/3D` built the global `m_node_weights` lazily with
+     `clear()` + `push_back()`. `printDataAtm()` calls them from ~9 concurrent OpenMP
+     sections, so the first call raced several threads through the same reallocation
+     and corrupted the heap. It was masked in the parent only because an earlier
+     single-threaded `GetMean_2D(temperature_NASA)` happened to run first.
+   - `get_temperatures_from_curve()` dereferenced `begin()` and decremented `end()`
+     *before* its own `size() < 2` guard — undefined behaviour on an empty map, which
+     is what every call became once the Scotese curves were gone.
+
+   The Makefile also gained `-MMD -MP` header dependencies; without them, edits to
+   the headers where nearly all the physics lives did not trigger a rebuild.
+
+   **What is not yet right.** The physics is still Earth physics on a 16 km shell.
+   The column mean settles near 332 K and the prescribed 1500 K survives only at the
+   domain top, because radiation still relaxes toward an Earth-like target, the
+   saturation formula is still Magnus (capped ~101 °C), and the shell is ~20× too
+   shallow for a 250 bar atmosphere. Deep convection is inactive: its trigger
+   thresholds (1000/970/900/800 hPa) are absolute Earth surface pressures and never
+   fire here. Phases 2–5 address these.
 
 *(Further entries are added as each phase is measured.)*

@@ -36,6 +36,8 @@ int Ma_switch;
 int CategoryIceScheme;
 double p_0;
 double t_0;
+double t_surf_equator;
+double t_surf_pole;
 double r_air;
 double r_0_water;
 double t_equat_modern;

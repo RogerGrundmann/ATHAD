@@ -377,6 +377,24 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.t_0 = <double> value
     
+    property t_surf_equator:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.t_surf_equator
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.t_surf_equator = <double> value
+    
+    property t_surf_pole:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.t_surf_pole
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.t_surf_pole = <double> value
+    
     property r_air:
         def __get__(Atmosphere self):
             self._check_alive()

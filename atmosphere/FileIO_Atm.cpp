@@ -27,95 +27,29 @@ cout << endl << endl << endl << "      AGCM: read_Atmosphere_Surface_Data ......
     if(!has_printed_welcome_msg)  print_welcome_msg();
 
 
-// loading topography
-    bathymetry_name = std::to_string(Ma) + BathymetrySuffix;
+// The Hadean surface is featureless — there is no topography to load. The variable
+// keeps its inherited name because it is only an output-file stem downstream
+// (UtilsAtm::writeFile, the ParaView writers, AtmospherePlotData) and renaming it
+// would break the symbol-for-symbol correspondence with ATOM_Precipitation.
+    bathymetry_name = "Hadean";
 
-    std::cout << endl << "      topography given by the x-y-z data set:    " 
-        << bathymetry_name.c_str() << endl;
-
-    init_topography(bathymetry_path + "/" + bathymetry_name);
-    { auto dot = bathymetry_name.rfind('.'); if(dot != string::npos) bathymetry_name.erase(dot); }
-
+    init_topography();
 
 
 
-// temperature file loading for around 500 Mio years
-    #pragma omp parallel sections
-    {
-        #pragma omp section
-        { if(!is_global_temperature_curve_loaded()) load_global_temperature_curve(); }// loading of global temperature files from Scotese et al., ESR 2021 in °C
-        #pragma omp section
-        { if(!is_equat_temperature_curve_loaded()) load_equat_temperature_curve(); }  // loading of equatorial temperature files from Scotese et al., ESR 2021 in °C
-        #pragma omp section
-        { if(!is_pole_temperature_curve_loaded()) load_pole_temperature_curve(); }    // loading of polar temperature files from Scotese et al., ESR 2021 in °C
-    }
 
-
-// preparing temperature, precipitation and velocity data file constructed by reconstruct_atom_data.py
-    string Name_SurfaceTemperature_File  = temperature_file;            // if  Ma > 0, temperature file name
-    string Name_SurfaceNASATemperature_File  = temperature_file;        // if  Ma = 0, NASA temperature file name
-    string Name_SurfaceNASAPrecipitation_File = precipitation_file;     // precipitation file name
-
-    if((*get_current_time() > 0)&&(use_earthbyte_reconstruction)){      // reading temperature, precipitation, v and w in case Ma > 0
-        Name_SurfaceTemperature_File = output_path
-            + std::to_string(Ma) + "Ma_Reconstructed_Temperature.xyz";  // reconstructed temperature in °C
-
-        Name_SurfaceNASAPrecipitation_File = output_path
-            + std::to_string(Ma) + "Ma_Reconstructed_Precipitation.xyz";// reconstructed precipitation in mm/d
-
-        velocity_v_file = output_path + std::to_string(Ma)
-            + "Ma_Reconstructed_wind_v.xyz";                            // reconstructed v-velocity in m/s
-
-        velocity_w_file = output_path + std::to_string(Ma)
-            + "Ma_Reconstructed_wind_w.xyz";                            // reconstructed w-velocity in m/s
-
-
-        struct stat info;                                               // initiates the search of corrupted reconstruction files
-
-        if(stat(output_path.c_str(), &info) != 0){                      // if output path does not exist mkdir is applied
-             mkdir(output_path.c_str(), 0777);
-        }
-
-
-        if(stat(Name_SurfaceTemperature_File.c_str(), &info) != 0 ||    // if any file is corrupt an error message is posted,  0 == executed successfully
-           stat(Name_SurfaceNASAPrecipitation_File.c_str(), &info) != 0 ||
-           stat(velocity_v_file.c_str(), &info) != 0 ||
-           stat(velocity_w_file.c_str(), &info) != 0){
-
-            std::string cmd_str = "python " + reconstruction_script_path// python ../reconstruction/reconstruct_atom_data.py, runs the python code
-                + " " + std::to_string(Ma - time_step)                  // sys.argv[1], preceding timestep
-                + " " + std::to_string(Ma)                              // sys.argv[2], recent timestep
-                + " " + output_path                                     // sys.argv[3], output path where to store reconstructed files
-                + " " + BathymetrySuffix                                // sys.argv[4], BathymetrySuffix here 'Ma_smooth.xyz'
-                + " atm";                                               // sys.argv[5], here Atmosphere code (atm or hyd) applied
-
-            int ret = system(cmd_str.c_str());                          // executes an external operating system command stored in std::string cmd_str, here reconstruct_atom_data.py
-
-            std::cout << " reconstruction script returned: "            // return value ret = 0 means successful ended, ret = -1 means the command processor for python cannot be created
-                << ret << std::endl;
-        } 
-    }
-
-
-    #pragma omp parallel sections
-    {
-        #pragma omp section
-        {
-            if((*get_current_time() > 0) && (use_earthbyte_reconstruction)){
-                read_IC(Name_SurfaceTemperature_File, t.x[0], jm, km);
-            }
-        }
-        #pragma omp section
-        {
-            read_IC(Name_SurfaceNASATemperature_File, temperature_NASA.y, jm, km);
-            read_IC(Name_SurfaceNASAPrecipitation_File, precipitation_NASA.y, jm, km);
-
-//            read_IC(velocity_v_file, velocity_v_NASA.y, jm, km);                // reconstructed v-velocity in m/s
-
-//            read_IC(velocity_w_file, velocity_w_NASA.y, jm, km);                // reconstructed v-velocity in m/s
-        }
-    }
-
+// ATHAD: there is no surface data to read.
+//
+//  The modern Earth run anchored its initial state on observation and reconstruction:
+//  the Scotese et al. (2021) global/equatorial/polar paleo-temperature curves, the NASA
+//  surface temperature and precipitation fields, and — for Ma > 0 — an EarthByte/pygplates
+//  reconstruction invoked as an external python script. None of that reaches the Hadean:
+//  the Scotese curves stop at ~540 Ma and there is no observational field for 4.4 Ga.
+//
+//  ATHAD therefore PRESCRIBES its surface state instead of reading it. The surface
+//  temperature comes from the t_surf_equator / t_surf_pole parameters, applied as a
+//  pole-to-equator parabola in initTemperatureData(). See CLAUDE.md — this is the same
+//  reason radiation cannot run in the inherited mode 5 (relaxation toward a Scotese target).
 
     cout << "      AGCM: read_Atmosphere_Surface_Data ended ................." << endl << endl;
 
@@ -401,263 +335,47 @@ void cAtmosphereModel::AtmospherePlotData(const string &Name_Bathymetry_File){
 /*
 *
 */
-void cAtmosphereModel::init_topography(const string &topo_filename){
+void cAtmosphereModel::init_topography(){
 
     cout << endl << endl << endl << "      AGCM: init_topography" << endl;
 
-    ifstream ifile(topo_filename);
+//  ATHAD: the Hadean surface is featureless.
+//
+//  The topography of the Earth at ~4.4 Ga is unknown, so ATHAD prescribes a flat
+//  global surface rather than guessing one. This is a physical choice, not a
+//  missing input file: there is no bathymetry to read, no land/sea mask, no
+//  coastline and no orography.
+//
+//  Everything the inherited Earth code derives from topography is pinned to its
+//  ocean/sea-level default here:
+//      h            = 0  -> AtomUtils::is_land() is false at every point, so all
+//                           land branches in the RHS, BCs, turbulence, moist
+//                           convection and ice schemes become dead by construction.
+//      i_topography = 0  -> the surface is grid level 0 in every column.
+//      Topography, Landscape, i_landscape = height of level 0 (i.e. 0 m).
+//
+//  Consequently the whole apparatus this function carried for the modern Earth —
+//  the x-y-z file read, the peak/needle smoothing, the orographic slope cap and the
+//  targeted massif smoothing, all of which existed to tame the Himalaya/Tibet
+//  rampart that seeded a pressure-divergence runaway — has no subject and is gone.
+//  Do not reintroduce it. See CLAUDE.md, invariant 1.
 
-    if(! ifile.is_open()){
-        std::cerr << "ERROR: could not open Name_Bathymetry_File file: " 
-            <<  topo_filename << std::endl;
-        abort();
-    }
+    h.initArray(im, jm, km, 0.0);
 
-    double lon, lat, height;
-
-    for(int j = 0; j < jm && !ifile.eof(); j++){
-        for(int k = 0; k < km && !ifile.eof(); k++){
-
-            height = -999.0;                                            // in case the height is NaN
-
-            ifile >> lon >> lat >> height;
-
-            if(!(height > 0.0)){
-                h.x[0][j][k] = Topography.y[j][k] = 0.0;
-           }else{
-                Topography.y[j][k] = height;
-
-                for(int i = 0; i < im; i++){
-
-                    if(height > get_layer_height(i)){
-                        h.x[i][j][k] = 1.0;
-                    }else{
-                        i_topography[j][k] = i-1;
-                        break;
-                    }
-                }
-            }
-
-            if(ifile.fail()){
-                ifile.clear();
-                std::string tmp;
-                std::getline(ifile, tmp);
-                logger() << "bad data in topography at: " << lon << " " 
-                    << lat << " " << tmp << std::endl;
-            }   
-
-        }
-    }
-
-//  reduction and smoothing of peaks and needles in the topography
-    #pragma omp parallel for collapse(2) schedule(static)
-    for(int i = 0; i < im; i++){
-        for(int k = 1; k < km-1; k++){
-            for(int j = 1; j < jm-1; j++){
-
-                if((is_land(h, i, j, k))
-                     &&((is_air(h, i, j-1, k))
-                     &&(is_air(h, i, j+1, k)))){
-                    h.x[i][j][k] = 0.0;
-                }
-                if((is_land(h, i, j, k))
-                     &&((is_air(h, i, j, k-1))
-                     &&(is_air(h, i, j, k+1)))){
-                    h.x[i][j][k] = 0.0;
-                }
-
-            }
-        }
-    }
-
-    // Reset i_topography (and derived height arrays) to the OCEAN default BEFORE the
-    // recompute below, so the index is authoritatively re-derived from the (now peak-
-    // smoothed) h mask. Without this, a column whose land was FULLY cleared by the peak/
-    // needle smoothing above keeps the stale surface index it got at read time — there is
-    // no land→air transition left for the recompute to overwrite it — producing a "phantom
-    // mountain" (i_topography>=1 over open water). Those phantom columns are treated as
-    // fluid by the pressure solver (which keys on h) yet as terrain by the RHS/BCs (which
-    // key on i_topography), injecting an anomalous coastal Poisson pressure that drove the
-    // westerly-coast v/w velocity overshoot and the iter-357 NaN
-    // ([[project-coastal-pgrad-pathology]]). A phase-by-phase scan measured 2881 such
-    // columns appearing at the peak-smooth step and 353 surviving the recompute without
-    // this reset; with it, 0 remain.
-    #pragma omp parallel for collapse(2) schedule(static)
-    for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
-            i_topography[j][k] = 0;
-            i_landscape[j][k]  = get_layer_height(0);
-            Landscape.y[j][k]  = get_layer_height(0);
-        }
-    }
+    const double surface_height = get_layer_height(0);                  // 0 m by construction of the stretched grid
 
     #pragma omp parallel for collapse(2) schedule(static)
-    for(int i = 1; i < im; i++){
-        for(int k = 0; k < km; k++){
-            for(int j = 0; j < jm; j++){
-                if((is_air(h, i, j, k))&&(is_land(h, i-1, j, k))){
-                    i_topography[j][k] = i;
-                    i_landscape[j][k] = get_layer_height(i);
-                    Landscape.y[j][k] = get_layer_height(i);
-                }
-            }
-        }
-    }
-
-//  Orographic slope cap: limit the surface-index step between neighbouring LAND
-//  columns to at most max_surface_jump cells. A near-vertical topographic wall
-//  (the Himalaya/Tibet rampart jumps ~9 cells over one grid step) is the seed of the
-//  cliff-driven pressure-divergence runaway — the Poisson solver spreads that step's
-//  divergence source up the column and it blows up aloft (first NaN seen at ~12 km over
-//  Tibet). Capping the slope removes the seed while PRESERVING peak height (we only
-//  RAISE the low side, never cut peaks) and never converting ocean to land (ocean
-//  columns have i_topography==0 and are skipped, so coastlines are untouched). The cliff
-//  gets a broader, grid-resolvable apron so the flow deflects around a real mountain
-//  instead of an unresolved wall. Pure-raise relaxation converges to a slope-<=cap cone
-//  around each peak that stops where it meets terrain already within the cap.
-    {
-        const int max_surface_jump = 4;                      // max land-land surface-index step (tuning knob). NOTE (2026-06-09): tightening 4→2 was TESTED and made things WORSE — from-scratch it crashed at iter 338 (vs 483) and relocated the NaN to the Rockies (34°N/115°W). Global apron-broadening raises more land and seeds NEW steep edges elsewhere — too blunt a lever for the orographic-convergence seed. Reverted to 4. See [[project_upper_velocity_secular_growth]].
-        std::vector<std::vector<int>> surf = i_topography;   // working copy: first-air index (0 over ocean)
-        bool changed = true;
-        for(int guard = 0; changed && guard < im; ++guard){
-            changed = false;
-            std::vector<std::vector<int>> prev = surf;
-            for(int j = 0; j < jm; ++j){
-                const int jm1 = (j > 0)      ? j - 1 : 0;
-                const int jp1 = (j < jm - 1) ? j + 1 : jm - 1;
-                for(int k = 0; k < km; ++k){
-                    if(prev[j][k] == 0) continue;            // ocean column: never raise (keep coastline)
-                    const int km1 = (k - 1 + km) % km;
-                    const int kp1 = (k + 1)      % km;
-                    int ns = prev[j][k];                     // ocean neighbours (==0) give 0-cap < ns, so no-op
-                    ns = std::max(ns, prev[jm1][k] - max_surface_jump);
-                    ns = std::max(ns, prev[jp1][k] - max_surface_jump);
-                    ns = std::max(ns, prev[j][km1] - max_surface_jump);
-                    ns = std::max(ns, prev[j][kp1] - max_surface_jump);
-                    if(ns > prev[j][k]){ surf[j][k] = ns; changed = true; }
-                }
-            }
-        }
-        // Rebuild the land mask and derived surface arrays for every raised column.
-        for(int j = 0; j < jm; ++j){
-            for(int k = 0; k < km; ++k){
-                const int ns = surf[j][k];
-                if(ns > i_topography[j][k]){
-                    for(int i = i_topography[j][k]; i < ns; ++i) h.x[i][j][k] = 1.0;
-                    i_topography[j][k] = ns;
-                    i_landscape[j][k]  = get_layer_height(ns);
-                    Landscape.y[j][k]  = get_layer_height(ns);
-                    if(Topography.y[j][k] < get_layer_height(ns))
-                        Topography.y[j][k] = get_layer_height(ns);
-                }
-            }
-        }
-    }
-
-//  Targeted massif smoothing (2026-06-10, user-chosen root fix). The pure-raise slope cap
-//  above PRESERVES peak height, so the steep HIGH massifs (Himalaya/Tibet/Tian-Shan/Pamir)
-//  keep a near-vertical rampart even at slope==max_surface_jump. The base horizontal
-//  convergence at that rampart is the divergence source that saturates p_dyn at the ±ceiling
-//  (user saw an "equally high" p_dyn block + unnatural upwelling + awful v,w over the
-//  Himalaya, while the broad-but-not-steep South Pole stays clean) and drives the upper-
-//  troposphere velocity runaway / iter-493 NaN at the Pamir column
-//  ([[project-upper-velocity-secular-growth]]). Here we additionally SMOOTH i_topography
-//  (gentle 5-point 1-2-1, a few passes) ONLY over columns that are BOTH high AND steep —
-//  this LOWERS the peak and broadens the apron, cutting the slope (hence the convergence)
-//  below what the pure-raise cap alone can. Confined to the steep-high massif so plains,
-//  coasts, broad high terrain and the ocean are untouched. h.x is rebuilt consistently for
-//  BOTH raised and lowered columns to avoid the i_topography/h desync phantom-mountain bug
-//  ([[project-coastal-pgrad-pathology]]).
-    {
-        const int massif_high_thresh  = 6;   // only high orography (Pamir≈7; Tibet/Himalaya higher)
-        const int massif_steep_thresh = 3;   // only steep columns (|Δ surface-index| to a neighbour)
-        const int smooth_passes       = 2;   // gentle
-
-        std::vector<std::vector<char>> massif(jm, std::vector<char>(km, 0));
-        for(int j = 0; j < jm; ++j){
-            const int jm1 = (j > 0)      ? j - 1 : 0;
-            const int jp1 = (j < jm - 1) ? j + 1 : jm - 1;
-            for(int k = 0; k < km; ++k){
-                const int s = i_topography[j][k];
-                if(s < massif_high_thresh) continue;
-                const int km1 = (k - 1 + km) % km;
-                const int kp1 = (k + 1)      % km;
-                int d = std::abs(s - i_topography[jm1][k]);
-                d = std::max(d, std::abs(s - i_topography[jp1][k]));
-                d = std::max(d, std::abs(s - i_topography[j][km1]));
-                d = std::max(d, std::abs(s - i_topography[j][kp1]));
-                if(d >= massif_steep_thresh) massif[j][k] = 1;
-            }
-        }
-
-        std::vector<std::vector<int>> surf = i_topography;
-        for(int pass = 0; pass < smooth_passes; ++pass){
-            std::vector<std::vector<int>> prev = surf;
-            for(int j = 0; j < jm; ++j){
-                const int jm1 = (j > 0)      ? j - 1 : 0;
-                const int jp1 = (j < jm - 1) ? j + 1 : jm - 1;
-                for(int k = 0; k < km; ++k){
-                    if(!massif[j][k]) continue;
-                    const int km1 = (k - 1 + km) % km;
-                    const int kp1 = (k + 1)      % km;
-                    const int sum = 4 * prev[j][k]
-                                  + prev[jm1][k] + prev[jp1][k]
-                                  + prev[j][km1] + prev[j][kp1];
-                    surf[j][k] = (sum + 4) / 8;   // rounded 1-2-1 average (centre weight 1/2)
-                }
-            }
-        }
-
-        // Rebuild h.x and derived surface arrays consistently (raise OR lower).
-        for(int j = 0; j < jm; ++j){
-            for(int k = 0; k < km; ++k){
-                if(!massif[j][k]) continue;
-                int ns = surf[j][k];
-                if(ns < 1) ns = 1;                 // never clear an interior massif column to ocean
-                const int old_s = i_topography[j][k];
-                if(ns == old_s) continue;
-                if(ns > old_s)
-                    for(int i = old_s; i < ns; ++i) h.x[i][j][k] = 1.0;   // raise: add land
-                else
-                    for(int i = ns; i < old_s; ++i) h.x[i][j][k] = 0.0;   // lower: remove land
-                i_topography[j][k] = ns;
-                i_landscape[j][k]  = get_layer_height(ns);
-                Landscape.y[j][k]  = get_layer_height(ns);
-                Topography.y[j][k] = get_layer_height(ns);
-            }
-        }
-    }
-
-
-
-// rewriting bathymetrical data from -180° _ 0° _ +180° coordinate system to 0°- 360°
-    #pragma omp parallel for schedule(dynamic)
     for(int j = 0; j < jm; j++){
-        move_data(Topography.y[j], km);
-        move_data(i_topography[j], km);
-        move_data(i_landscape[j], km);
-        move_data(Landscape.y[j], km);
-
-        for(int i = 0; i < im; i++){
-            move_data(h.x[i][j], km);
+        for(int k = 0; k < km; k++){
+            i_topography[j][k] = 0;
+            i_landscape[j][k]  = surface_height;
+            Topography.y[j][k] = surface_height;
+            Landscape.y[j][k]  = surface_height;
         }
     }
 
-
-    #pragma omp parallel for collapse(2) schedule(static)
-    for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
-
-            int i_mount = i_topography[j][k];
-
-            for(int i = 0; i < im; i++){
-
-                if(i == i_mount)
-                    Landscape.y[j][k] = get_layer_height(i);
-                break;
-            }
-        }
-    }
+    cout << "      AGCM: flat Hadean surface — no topography, "
+         << jm * km << " surface points, all water" << endl;
 
     cout << "      AGCM: init_topography ended" << endl;
 }

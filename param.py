@@ -90,6 +90,13 @@ def main():
 
             ('p_0', 'pressure at sea level in hPa', 'double', 1013.25),
             ('t_0', 'temperature in K compare to 0°C', 'double', 273.15),
+
+            # ATHAD: the Hadean surface temperature is PRESCRIBED, not read from a
+            # paleo-temperature curve — no Scotese reconstruction reaches 4.4 Ga. A
+            # runaway steam atmosphere at 250 bar is optically thick enough that the
+            # equator-pole contrast is small; 50 K is an assumption, not a result.
+            ('t_surf_equator', 'ATHAD: prescribed Hadean surface temperature at the equator in K', 'double', 1500.0),
+            ('t_surf_pole', 'ATHAD: prescribed Hadean surface temperature at the poles in K', 'double', 1450.0),
             ('r_air', 'density of dry air in kg/m³ at 20°C', 'double', 1.2041),
             ('r_0_water', 'reference density of fresh water in kg/m3', 'double', 997.0),
             ('t_equat_modern', 'mean temperature of the modern earth in °C', 'double', 15.4),

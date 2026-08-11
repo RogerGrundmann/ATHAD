@@ -621,6 +621,19 @@ void findCloudBaseLFS() {
 
 
 
+                // Both scans above may find nothing, leaving the index at its -1 sentinel:
+                // the first fires only where p_stat <= p_stat_beg (1000 hPa), which on an
+                // atmosphere whose whole column sits above that threshold never happens.
+                // The two other consumers of this index (initUpdraft, CloudBaseUpdate)
+                // already guard the sentinel; these two loops did not, and indexed
+                // t.x[-1][j][k]. On Earth the scan always fires by level 1 (p_surf ~1013 hPa)
+                // so the defect is latent there; ATHAD's 250 bar column makes it live.
+                // NOTE: skipping the column is only a bounds fix. The convective thresholds
+                // p_stat_beg/end/Cloud_Base/base (1000/970/900/800 hPa) are absolute
+                // Earth-surface pressures and are meaningless at 250 bar — they must become
+                // fractions of surface pressure. Until then deep convection is simply inactive.
+                if (i_deep_beg_local[j][k] < 0 || i_deep_end_local[j][k] < 0) continue;
+
                 for (int i = i_deep_beg_local[j][k]; i < m.im; i++) {
                     const double t_u     = m.t.x[i][j][k] * m.t_0;
                     const double t_u_add = t_u + t_add_u;

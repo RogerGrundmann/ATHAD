@@ -31,6 +31,8 @@
         <CategoryIceScheme>2</CategoryIceScheme>  <!-- number chooses Two(2)-Category Ice Scheme with rain, snow(int) -->
         <p_0>1013.25</p_0>  <!-- pressure at sea level in hPa(double) -->
         <t_0>273.15</t_0>  <!-- temperature in K compare to 0°C(double) -->
+        <t_surf_equator>1500.0</t_surf_equator>  <!-- ATHAD: prescribed Hadean surface temperature at the equator in K(double) -->
+        <t_surf_pole>1450.0</t_surf_pole>  <!-- ATHAD: prescribed Hadean surface temperature at the poles in K(double) -->
         <r_air>1.2041</r_air>  <!-- density of dry air in kg/m³ at 20°C(double) -->
         <r_0_water>997.0</r_0_water>  <!-- reference density of fresh water in kg/m3(double) -->
         <t_equat_modern>15.4</t_equat_modern>  <!-- mean temperature of the modern earth in °C(double) -->

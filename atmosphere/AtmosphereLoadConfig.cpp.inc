@@ -38,6 +38,8 @@
     Config::FillIntWithElement(elem_common, "CategoryIceScheme", CategoryIceScheme);
     Config::FillDoubleWithElement(elem_common, "p_0", p_0);
     Config::FillDoubleWithElement(elem_common, "t_0", t_0);
+    Config::FillDoubleWithElement(elem_common, "t_surf_equator", t_surf_equator);
+    Config::FillDoubleWithElement(elem_common, "t_surf_pole", t_surf_pole);
     Config::FillDoubleWithElement(elem_common, "r_air", r_air);
     Config::FillDoubleWithElement(elem_common, "r_0_water", r_0_water);
     Config::FillDoubleWithElement(elem_common, "t_equat_modern", t_equat_modern);
