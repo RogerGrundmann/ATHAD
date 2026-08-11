@@ -449,24 +449,6 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.t_paleo_max = <double> value
     
-    property rad_equator:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.rad_equator
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.rad_equator = <double> value
-    
-    property rad_pole:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.rad_pole
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.rad_pole = <double> value
-    
     property rad_equator_short:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -485,6 +467,24 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.rad_pole_short = <double> value
     
+    property rad_equator:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.rad_equator
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.rad_equator = <double> value
+    
+    property rad_pole:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.rad_pole
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.rad_pole = <double> value
+    
     property sigma:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -493,6 +493,42 @@ cdef class Atmosphere:
         def __set__(Atmosphere self, value):
             self._check_alive()
             self._thisptr.sigma = <double> value
+    
+    property kappa_H2O:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.kappa_H2O
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.kappa_H2O = <double> value
+    
+    property kappa_CO2:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.kappa_CO2
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.kappa_CO2 = <double> value
+    
+    property kappa_bg:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.kappa_bg
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.kappa_bg = <double> value
+    
+    property geothermal_flux:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.geothermal_flux
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.geothermal_flux = <double> value
     
     property eps_residuum:
         def __get__(Atmosphere self):

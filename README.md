@@ -224,4 +224,54 @@ the measurements that did not work out — rather than what is intended.
    177 km and condensation would begin there. Which is right is for the radiation to
    decide, not for a prescribed lapse — see Phase 5.
 
+6. **Radiation (done).** The Bignami/Atwater–Ball emissivity is replaced by a grey
+   optical depth built from the absorber mass each layer actually holds, with pressure
+   broadening:
+
+   ```
+   tau_i = SUM_s kappa_s * q_s * (dp_i/g) * (p_i/p_ref)
+   ```
+
+   The pressure-broadening factor is what no Earth-calibrated emissivity fit contains and
+   what matters most here — at 250 bar it is a factor of 250 over the 1 bar reference.
+   The old fit could not work in principle: `eps = 0.684 + 0.0056*e_surf` saturates to
+   0.999 once `e_surf` exceeds ~56 hPa, and here it is ~2×10⁵ hPa, so every layer became
+   a blackbody and the scheme carried no information about composition at all.
+
+   Also changed: `radiation_mode` 5 → **2** (direct σT⁴ heating; modes 0/1/3/4/5 all lean
+   on the Scotese snapshot or the 280 ppm CO₂ reference, neither of which exists at
+   4.4 Ga); insolation rescaled to the faint young Sun (0.71 S₀); a **geothermal flux**
+   added to the surface energy balance, since a molten surface supplies heat from below;
+   albedo made a single cloud-deck value, Earth's ice/ocean contrast having no subject
+   here; and the hard-coded `287.0` J/(kg·K) in the cloud-density calculation replaced by
+   the local mixture gas constant.
+
+   **The headline measurement.** Outgoing longwave flux at the top of the atmosphere:
+
+   | | value |
+   |---|---|
+   | OLR | **324.5 W/m²** |
+   | σ·T_surf⁴ | 286 629 W/m² |
+   | suppression | **×883** |
+   | transmitted fraction | 0.000 |
+
+   and it stays at 324.5 W/m² at *every* checkpoint while σ·T_surf⁴ drifts from 286 629 to
+   286 462. That near-total independence from surface temperature is the defining
+   signature of a runaway greenhouse — the emission level sits inside the optically thick
+   water column, not at the ground. The value is ~5 % above the canonical Nakajima /
+   Komabayashi–Ingersoll limit of 280–310 W/m², which is close for a grey scheme whose
+   three κ coefficients were chosen a priori rather than fitted.
+
+   **What this does and does not establish.** It establishes that the opacity is the right
+   order of magnitude and that the scheme reproduces the correct qualitative behaviour. It
+   does not establish that 324.5 W/m² is the right number: `kappa_H2O`, `kappa_CO2` and
+   `kappa_bg` carry roughly a factor-of-two uncertainty, and they are the biggest single
+   lever on the answer. A grey scheme also cannot represent the window regions that set
+   the real limit. Treat the value as a consistency check that passed, not as a
+   prediction.
+
+   Still open: the column remains supercritical throughout (Phase 4), so there is no
+   cloud deck to justify the 0.4 albedo that is being assumed — the two are inconsistent,
+   and resolving it needs the upper atmosphere to cool enough to condense.
+
 *(Further entries are added as each phase is measured.)*

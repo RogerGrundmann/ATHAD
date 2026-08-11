@@ -50,11 +50,15 @@ cdef extern from "cAtmosphereModel.h":
         double t_equat_modern
         double t_pole_modern
         double t_paleo_max
-        double rad_equator
-        double rad_pole
         double rad_equator_short
         double rad_pole_short
+        double rad_equator
+        double rad_pole
         double sigma
+        double kappa_H2O
+        double kappa_CO2
+        double kappa_bg
+        double geothermal_flux
         double eps_residuum
         string turb_model
         int inviscid_spinup_iters

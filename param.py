@@ -127,15 +127,48 @@ def main():
 
             ('t_paleo_max', 'maximum add of mean temperature in °C during paleo times', 'double', 10.0),
  
-            ('rad_equator', 'long wave radiation in W/m2, t_equator = 1.0976 compares to 28.0°C = 299.81 K', 'double', 398.2),
-            ('rad_pole', 'long wave radiation in W/m2, t_pole = 0.9436 compares to -15.4°C = 257.75 K', 'double', 360.0),
-#            ('rad_equator', 'long wave radiation in W/m2, t_equator = 1.0976 compares to 28.0°C = 299.81 K', 'double', 239.9),
-#            ('rad_pole', 'long wave radiation in W/m2, t_pole = 0.9436 compares to -15.4°C = 257.75 K', 'double', 250.26),
+            # ATHAD insolation: the faint young Sun. At 4.4 Ga the solar constant was about
+            # 0.71 of today's 1361 W/m2, i.e. 966 W/m2. Spread over a rotating sphere the
+            # global mean absorbed-at-TOA figure is S/4 = 242 W/m2 before albedo; the
+            # equator/pole split below carries the same latitudinal contrast the Earth
+            # values did, scaled by 0.71. ASSUMPTION — see README.
+            ('rad_equator_short', 'ATHAD: short wave radiation at the equator in W/m2', 'double', 116.0),
+            ('rad_pole_short', 'ATHAD: short wave radiation at the poles in W/m2', 'double', 71.0),
 
-            ('rad_equator_short', 'short wave radiation in W/m2', 'double', 163.3),
-            ('rad_pole_short', 'short wave radiation in W/m2', 'double', 100.0),
+            # These two are the LONGWAVE boundary values of the inherited scheme. They are
+            # present-day Earth fluxes and have no Hadean meaning; mode 2 computes the
+            # longwave from the optical depth instead, so they survive only where the old
+            # code still reads them.
+            ('rad_equator', 'inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)', 'double', 398.2),
+            ('rad_pole', 'inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)', 'double', 360.0),
 
             ('sigma', 'Stefan-Boltzmann constant W/(m²*K4)', 'double', 5.670280e-8),
+
+            # ==================================================================
+            # ATHAD longwave opacity — grey mass absorption coefficients [m2/kg].
+            #
+            # The layer optical depth is tau = SUM_s kappa_s * q_s * (dp/g) * (p/p_ref),
+            # i.e. absorber mass times a pressure-broadening factor. These replace the
+            # Bignami/Atwater-Ball emissivity regressions, which are fits to present-day
+            # terrestrial columns and saturate to 1 the moment the water path exceeds an
+            # Earth-like value.
+            #
+            # THESE THREE NUMBERS ARE THE BIGGEST SINGLE LEVER ON THE ANSWER and carry
+            # roughly a factor-of-two uncertainty. kappa_H2O is the value conventionally
+            # used in grey runaway-greenhouse models; CO2 absorbs less per unit mass; the
+            # N2/CO/CH4/H2 background is nearly transparent in the thermal infrared. The
+            # test of whether they are right is the outgoing longwave flux: a runaway
+            # steam atmosphere should sit near the Nakajima / Komabayashi-Ingersoll limit
+            # of ~280-310 W/m2, NOT at sigma*T_surf^4.
+            ('kappa_H2O', 'ATHAD: grey longwave mass absorption of water vapour in m2/kg', 'double', 0.01),
+            ('kappa_CO2', 'ATHAD: grey longwave mass absorption of CO2 in m2/kg', 'double', 0.001),
+            ('kappa_bg', 'ATHAD: grey longwave mass absorption of the background gases in m2/kg', 'double', 1.0e-6),
+
+            # ATHAD: geothermal / magma-ocean heat flux through the base of the atmosphere
+            # in W/m2. A quenching magma ocean radiates far more than the modern Earth's
+            # 0.09 W/m2, and at 1500 K this term is plausibly comparable to the absorbed
+            # solar — it cannot be omitted. ASSUMPTION.
+            ('geothermal_flux', 'ATHAD: heat flux from the molten surface into the atmosphere in W/m2', 'double', 150.0),
 
             ('eps_residuum', 'relative error, end of iterations reached, 1% error  allowed', 'double', 1.0e-4),
 
@@ -237,8 +270,13 @@ def main():
             ('tropopause_equator', 'ATHAD: extension of the troposphere at the equator in m', 'double', 280000.0),
 
 
-            ('albedo_pole', 'albedo around the poles', 'double', 0.294),
-            ('albedo_equator', 'albedo around the equator', 'double', 0.1),
+            # ATHAD: Earth's 0.294/0.1 split encodes polar ice and open ocean, neither of
+            # which exists here. A runaway steam atmosphere is expected to carry a thick
+            # global cloud deck, so a single high, latitude-independent value is more
+            # defensible than a contrast built from surfaces that are not present.
+            # ASSUMPTION, and a strong lever on the absorbed solar.
+            ('albedo_pole', 'ATHAD: cloud-deck albedo at the poles', 'double', 0.4),
+            ('albedo_equator', 'ATHAD: cloud-deck albedo at the equator', 'double', 0.4),
 
             ('epsilon_equator', 'emissivity and absorptivity caused by other gases than water vapour/(by Häckel)', 'double', 0.48),
             ('epsilon_pole', 'emissivity and absorptivity caused by other gases than water vapour at the poles', 'double', 0.45),

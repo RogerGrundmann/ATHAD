@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MixtureAtm.h"
 #include "cAtmosphereModel.h"
 #include "Utils.h"
 
@@ -110,7 +111,6 @@ public:
             // Thread-local Thomas-solver scratch; reused across k within this j.
             // Every column fully overwrites the entries it later reads (i_mount = 0,
             // i_trop = im-1), so reuse is race-free.
-            std::vector<double> dp_col(m.im, 0.0), vpath_col(m.im, 0.0);
             std::vector<double> alfa(m.im, 0.0), beta(m.im, 0.0);
             std::vector<double> AA(m.im, 0.0), CA(m.im, 0.0);
             std::vector<double> radiation_original(m.im, 0.0);
@@ -127,124 +127,85 @@ public:
                     radiation_original[i]  = m.radiation.x[i][j][k];
                 }
 
-                // Layer emissivity — DE-SATURATED per-layer grey optical depth.
+                // ATHAD: layer optical depth from COLUMN MASS with pressure broadening.
                 //
-                // The original code applied the Bignami (1995) clear-sky COLUMN emissivity
-                // eps = 0.684 + 0.0056*e per layer, so every one of the ~40 layers was
-                // ~0.7-opaque -> the troposphere was a near-perfect blackbody, OLR collapsed
-                // to ~125 W/m2 (Earth ~240) and the emission level pinned to the cold model
-                // top (see project_multilayer_radiation). Bignami is a whole-column quantity,
-                // not a per-layer one.
+                // What was here: the Bignami (1995) clear-sky column emissivity
+                // eps = 0.684 + 0.0056*e_surf, split into a "dry baseline" and a
+                // water-vapour part and distributed over the layers, plus an Atwater & Ball
+                // CO2 band with a scale factor tuned to 0.17 to reproduce Earth's ~30 W/m2
+                // of CO2 greenhouse. Every one of those numbers is a regression on
+                // present-day terrestrial columns — Bignami is a fit to MEDITERRANEAN SEA
+                // SURFACE measurements. At 250 bar with a 67 %-by-mass water column they are
+                // extrapolated some four orders of magnitude beyond their calibration, and
+                // eps = 0.684 + 0.0056*e_surf saturates to 0.999 the instant e_surf exceeds
+                // ~56 hPa (here it is ~2e5 hPa), so the whole scheme degenerates to "every
+                // layer is a blackbody" and carries no information about the composition.
                 //
-                // Fix: preserve the Bignami column value but SPLIT it and distribute each
-                // part physically as an optical depth, so thin layers are optically thin:
-                //   - dry baseline (0.684, well-mixed CO2/continuum) -> by layer mass  dp
-                //   - water-vapour part (0.0056*e_surf)              -> by vapour path c*dp
-                //   eps_i = 1 - exp(-tau_i),  tau_i = tau_dry*dp_i/Sum(dp) + tau_wv*vp_i/Sum(vp)
-                // Gives OLR ~263 W/m2 with the water-vapour greenhouse feedback retained.
-                // The CO2 anomaly forcing is handled separately (5.35*ln(C/C0)); no CO2
-                // emissivity term here.
-                const double eps_dry = 0.684;                     // Bignami dry-air baseline
-                double sum_dp = 0.0, sum_vp = 0.0;
-                for (int i = i_mount; i <= i_trop; i++) {
-                    double dp = (i < i_trop) ? (m.p_stat.x[i][j][k] - m.p_stat.x[i+1][j][k])
-                                             : m.p_stat.x[i][j][k];   // top layer: all mass above
-                    if (dp < 0.0) dp = 0.0;
-                    double cw    = (m.c.x[i][j][k] > 0.0) ? m.c.x[i][j][k] : 0.0;
-                    dp_col[i]    = dp;
-                    vpath_col[i] = cw * dp;                          // ~ layer precipitable water
-                    sum_dp      += dp;
-                    sum_vp      += vpath_col[i];
-                }
-                const double e_surf  = m.c.x[i_mount][j][k] * m.p_stat.x[i_mount][j][k] / m.ep; // [hPa]
-                double eps_col       = eps_dry + 0.0056 * e_surf;    // Bignami column emissivity
-                if (eps_col > 0.999) eps_col = 0.999;
-                const double tau_dry = -log(1.0 - eps_dry);          // dry-baseline column optical depth
-                const double tau_col = -log(1.0 - eps_col);
-                const double tau_wv  = (tau_col > tau_dry) ? (tau_col - tau_dry) : 0.0;
-                const double inv_dp  = (sum_dp > 0.0) ? 1.0 / sum_dp : 0.0;
-                const double inv_vp  = (sum_vp > 0.0) ? 1.0 / sum_vp : 0.0;
+                // What replaces it: a grey optical depth built from the absorber mass each
+                // layer actually contains,
+                //
+                //     tau_i = SUM_s kappa_s * u_s,i * (p_i / p_ref)
+                //     u_s,i = q_s * dp_i / g            [kg/m2]  column mass of species s
+                //
+                // The (p_i/p_ref) factor is pressure broadening: collisional line widths grow
+                // in proportion to pressure, so the absorption per unit mass does too. It is
+                // the term that matters most here and the one no Earth-calibrated emissivity
+                // fit contains — at 250 bar it is a factor of 250 over the 1 bar reference,
+                // and it is what makes the deep atmosphere opaque and the thin top
+                // transparent, rather than a fit saturating everywhere.
+                //
+                // kappa values are grey-band mass absorption coefficients [m2/kg]. The water
+                // value is the one conventionally used for grey runaway-greenhouse models;
+                // CO2 is weaker per unit mass; the N2/CO/CH4 background is nearly
+                // transparent in the thermal infrared. These are ASSUMPTIONS with roughly a
+                // factor-of-two uncertainty and are the single biggest lever on the answer —
+                // see README, and the OLR check below, which is what tests them.
+                const double kappa_H2O = m.kappa_H2O;                 // [m2/kg]
+                const double kappa_CO2 = m.kappa_CO2;                 // [m2/kg]
+                const double kappa_bg  = m.kappa_bg;                  // [m2/kg]
+                constexpr double p_ref = 1.0e5;                       // [Pa] 1 bar broadening reference
+                const double inv_g     = 1.0 / m.g;
 
-                // Physical cap on the column cloud condensate the RADIATION sees. The model
-                // over-condenses (column LWP ~1500 g/m2 vs observed ~100), which saturates BOTH
-                // the LW cloud greenhouse (each layer's k_liq*LWP_i ~5 -> ~opaque) AND the SW
-                // albedo bump (pinned at the cloud value everywhere). Compute the raw column path
-                // and a single uniform scale so the radiation treats the column as a physically
-                // thick cloud (<= cwp_cap_col), preserving the vertical cloud DISTRIBUTION.
-                // Applied to LWP_i/IWP_i below, it feeds BOTH the LW tau_cloud and the SW path, so
-                // the two stay BALANCED — fixing only one (e.g. SW albedo alone) removes the
-                // excess cooling but leaves the excess greenhouse and tips the climate hot.
-                constexpr double cwp_cap_col = 250.0;                // g/m2 physical thick-cloud column condensate
-                double cwp_raw = 0.0;
+                double lwp_col = 0.0, iwp_col = 0.0;                  // condensate paths [g/m2] (SW albedo bump)
                 for (int i = i_mount; i <= i_trop; i++) {
-                    const double dz_i   = (i < i_trop) ? (m.get_layer_height(i+1) - m.get_layer_height(i))
-                                                       : (m.get_layer_height(i) - m.get_layer_height(i-1));
-                    const double T_ii   = m.t.x[i][j][k] * m.t_0;
-                    const double rho_ii = (T_ii > 0.0) ? (m.p_stat.x[i][j][k] * 100.0) / (287.0 * T_ii) : 0.0;
-                    const double cwl    = (m.cloud.x[i][j][k] > 0.0) ? m.cloud.x[i][j][k] : 0.0;
-                    const double cwi    = (m.ice.x[i][j][k]   > 0.0) ? m.ice.x[i][j][k]   : 0.0;
-                    cwp_raw += (cwl + cwi) * rho_ii * dz_i * 1000.0;
-                }
-                const double cloud_scale = (cwp_raw > cwp_cap_col) ? (cwp_cap_col / cwp_raw) : 1.0;
+                    // Layer mass, from the pressure drop across it. dp in hPa -> Pa.
+                    double dp_Pa = (i < i_trop)
+                                 ? (m.p_stat.x[i][j][k] - m.p_stat.x[i+1][j][k]) * 100.0
+                                 :  m.p_stat.x[i][j][k] * 100.0;      // top layer carries all mass above
+                    if (dp_Pa < 0.0) dp_Pa = 0.0;
 
-                double lwp_col = 0.0, iwp_col = 0.0;                  // accumulated (scaled) condensate paths [g/m2] (for the SW albedo bump)
-                for (int i = i_mount; i <= i_trop; i++) {
-                    // CO2 band contribution (the former MLR CO2 integration, restored and
-                    // un-zeroed). Well-mixed CO2 partial pressure P_c -> layer absorber path
-                    // u_c [atm*cm] -> Atwater & Ball band emissivity (curve-of-growth 0.185,
-                    // 0.3919; Byun & Chen 2013). Expressed as an OPTICAL DEPTH so it composes
-                    // additively with the de-saturated dry/water-vapour optical depths:
-                    // eps_i = 1 - exp(-(tau_dry_i + tau_wv_i + tau_co2_i)).
-                    //
-                    // co2_band_scale replaces the original Atwater 0.5 fit factor: 0.5 trapped
-                    // ~65 W/m2 (too strong vs real CO2), so it is TUNED to 0.17, giving ~30 W/m2
-                    // of CO2 greenhouse on a US-standard column (OLR ~263 -> ~233), matching
-                    // Earth's clear-sky CO2 contribution. This grey band saturates against the
-                    // 16 km model top so it does NOT give 3.7 W/m2/doubling — the calibrated
-                    // per-doubling forcing is the separate 5.35*ln(C/C0) t_eq shift
-                    // (cAtmosphereModel.cpp). If MLR is ever wired AND that t_eq forcing is on,
-                    // CO2 acts twice; reconcile then (see project_multilayer_radiation).
-                    const double co2_band_scale = 0.17;
+                    const double q_v = std::max(0.0, m.c.x[i][j][k]);
+                    const double q_c = std::max(0.0, m.co2.x[i][j][k]);
+                    const double q_b = std::max(0.0, 1.0 - q_v - q_c);
+
+                    const double u_col = dp_Pa * inv_g;               // [kg/m2] total layer mass
+                    const double broad = m.p_stat.x[i][j][k] * 100.0 / p_ref;   // pressure broadening
+
+                    double tau_gas = (kappa_H2O * q_v + kappa_CO2 * q_c + kappa_bg * q_b)
+                                   * u_col * broad;
+
+                    // Cloud liquid + ice longwave greenhouse, unchanged in form (Stephens
+                    // 1978 mass absorption), but the density now comes from the LOCAL mixture
+                    // gas constant instead of the hard-coded 287.0 J/(kg K) of dry Earth air —
+                    // which is 26 % off here and was applied to every layer.
+                    constexpr double k_liq = 0.12, k_ice = 0.055;     // LW mass absorption [m2/g]
                     const double dz  = (i < i_trop) ? (m.get_layer_height(i+1) - m.get_layer_height(i))
                                                     : (m.get_layer_height(i) - m.get_layer_height(i-1));
-                    // co2.x is stored in ppm (ThermoAtm init, BCs, transport all use ppm): a
-                    // mixing ratio co2*1e-6 times the local pressure fraction p_stat/p_0 gives the
-                    // CO2 partial pressure in atm. (Earlier this multiplied by co2_0, which assumed
-                    // co2.x was a ~1 ratio — wrong for the ppm field; it over-saturated the band
-                    // regardless of co2_0. See project_multilayer_radiation CO2-units fix.)
-                    const double P_c = 1e-6 * m.p_stat.x[i][j][k] * m.co2.x[i][j][k] / m.p_0; // [atm], co2 in ppm
-                    double u_c = P_c * dz * 100.0;                                                       // [atm*cm]
-                    if (u_c < 0.0) u_c = 0.0;
-                    double eps_co2 = co2_band_scale * 0.185 * (1.0 - exp(-0.3919 * pow(u_c, 0.4)));       // Atwater & Ball
-                    if (eps_co2 > 0.999) eps_co2 = 0.999;
-                    const double tau_co2 = -log(1.0 - eps_co2);
+                    const double T_i   = m.t.x[i][j][k] * m.t_0;
+                    const double R_i   = AtmMixture::R_of(q_v, q_c, m.m_comp.R_bg);
+                    const double rho_i = (T_i > 0.0) ? (m.p_stat.x[i][j][k] * 100.0) / (R_i * T_i) : 0.0;
+                    const double cw_l  = std::max(0.0, m.cloud.x[i][j][k]);
+                    const double cw_i  = std::max(0.0, m.ice.x[i][j][k]);
+                    const double LWP_i = cw_l * rho_i * dz * 1000.0;  // [g/m2]
+                    const double IWP_i = cw_i * rho_i * dz * 1000.0;  // [g/m2]
+                    lwp_col += LWP_i;  iwp_col += IWP_i;
 
-                    // Cloud liquid + ice LONGWAVE greenhouse (suspended condensate only; the
-                    // precipitation fluxes P_rain/P_snow are NOT radiatively active here). Layer
-                    // water/ice paths [g/m2] = mixing ratio [kg/kg] * air density [kg/m3] * layer
-                    // thickness dz [m] * 1000; times a mass-absorption coefficient [m2/g] gives a
-                    // dimensionless optical depth that composes additively with the dry/vapour/CO2
-                    // depths. k_liq/k_ice after Stephens (1978): liquid ~0.10-0.15, ice ~0.05-0.06
-                    // (ice less absorbing). Density computed locally from the ideal-gas law (p_stat
-                    // in hPa -> Pa) so this needs no populated r_humid, matching the CO2 band's use
-                    // of p_stat. LW ONLY: clouds here can only ADD greenhouse (raise L_down / warm
-                    // the surface). The compensating SHORTWAVE (cloud-albedo cooling) is applied
-                    // below the column loop as an albedo bump on the accumulated condensate path
-                    // (lwp_col/iwp_col), so low thick cloud can NET-cool while thin cirrus stays
-                    // net-warming. See project_multilayer_radiation cloud/ice plan.
-                    constexpr double k_liq = 0.12, k_ice = 0.055;                 // LW mass absorption [m2/g]
-                    const double T_i   = m.t.x[i][j][k] * m.t_0;                  // [K]
-                    const double rho_i = (T_i > 0.0) ? (m.p_stat.x[i][j][k] * 100.0) / (287.0 * T_i) : 0.0; // [kg/m3]
-                    const double cw_l  = (m.cloud.x[i][j][k] > 0.0) ? m.cloud.x[i][j][k] : 0.0; // [kg/kg]
-                    const double cw_i  = (m.ice.x[i][j][k]   > 0.0) ? m.ice.x[i][j][k]   : 0.0; // [kg/kg]
-                    const double LWP_i = cloud_scale * cw_l * rho_i * dz * 1000.0; // liquid water path [g/m2], capped
-                    const double IWP_i = cloud_scale * cw_i * rho_i * dz * 1000.0; // ice   water path [g/m2], capped
-                    const double tau_cloud = k_liq * LWP_i + k_ice * IWP_i;
-                    lwp_col += LWP_i;  iwp_col += IWP_i;                          // column paths for the SW albedo bump
+                    const double tau = tau_gas + k_liq * LWP_i + k_ice * IWP_i;
 
-                    double tau = tau_dry * dp_col[i] * inv_dp + tau_wv * vpath_col[i] * inv_vp
-                               + tau_co2 + tau_cloud;
-                    m.epsilon.x[i][j][k] = 1.0 - exp(-tau);
+                    // exp(-tau) underflows to 0 for the huge optical depths the deep column
+                    // carries, which is the correct answer (eps = 1, a perfect blackbody
+                    // layer) — but guard it so no NaN can come out of the exponential.
+                    m.epsilon.x[i][j][k] = (tau > 700.0) ? 1.0 : (1.0 - exp(-tau));
                 }
                 m.epsilon_2D.y[j][k] = m.epsilon.x[i_mount][j][k];
 
@@ -271,7 +232,7 @@ public:
                     constexpr double alpha_cloud = 0.50;   // thick cloud-top SW albedo
                     constexpr double f_ice_sw    = 0.50;   // ice SW reflectivity weight vs liquid
                     constexpr double cwp_tau     = 100.0;  // g/m2 per unit effective optical thickness
-                    const double cwp_sw = lwp_col + f_ice_sw * iwp_col;          // already capped via cloud_scale above
+                    const double cwp_sw = lwp_col + f_ice_sw * iwp_col;          // [g/m2]
                     const double tau    = cwp_sw / cwp_tau;
                     const double refl   = tau / (tau + 2.0);                     // gentle saturation (0.5 at tau=2)
                     const double a0     = m.albedo.y[j][k];                      // surface (ice-feedback) albedo
@@ -376,7 +337,13 @@ public:
                 const double T_s0   = m.t.x[i_mount][j][k] * m.t_0;         // linearisation point [K]
                 const double c_H    = 15.0;                                // bulk turbulent transfer [W/m2/K]
                 const double dsigT4 = 4.0 * m.sigma * T_s0 * T_s0 * T_s0;
-                const double T_s    = (SW_abs + L_down - m.sigma * pow(T_s0, 4.0)
+                // ATHAD: the surface is molten, so it supplies heat from below as well as
+                // absorbing it from above. A quenching magma ocean radiates far more than the
+                // modern Earth's 0.09 W/m2, and at 1500 K this term is plausibly comparable to
+                // the absorbed solar — omitting it would let the surface cool as if it were
+                // rock. It enters the balance exactly as absorbed shortwave does.
+                const double T_s    = (SW_abs + m.geothermal_flux + L_down
+                                       - m.sigma * pow(T_s0, 4.0)
                                        + dsigT4 * T_s0 + c_H * T_air1) / (dsigT4 + c_H);
                 m.radiation.x[i_mount][j][k] = m.sigma * pow(T_s, 4.0);
                 m.t.x[i_mount][j][k]         = T_s / m.t_0;

@@ -39,11 +39,15 @@
         <t_equat_modern>15.4</t_equat_modern>  <!-- mean temperature of the modern earth in °C(double) -->
         <t_pole_modern>-15.4</t_pole_modern>  <!-- pole temperature of the modern earth in °C(double) -->
         <t_paleo_max>10.0</t_paleo_max>  <!-- maximum add of mean temperature in °C during paleo times(double) -->
-        <rad_equator>398.2</rad_equator>  <!-- long wave radiation in W/m2, t_equator = 1.0976 compares to 28.0°C = 299.81 K(double) -->
-        <rad_pole>360.0</rad_pole>  <!-- long wave radiation in W/m2, t_pole = 0.9436 compares to -15.4°C = 257.75 K(double) -->
-        <rad_equator_short>163.3</rad_equator_short>  <!-- short wave radiation in W/m2(double) -->
-        <rad_pole_short>100.0</rad_pole_short>  <!-- short wave radiation in W/m2(double) -->
+        <rad_equator_short>116.0</rad_equator_short>  <!-- ATHAD: short wave radiation at the equator in W/m2(double) -->
+        <rad_pole_short>71.0</rad_pole_short>  <!-- ATHAD: short wave radiation at the poles in W/m2(double) -->
+        <rad_equator>398.2</rad_equator>  <!-- inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)(double) -->
+        <rad_pole>360.0</rad_pole>  <!-- inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)(double) -->
         <sigma>5.67028e-08</sigma>  <!-- Stefan-Boltzmann constant W/(m²*K4)(double) -->
+        <kappa_H2O>0.01</kappa_H2O>  <!-- ATHAD: grey longwave mass absorption of water vapour in m2/kg(double) -->
+        <kappa_CO2>0.001</kappa_CO2>  <!-- ATHAD: grey longwave mass absorption of CO2 in m2/kg(double) -->
+        <kappa_bg>1e-06</kappa_bg>  <!-- ATHAD: grey longwave mass absorption of the background gases in m2/kg(double) -->
+        <geothermal_flux>150.0</geothermal_flux>  <!-- ATHAD: heat flux from the molten surface into the atmosphere in W/m2(double) -->
         <eps_residuum>0.0001</eps_residuum>  <!-- relative error, end of iterations reached, 1% error  allowed(double) -->
         <turb_model>k_omega_SST</turb_model>  <!-- turbulence model: none, k_epsilon, k_omega, k_omega_SST(string) -->
         <inviscid_spinup_iters>0</inviscid_spinup_iters>  <!-- cumulative iterations to run inviscid (Euler + free-slip mountains) before viscous physics activates; 0 disables(int) -->
@@ -69,8 +73,8 @@
         <zeta>3.0</zeta>  <!-- ATHAD: radial coordinate-stretching factor (was a hard-coded 3.715)(double) -->
         <tropopause_pole>250000.0</tropopause_pole>  <!-- ATHAD: extension of the troposphere at the poles in m(double) -->
         <tropopause_equator>280000.0</tropopause_equator>  <!-- ATHAD: extension of the troposphere at the equator in m(double) -->
-        <albedo_pole>0.294</albedo_pole>  <!-- albedo around the poles(double) -->
-        <albedo_equator>0.1</albedo_equator>  <!-- albedo around the equator(double) -->
+        <albedo_pole>0.4</albedo_pole>  <!-- ATHAD: cloud-deck albedo at the poles(double) -->
+        <albedo_equator>0.4</albedo_equator>  <!-- ATHAD: cloud-deck albedo at the equator(double) -->
         <epsilon_equator>0.48</epsilon_equator>  <!-- emissivity and absorptivity caused by other gases than water vapour/(by Häckel)(double) -->
         <epsilon_pole>0.45</epsilon_pole>  <!-- emissivity and absorptivity caused by other gases than water vapour at the poles(double) -->
         <epsilon_tropopause>0.001</epsilon_tropopause>  <!-- emissivity and absorptivity caused by other gases than water vapour in the tropopause(double) -->

@@ -827,6 +827,52 @@ public:
             cout << "        NO condensation anywhere in this column"
                  << " — supercritical or superheated at every level" << endl;
 
+        // Outgoing longwave flux at the top of the atmosphere.
+        //
+        // THIS IS THE SHARPEST TEST OF THE RADIATION SCHEME. A runaway steam atmosphere
+        // has a well-known property: its OLR saturates near the Nakajima /
+        // Komabayashi-Ingersoll limit of ~280-310 W/m2 and becomes almost INDEPENDENT of
+        // the surface temperature, because the emission level sits in the optically thick
+        // water column rather than at the ground. If instead the OLR comes out near
+        // sigma*T_surf^4 (287 kW/m2 at 1500 K) the atmosphere is radiatively transparent
+        // and the opacity is wrong by orders of magnitude.
+        //
+        // Summed the same way as L_down but upward: each layer's emission attenuated by
+        // every layer above it, plus the surface contribution attenuated by all of them.
+        {
+            double olr = 0.0, trans = 1.0, eps_sum = 0.0;
+            for (int i = m.im - 1; i >= 0; i--) {
+                const double eps = m.epsilon.x[i][j_lat][k];
+                const double T_i = m.t.x[i][j_lat][k] * m.t_0;
+                eps_sum += eps;
+                olr   += eps * m.sigma * std::pow(T_i, 4.0) * trans;
+                trans *= (1.0 - eps);
+            }
+            const double T_s = m.t.x[0][j_lat][k] * m.t_0;
+            olr += m.sigma * std::pow(T_s, 4.0) * trans;          // surface, seen through the column
+
+            const double sigT4_surf = m.sigma * std::pow(T_s, 4.0);
+
+            if (eps_sum <= 0.0) {
+                // Called before RadiationMultiLayer has ever run, so every layer emissivity
+                // is still zero and the column is trivially transparent. Say so rather than
+                // reporting sigma*T_surf^4 as if it were a computed OLR.
+                cout << "        OLR: not yet meaningful — radiation has not run"
+                     << " (all layer emissivities are zero)" << endl;
+            } else {
+                cout << "        OLR = " << setprecision(1) << olr << " W/m2"
+                     << "   (sigma*T_surf^4 = " << sigT4_surf << " W/m2,"
+                     << " suppression x" << setprecision(0) << sigT4_surf / std::max(olr, 1e-30)
+                     << ", transmitted fraction " << setprecision(3) << trans << ")" << endl;
+                if (olr > 1000.0)
+                    cout << "        WARNING: OLR far above the ~280-310 W/m2 runaway limit"
+                         << " — the column is too transparent" << endl;
+                else if (olr >= 250.0 && olr <= 350.0)
+                    cout << "        OLR is in the runaway-greenhouse range"
+                         << " (Nakajima / Komabayashi-Ingersoll limit ~280-310 W/m2)" << endl;
+            }
+        }
+
         // The two facts the sizing depends on, stated rather than left to be read off.
         const double p_top = m.p_stat.x[m.im-1][j_lat][k] * 1.0e-3;
         cout << "        top of domain: " << setprecision(5) << p_top << " bar"

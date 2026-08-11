@@ -642,7 +642,15 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
     //       otherwise differences to ~0 since both start t from the same Scotese snapshot); seeding
     //       t makes the two runs evolve to distinct, CO2-separated equilibria that the shifted t_eq
     //       then anchors. This is the working single-run CO2 sensitivity path.
-    constexpr int    radiation_mode     = 5;               // mode 5: strong relaxation to Scotese+CO2 perturbation
+    // ATHAD: mode 2 — direct sigma*T^4 radiative heating from the multi-layer solve.
+    //
+    // The inherited default was mode 5, Newtonian relaxation of t toward a target built
+    // from the Scotese paleo-temperature curve. There IS no Scotese curve at 4.4 Ga: it
+    // stops around 540 Ma. Modes 0, 1, 3 and 4 all lean on the same snapshot or on the
+    // CO2-perturbation machinery calibrated to Earth's 280 ppm reference, so mode 2 is
+    // the only one with a defensible meaning here — the radiation has to SET the profile
+    // rather than nudge it toward a prescribed one.
+    constexpr int    radiation_mode     = 2;               // mode 2: direct sigma*T^4 heating from MLR
     constexpr int    teq_refresh_stride = 20;              // option A: MLR re-solve cadence
     constexpr double omega_rad          = 0.05;            // option B: radiative heating (frac/iter toward RE)
     constexpr double omega_teq          = 0.20;            // mode 5: relaxation rate toward t_eq (frac/iter)
