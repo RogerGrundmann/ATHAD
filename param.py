@@ -13,11 +13,7 @@ def main():
         'common': [
             ('output_path', 'directory where model outputs should be placed(must end in /)', 'string', 'output-Hadean/'),
 
-            ('bathymetry_path', 'directory where the topografic grids are located', 'string', '../data/topo_grids'),
-#            ('bathymetry_path', 'directory where the topografic grids are located', 'string', '../data/simon_topo'),
 
-            ('BathymetrySuffix', 'suffix of the timesteps Ma in million years', 'string', 'Ma_smooth.xyz'),
-#            ('BathymetrySuffix', 'suffix of the timesteps Ma in million years', 'string', 'Ma_Simon.xyz'),
 
             ('config_xml_path', 'directory where the configuration files are located', 'string', '../python'),
 
@@ -36,7 +32,12 @@ def main():
 #            ('buoyancy', 'buoyancy force', 'double', 0),
 
             ('r_Earth', 'radius of the Earth in km', 'double', 6370.001),
-            ('omega', 'rotation rate of the earth in rad/s', 'double', 7.292e-5),
+            # ATHAD: the Hadean day was far shorter — tidal braking has been slowing the
+            # Earth ever since. A 5.5 h day at ~4.4 Ga gives omega = 2*pi/19800 s =
+            # 3.17e-4 rad/s, 4.35x the modern 7.292e-5. ASSUMPTION: estimates for the
+            # early rotation range over roughly 4-6 h, and the Rossby number scales with
+            # it, so this directly sets how many circulation cells the model can support.
+            ('omega', 'ATHAD: rotation rate in rad/s (5.5 h Hadean day)', 'double', 3.17e-4),
 
             ('g', 'gravitational acceleration of the earth in m/s²', 'double', 9.8066),
 
@@ -47,27 +48,23 @@ def main():
 
 
 
-            #parameters for data reconstruction
+            # ATHAD is ONE EPOCH. The paleo-reconstruction inputs that lived here — the
+            # topography grids, the NASA surface fields, the Scotese temperature curves, the
+            # pygplates reconstruction script, the Ma switches and the hydrosphere SST
+            # coupling — are all gone: nothing reconstructs 4.4 Ga, and there is no
+            # hydrosphere to couple to. time_start/end/step remain only because the
+            # time-slice loop is still structural; a single slice is all that runs.
 
             ('time_start', 'start time', 'int', 0),
 #            ('time_end', 'end time', 'int', 10),
             ('time_end', 'end time', 'int', 0),
             ('time_step', 'step size between timeslices', 'int', 10),
 
-            ('velocity_v_file', '' ,'string','../data/v_surface.txt'),
-            ('velocity_w_file', '' ,'string','../data/w_surface.txt'),
 
-            ('temperature_file', '', 'string', '../data/SurfaceTemperature_NASA.xyz'),
 
-            ('precipitation_file', '', 'string', '../data/SurfacePrecipitation_NASA.xyz'),
 
-            ('salinity_file', '', 'string', '../data/SurfaceSalinity_NASA.xyz'),
 
-            ('temperature_global_file', '', 'string', '../data/scotese_etal_2021_global_temp_1my.txt'),
-            ('temperature_equat_file', '', 'string', '../data/scotese_etal_2021_equat_temp_1my.txt'),
-            ('temperature_pole_file', '', 'string', '../data/scotese_etal_2021_polar_temp_1my.txt'),
 
-            ('reconstruction_script_path', '', 'string', '../reconstruction/reconstruct_atom_data.py'),
 
             ('use_earthbyte_reconstruction', 'control whether use earthbyte method to recontruct grids', 'bool', False),
 #            ('use_earthbyte_reconstruction', 'control whether use earthbyte method to recontruct grids', 'bool', True),
@@ -77,10 +74,7 @@ def main():
 
             ('use_NASA_temperature', 'if use NASA temperature to initialise surface temperature', 'bool', True),
 
-            ('use_NASA_salinity', 'if use NASA sea-surface salinity to initialise surface salinity: Ma=0 uses the 2D field, Ma>0 its zonal-mean latitude profile; false = invert the Gill density equation', 'bool', True),
 
-#            ('Ma_switch', 'switch initial temperatur from NASA to parabolic approach', 'int', 50),
-            ('Ma_switch', 'switch initial temperatur from NASA to parabolic approach', 'int', 100),
 
 #            ('CategoryIceScheme', 'number chooses Three(3)-Category Ice Scheme with rain, snow and graupel', 'int', 3),
             ('CategoryIceScheme', 'number chooses Two(2)-Category Ice Scheme with rain, snow', 'int', 2),
@@ -150,9 +144,7 @@ def main():
             ('r_air', 'ATHAD: reference density of the atmospheric mixture at the surface in kg/m³', 'double', 42.97),
             ('r_0_water', 'reference density of fresh water in kg/m3', 'double', 997.0),
             ('t_equat_modern', 'mean temperature of the modern earth in °C', 'double', 15.4),
-            ('t_pole_modern', 'pole temperature of the modern earth in °C', 'double', - 15.4),
 
-            ('t_paleo_max', 'maximum add of mean temperature in °C during paleo times', 'double', 10.0),
  
             # ATHAD insolation: the faint young Sun. At 4.4 Ga the solar constant was about
             # 0.71 of today's 1361 W/m2, i.e. 966 W/m2. Spread over a rotating sphere the
@@ -242,6 +234,11 @@ def main():
 #            ('nm', 'the maximum number of iterations', 'int', 100),
             ('nm', 'the maximum number of iterations', 'int', 400),
             ('checkpoint', "control when to write output files", 'int', 20),
+
+            # Cadence of the TEXT diagnostics (column profile, level summary, OLR), separate
+            # from `checkpoint`, which writes ParaView files. 0 = automatic: every 10
+            # iterations for a short run (nm <= 100), every 100 for a longer one.
+            ('diagnostic_stride', 'ATHAD: iterations between text diagnostics; 0 = auto (10 short / 100 long)', 'int', 0),
             ('panorama_print', "control when to write panorama files", 'int', 100),
 
 
@@ -259,8 +256,6 @@ def main():
             ('evap_model', "evaporation formula driving surface humidity update: Dalton, Meyer, or Rohwer", 'string', 'Meyer'),
 
 
-            ('Ma_max', 'parabolic temperature distribution 300 Ma(from Ruddiman)', 'int', 300),
-            ('Ma_max_half', 'half of time scale', 'int', 150),
 
             # ==================================================================
             # ATHAD vertical grid.
@@ -384,8 +379,6 @@ def main():
             # humidity applies everywhere. Kept as one knob rather than two identical ones.
             ('c_ocean', 'ATHAD: surface water vapour as a fraction of the saturation value, in %', 'double', 70),
 
-            ('sst_coupling_alpha', 'outer-loop (Picard) hydrosphere->atmosphere SST coupling strength: blend fraction of the hydrosphere surface SST (read from <stem>_Transfer_Hyd_SST_<iter>.vwtp) into the atmospheric ocean surface temperature t.x[0] at init, t.x[0] <- (1-alpha)*t.x[0] + alpha*SST_hyd, before the t_eq snapshot so it propagates into the Held-Suarez target. 0.0 = OFF (no read; identical to the one-way chain and to round 0 of a Picard loop, which has no SST file yet). Ocean-only, finite-checked, SST-clamped to [-1.8,40] C, ocean-mean-anchored so total energy does not drift. Under-relax across rounds (e.g. 0.3-0.5)', 'double', 0.0),
-            ('hyd_sst_iter', 'which hydrosphere SST snapshot to read for sst_coupling_alpha: reads <stem>_Transfer_Hyd_SST_<iter>.vwtp for this iteration; -1 = use the latest (highest-iter) snapshot present in the output dir', 'int', -1),
         ],
     }
 

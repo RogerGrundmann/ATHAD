@@ -220,6 +220,14 @@ void cAtmosphereModel::initComposition(){
                  << "configured value, so the OLR will follow it rather than the budget." << endl;
     }
 
+    cout << "        rotation rate ... omega = " << omega << " rad/s  ("
+         << (2.0 * M_PI / omega) / 3600.0 << " h day, "
+         << omega / 7.292e-5 << "x modern)" << endl;
+
+    cout << "        text diagnostics every " << diagnosticStride() << " iterations"
+         << (diagnostic_stride > 0 ? "  (set explicitly)" : "  (auto: nm = ")
+         << (diagnostic_stride > 0 ? "" : std::to_string(nm) + ")") << endl;
+
     cout << endl << "      AGCM: atmospheric composition ended" << endl << endl;
 }
 /*
@@ -438,7 +446,6 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
 //    BC_Atm(*this).coastalCurrents();
 
     initTemperatureData(Ma);                                            // initialization of temperature, hydrostatic pressure and density of dry air, reconstruction of potential surface values
-    read_Hydrosphere_SST(Ma);                                           // reverse coupling: blend a prior hydrosphere run's SST into t.x[0] (Picard loop; no-op unless sst_coupling_alpha > 0). Before damp_wiggles + t_eq snapshot so the blend is smoothed and becomes the H-S target.
     AtomUtils::damp_wiggles(t, &i_topography, true, true, true);
 
     // Snapshot the lid temperature (i=im-1) from the IC. bcRadius pins t at the lid
@@ -1247,19 +1254,19 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
             BC_Atm(*this).bcScalarSurfSur();                            // scalar variable at surfaces extrapolated by von Neumann
             BC_Atm(*this).bcSolidGround();                              // values inside mountains
 
+            // ATHAD: text diagnostics on their own cadence — every 10 iterations for a
+            // short run, every 100 for a long one. The equatorial profile shows the
+            // column structure; the level summary answers whether ANY column has gone
+            // non-physical, which a single profile cannot.
+            if(iter_n % diagnosticStride() == 0){
+                ThermoAtm probe(*this);
+                std::string tag = "iter " + std::to_string(iter_n);
+                probe.printColumnProfile((jm - 1) / 2, ("equator, " + tag).c_str());
+                probe.printLevelSummary(tag.c_str());
+            }
+
             if(iter_n % checkpoint == 0){
                 print_min_max_atm();
-
-                // ATHAD: the hydrostatic state of the column, every checkpoint. The
-                // equatorial profile shows the structure; the level summary answers
-                // whether ANY column has gone non-physical, which one profile cannot.
-                {
-                    ThermoAtm probe(*this);
-                    std::string tag = "iter " + std::to_string(iter_n);
-                    probe.printColumnProfile((jm - 1) / 2, ("equator, " + tag).c_str());
-                    probe.printLevelSummary(tag.c_str());
-                }
-
                 write_meridional_streamfunction(iter_n);   // Hadley/Ferrel cell strength (zonal-mean v + Ψ) per vtk checkpoint
                 UtilsAtm(*this).writeFile(bathymetry_name, output_path, false);
                 cout << endl << "      AGCM: write_file in run_3D_loop atm ......................." << endl;

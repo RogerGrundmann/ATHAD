@@ -448,16 +448,44 @@ public:
                 for (int k = 1; k < m.km-1; k++) {
 
                     double w_ijk   = m.w.x[i][j][k] * m.u_0;
-                    double Cor_r   = -two_omega * sinthe * w_ijk;
+                    // ATHAD: the DIAGNOSTIC must show what the dynamics actually applies.
+                    //
+                    // RHS_Atm_Turb uses the traditional approximation — it keeps only the
+                    // Omega_r = Omega*cos(theta) component and drops the non-traditional
+                    // ("Eotvos") sin(theta) pair unless ATOM_CORIOLIS_NONTRAD is set:
+                    //     a_theta = +2*Omega*cos(theta)*w
+                    //     a_phi   = -2*Omega*cos(theta)*v
+                    // This diagnostic carried a +2*Omega*sin(theta)*u term the momentum
+                    // equations do not have, and a radial term they drop, so the ParaView
+                    // "Coriolis force" field showed a force that was never applied. Follow
+                    // the same switch so the two cannot diverge.
+                    //
+                    // These signs agree with ATURAN 8b284cb / ATNEPT 024c37f once their
+                    // opposite convention is accounted for — they store -a because their
+                    // rhs subtracts, this file stores +a because its rhs adds.
+                    const double nontrad_d = AtomUtils::coriolis_nontraditional() ? 1.0 : 0.0;
+                    double Cor_r   = -nontrad_d * two_omega * sinthe * w_ijk;
                     double Cor_the =  two_omega * costhe * w_ijk;
-                    double Cor_phi =  two_omega * (-costhe * m.v.x[i][j][k]
-                                                   + sinthe * m.u.x[i][j][k]) * m.u_0;
+                    double Cor_phi = -two_omega * (costhe * m.v.x[i][j][k]
+                                        + nontrad_d * sinthe * m.u.x[i][j][k]) * m.u_0;
 
                     m.CoriolisForce.x[i][j][k] = m.Coriolis * m.r_air
                         * sqrt(Cor_r*Cor_r + Cor_the*Cor_the + Cor_phi*Cor_phi);
 
-                    m.CentrifugalForce.x[i][j][k] =
-                        m.centrifugal * m.r_air * omega2 * rad_Earth * (1.0 + abs_sinthe);
+                    // Centrifugal acceleration points away from the ROTATION AXIS, whose
+                    // distance is r*sin(theta) — so it vanishes at the poles and is largest
+                    // at the equator. The previous factor (1 + |sin(theta)|) was maximal at
+                    // the pole, where the true value is zero. Components:
+                    //     a_r     = omega^2 * r * sin^2(theta)
+                    //     a_theta = omega^2 * r * sin(theta)*cos(theta)
+                    // ported from ATURAN 4201957 / ATJUP 8649675. Diagnostic only: this
+                    // model's RHS carries no centrifugal term, the force being curl-free
+                    // and absorbed into the pressure projection — which is what ATURAN
+                    // found when it corrected the dynamical version.
+                    const double cen_r   = omega2 * rad_Earth * sinthe * sinthe;
+                    const double cen_the = omega2 * rad_Earth * sinthe * costhe;
+                    m.CentrifugalForce.x[i][j][k] = m.centrifugal * m.r_air
+                        * sqrt(cen_r * cen_r + cen_the * cen_the);
 
                     // Diagnostic buoyancy force for ParaView/Results — must match the
                     // perturbation-form body force applied in RHS_Atm.cpp (rhs_u), i.e.

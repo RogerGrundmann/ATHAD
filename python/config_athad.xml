@@ -1,7 +1,5 @@
 <!-- THIS FILE IS GENERATED AUTOMATICALLY BY param.py. DO NOT EDIT. --><atom>    <common>
         <output_path>output-Hadean/</output_path>  <!-- directory where model outputs should be placed(must end in /)(string) -->
-        <bathymetry_path>../data/topo_grids</bathymetry_path>  <!-- directory where the topografic grids are located(string) -->
-        <BathymetrySuffix>Ma_smooth.xyz</BathymetrySuffix>  <!-- suffix of the timesteps Ma in million years(string) -->
         <config_xml_path>../python</config_xml_path>  <!-- directory where the configuration files are located(string) -->
         <verbose>false</verbose>  <!-- some description of the module(bool) -->
         <paraview_panorama_vts_flag>true</paraview_panorama_vts_flag>  <!-- flag to control if create paraview panorama(bool) -->
@@ -9,25 +7,14 @@
         <centrifugal>1</centrifugal>  <!-- centrifugal force(double) -->
         <buoyancy>1</buoyancy>  <!-- buoyancy force(double) -->
         <r_Earth>6370.001</r_Earth>  <!-- radius of the Earth in km(double) -->
-        <omega>7.292e-05</omega>  <!-- rotation rate of the earth in rad/s(double) -->
+        <omega>0.000317</omega>  <!-- ATHAD: rotation rate in rad/s (5.5 h Hadean day)(double) -->
         <g>9.8066</g>  <!-- gravitational acceleration of the earth in m/s²(double) -->
         <time_start>0</time_start>  <!-- start time(int) -->
         <time_end>0</time_end>  <!-- end time(int) -->
         <time_step>10</time_step>  <!-- step size between timeslices(int) -->
-        <velocity_v_file>../data/v_surface.txt</velocity_v_file>  <!-- (string) -->
-        <velocity_w_file>../data/w_surface.txt</velocity_w_file>  <!-- (string) -->
-        <temperature_file>../data/SurfaceTemperature_NASA.xyz</temperature_file>  <!-- (string) -->
-        <precipitation_file>../data/SurfacePrecipitation_NASA.xyz</precipitation_file>  <!-- (string) -->
-        <salinity_file>../data/SurfaceSalinity_NASA.xyz</salinity_file>  <!-- (string) -->
-        <temperature_global_file>../data/scotese_etal_2021_global_temp_1my.txt</temperature_global_file>  <!-- (string) -->
-        <temperature_equat_file>../data/scotese_etal_2021_equat_temp_1my.txt</temperature_equat_file>  <!-- (string) -->
-        <temperature_pole_file>../data/scotese_etal_2021_polar_temp_1my.txt</temperature_pole_file>  <!-- (string) -->
-        <reconstruction_script_path>../reconstruction/reconstruct_atom_data.py</reconstruction_script_path>  <!-- (string) -->
         <use_earthbyte_reconstruction>false</use_earthbyte_reconstruction>  <!-- control whether use earthbyte method to recontruct grids(bool) -->
         <use_NASA_velocity>false</use_NASA_velocity>  <!-- if use NASA velocity to initialise velocity(bool) -->
         <use_NASA_temperature>true</use_NASA_temperature>  <!-- if use NASA temperature to initialise surface temperature(bool) -->
-        <use_NASA_salinity>true</use_NASA_salinity>  <!-- if use NASA sea-surface salinity to initialise surface salinity: Ma=0 uses the 2D field, Ma>0 its zonal-mean latitude profile; false = invert the Gill density equation(bool) -->
-        <Ma_switch>100</Ma_switch>  <!-- switch initial temperatur from NASA to parabolic approach(int) -->
         <CategoryIceScheme>2</CategoryIceScheme>  <!-- number chooses Two(2)-Category Ice Scheme with rain, snow(int) -->
         <p_0>250000.0</p_0>  <!-- pressure at sea level in hPa(double) -->
         <t_0>273.15</t_0>  <!-- temperature in K compare to 0°C(double) -->
@@ -38,8 +25,6 @@
         <r_air>42.97</r_air>  <!-- ATHAD: reference density of the atmospheric mixture at the surface in kg/m³(double) -->
         <r_0_water>997.0</r_0_water>  <!-- reference density of fresh water in kg/m3(double) -->
         <t_equat_modern>15.4</t_equat_modern>  <!-- mean temperature of the modern earth in °C(double) -->
-        <t_pole_modern>-15.4</t_pole_modern>  <!-- pole temperature of the modern earth in °C(double) -->
-        <t_paleo_max>10.0</t_paleo_max>  <!-- maximum add of mean temperature in °C during paleo times(double) -->
         <rad_equator_short>116.0</rad_equator_short>  <!-- ATHAD: short wave radiation at the equator in W/m2(double) -->
         <rad_pole_short>71.0</rad_pole_short>  <!-- ATHAD: short wave radiation at the poles in W/m2(double) -->
         <rad_equator>398.2</rad_equator>  <!-- inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)(double) -->
@@ -62,14 +47,13 @@
     <atmosphere>
         <nm>400</nm>  <!-- the maximum number of iterations(int) -->
         <checkpoint>20</checkpoint>  <!-- control when to write output files(int) -->
+        <diagnostic_stride>0</diagnostic_stride>  <!-- ATHAD: iterations between text diagnostics; 0 = auto (10 short / 100 long)(int) -->
         <panorama_print>100</panorama_print>  <!-- control when to write panorama files(int) -->
         <coeff_Dalton>0.7</coeff_Dalton>  <!-- diffusion coefficient in evaporation by Dalton(double) -->
         <convection_perturbation>1</convection_perturbation>  <!-- convective trigger perturbation: 0=fixed, 1=Bechtold (2008) surface-flux-based for shallow/fixed for deep(int) -->
         <convection_mode>1</convection_mode>  <!-- convection type: 0=deep only (precipitating), 1=deep+shallow (non-precipitating if p_diff<p_stat_diff), 2=deep+shallow+midlevel (also non-precipitating for cloud base above p_stat_midlevel/700 hPa)(int) -->
         <iter_prec>3</iter_prec>  <!-- precipitation sub-iteration count: min 3 for evaporation (e_d, e_p) to act on non-zero P_conv; check convergence at 4-5(int) -->
         <evap_model>Meyer</evap_model>  <!-- evaporation formula driving surface humidity update: Dalton, Meyer, or Rohwer(string) -->
-        <Ma_max>300</Ma_max>  <!-- parabolic temperature distribution 300 Ma(from Ruddiman)(int) -->
-        <Ma_max_half>150</Ma_max_half>  <!-- half of time scale(int) -->
         <L_atm>12051.0</L_atm>  <!-- ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 230 km(double) -->
         <zeta>3.0</zeta>  <!-- ATHAD: radial coordinate-stretching factor (was a hard-coded 3.715)(double) -->
         <tropopause_pole>195000.0</tropopause_pole>  <!-- ATHAD: top of the convective column at the poles in m(double) -->
@@ -115,7 +99,5 @@
         <co2_0>0.2053</co2_0>  <!-- ATHAD: reference CO2 mass fraction in kg/kg(double) -->
         <co2_scale>1.0</co2_scale>  <!-- multiplier applied to the whole CO2 field for sensitivity experiments (1.0 = field as built; 2.0 = doubled CO2)(double) -->
         <c_ocean>70</c_ocean>  <!-- ATHAD: surface water vapour as a fraction of the saturation value, in %(double) -->
-        <sst_coupling_alpha>0.0</sst_coupling_alpha>  <!-- outer-loop (Picard) hydrosphere->atmosphere SST coupling strength: blend fraction of the hydrosphere surface SST (read from <stem>_Transfer_Hyd_SST_<iter>.vwtp) into the atmospheric ocean surface temperature t.x[0] at init, t.x[0] <- (1-alpha)*t.x[0] + alpha*SST_hyd, before the t_eq snapshot so it propagates into the Held-Suarez target. 0.0 = OFF (no read; identical to the one-way chain and to round 0 of a Picard loop, which has no SST file yet). Ocean-only, finite-checked, SST-clamped to [-1.8,40] C, ocean-mean-anchored so total energy does not drift. Under-relax across rounds (e.g. 0.3-0.5)(double) -->
-        <hyd_sst_iter>-1</hyd_sst_iter>  <!-- which hydrosphere SST snapshot to read for sst_coupling_alpha: reads <stem>_Transfer_Hyd_SST_<iter>.vwtp for this iteration; -1 = use the latest (highest-iter) snapshot present in the output dir(int) -->
     </atmosphere>
 </atom>

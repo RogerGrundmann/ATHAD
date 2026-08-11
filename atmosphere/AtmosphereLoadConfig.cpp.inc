@@ -7,8 +7,6 @@
 
   if(elem_common) {
     Config::FillStringWithElement(elem_common, "output_path", output_path);
-    Config::FillStringWithElement(elem_common, "bathymetry_path", bathymetry_path);
-    Config::FillStringWithElement(elem_common, "BathymetrySuffix", BathymetrySuffix);
     Config::FillStringWithElement(elem_common, "config_xml_path", config_xml_path);
     Config::FillBoolWithElement(elem_common, "verbose", verbose);
     Config::FillBoolWithElement(elem_common, "paraview_panorama_vts_flag", paraview_panorama_vts_flag);
@@ -21,20 +19,9 @@
     Config::FillIntWithElement(elem_common, "time_start", time_start);
     Config::FillIntWithElement(elem_common, "time_end", time_end);
     Config::FillIntWithElement(elem_common, "time_step", time_step);
-    Config::FillStringWithElement(elem_common, "velocity_v_file", velocity_v_file);
-    Config::FillStringWithElement(elem_common, "velocity_w_file", velocity_w_file);
-    Config::FillStringWithElement(elem_common, "temperature_file", temperature_file);
-    Config::FillStringWithElement(elem_common, "precipitation_file", precipitation_file);
-    Config::FillStringWithElement(elem_common, "salinity_file", salinity_file);
-    Config::FillStringWithElement(elem_common, "temperature_global_file", temperature_global_file);
-    Config::FillStringWithElement(elem_common, "temperature_equat_file", temperature_equat_file);
-    Config::FillStringWithElement(elem_common, "temperature_pole_file", temperature_pole_file);
-    Config::FillStringWithElement(elem_common, "reconstruction_script_path", reconstruction_script_path);
     Config::FillBoolWithElement(elem_common, "use_earthbyte_reconstruction", use_earthbyte_reconstruction);
     Config::FillBoolWithElement(elem_common, "use_NASA_velocity", use_NASA_velocity);
     Config::FillBoolWithElement(elem_common, "use_NASA_temperature", use_NASA_temperature);
-    Config::FillBoolWithElement(elem_common, "use_NASA_salinity", use_NASA_salinity);
-    Config::FillIntWithElement(elem_common, "Ma_switch", Ma_switch);
     Config::FillIntWithElement(elem_common, "CategoryIceScheme", CategoryIceScheme);
     Config::FillDoubleWithElement(elem_common, "p_0", p_0);
     Config::FillDoubleWithElement(elem_common, "t_0", t_0);
@@ -45,8 +32,6 @@
     Config::FillDoubleWithElement(elem_common, "r_air", r_air);
     Config::FillDoubleWithElement(elem_common, "r_0_water", r_0_water);
     Config::FillDoubleWithElement(elem_common, "t_equat_modern", t_equat_modern);
-    Config::FillDoubleWithElement(elem_common, "t_pole_modern", t_pole_modern);
-    Config::FillDoubleWithElement(elem_common, "t_paleo_max", t_paleo_max);
     Config::FillDoubleWithElement(elem_common, "rad_equator_short", rad_equator_short);
     Config::FillDoubleWithElement(elem_common, "rad_pole_short", rad_pole_short);
     Config::FillDoubleWithElement(elem_common, "rad_equator", rad_equator);
@@ -72,14 +57,13 @@
   if(elem_atmosphere) {
     Config::FillIntWithElement(elem_atmosphere, "nm", nm);
     Config::FillIntWithElement(elem_atmosphere, "checkpoint", checkpoint);
+    Config::FillIntWithElement(elem_atmosphere, "diagnostic_stride", diagnostic_stride);
     Config::FillIntWithElement(elem_atmosphere, "panorama_print", panorama_print);
     Config::FillDoubleWithElement(elem_atmosphere, "coeff_Dalton", coeff_Dalton);
     Config::FillIntWithElement(elem_atmosphere, "convection_perturbation", convection_perturbation);
     Config::FillIntWithElement(elem_atmosphere, "convection_mode", convection_mode);
     Config::FillIntWithElement(elem_atmosphere, "iter_prec", iter_prec);
     Config::FillStringWithElement(elem_atmosphere, "evap_model", evap_model);
-    Config::FillIntWithElement(elem_atmosphere, "Ma_max", Ma_max);
-    Config::FillIntWithElement(elem_atmosphere, "Ma_max_half", Ma_max_half);
     Config::FillDoubleWithElement(elem_atmosphere, "L_atm", L_atm);
     Config::FillDoubleWithElement(elem_atmosphere, "zeta", zeta);
     Config::FillDoubleWithElement(elem_atmosphere, "tropopause_pole", tropopause_pole);
@@ -125,6 +109,4 @@
     Config::FillDoubleWithElement(elem_atmosphere, "co2_0", co2_0);
     Config::FillDoubleWithElement(elem_atmosphere, "co2_scale", co2_scale);
     Config::FillDoubleWithElement(elem_atmosphere, "c_ocean", c_ocean);
-    Config::FillDoubleWithElement(elem_atmosphere, "sst_coupling_alpha", sst_coupling_alpha);
-    Config::FillIntWithElement(elem_atmosphere, "hyd_sst_iter", hyd_sst_iter);
   }

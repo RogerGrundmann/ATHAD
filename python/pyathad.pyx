@@ -98,24 +98,6 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.output_path = <string> value
     
-    property bathymetry_path:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.bathymetry_path
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.bathymetry_path = <string> value
-    
-    property BathymetrySuffix:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.BathymetrySuffix
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.BathymetrySuffix = <string> value
-    
     property config_xml_path:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -224,87 +206,6 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.time_step = <int> value
     
-    property velocity_v_file:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.velocity_v_file
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.velocity_v_file = <string> value
-    
-    property velocity_w_file:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.velocity_w_file
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.velocity_w_file = <string> value
-    
-    property temperature_file:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.temperature_file
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.temperature_file = <string> value
-    
-    property precipitation_file:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.precipitation_file
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.precipitation_file = <string> value
-    
-    property salinity_file:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.salinity_file
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.salinity_file = <string> value
-    
-    property temperature_global_file:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.temperature_global_file
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.temperature_global_file = <string> value
-    
-    property temperature_equat_file:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.temperature_equat_file
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.temperature_equat_file = <string> value
-    
-    property temperature_pole_file:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.temperature_pole_file
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.temperature_pole_file = <string> value
-    
-    property reconstruction_script_path:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.reconstruction_script_path
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.reconstruction_script_path = <string> value
-    
     property use_earthbyte_reconstruction:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -331,24 +232,6 @@ cdef class Atmosphere:
         def __set__(Atmosphere self, value):
             self._check_alive()
             self._thisptr.use_NASA_temperature = <bool> value
-    
-    property use_NASA_salinity:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.use_NASA_salinity
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.use_NASA_salinity = <bool> value
-    
-    property Ma_switch:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.Ma_switch
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.Ma_switch = <int> value
     
     property CategoryIceScheme:
         def __get__(Atmosphere self):
@@ -439,24 +322,6 @@ cdef class Atmosphere:
         def __set__(Atmosphere self, value):
             self._check_alive()
             self._thisptr.t_equat_modern = <double> value
-    
-    property t_pole_modern:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.t_pole_modern
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.t_pole_modern = <double> value
-    
-    property t_paleo_max:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.t_paleo_max
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.t_paleo_max = <double> value
     
     property rad_equator_short:
         def __get__(Atmosphere self):
@@ -639,6 +504,15 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.checkpoint = <int> value
     
+    property diagnostic_stride:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.diagnostic_stride
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.diagnostic_stride = <int> value
+    
     property panorama_print:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -692,24 +566,6 @@ cdef class Atmosphere:
         def __set__(Atmosphere self, value):
             self._check_alive()
             self._thisptr.evap_model = <string> value
-    
-    property Ma_max:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.Ma_max
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.Ma_max = <int> value
-    
-    property Ma_max_half:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.Ma_max_half
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.Ma_max_half = <int> value
     
     property L_atm:
         def __get__(Atmosphere self):
@@ -1115,24 +971,6 @@ cdef class Atmosphere:
         def __set__(Atmosphere self, value):
             self._check_alive()
             self._thisptr.c_ocean = <double> value
-    
-    property sst_coupling_alpha:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.sst_coupling_alpha
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.sst_coupling_alpha = <double> value
-    
-    property hyd_sst_iter:
-        def __get__(Atmosphere self):
-            self._check_alive()
-            return self._thisptr.hyd_sst_iter
-    
-        def __set__(Atmosphere self, value):
-            self._check_alive()
-            self._thisptr.hyd_sst_iter = <int> value
     
 
 

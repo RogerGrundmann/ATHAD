@@ -231,6 +231,18 @@ public:
     // Planetary radius in rad.z units when ATM_METRIC_RADIUS is on; 0.0 means off.
     double m_metric_r0 = 0.0;
 
+    // How often the text diagnostics (column profile, level summary, OLR) are printed.
+    //
+    // Deliberately NOT tied to `checkpoint`, which controls the ParaView file writes:
+    // those are expensive and wanted rarely, while the text diagnostics are cheap and
+    // wanted often enough to watch a run develop. A short exploratory run should report
+    // every 10 iterations; a long production run every 100, or the log becomes unreadable.
+    // diagnostic_stride = 0 selects that automatically from the run length.
+    int diagnosticStride() const {
+        if (diagnostic_stride > 0) return diagnostic_stride;   // explicit override
+        return (nm <= 100) ? 10 : 100;                         // short run : long run
+    }
+
 private:
 
     static cAtmosphereModel* m_model;
@@ -419,7 +431,6 @@ private:
     void AtmospherePlotData(const string &Name_Bathymetry_File);
     void AtmosphereDataTransfer(const string &Name_Bathymetry_File);
     void read_Atmosphere_Surface_Data(int Ma);
-    void read_Hydrosphere_SST(int Ma);   // reverse coupling: blend hydrosphere SST into t.x[0] (Picard loop)
     void searchMinMax_2D(const string &, const string &,
         const string &, Array_2D &, double coeff = 1.0);
 

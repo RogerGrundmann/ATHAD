@@ -11,8 +11,6 @@ cdef extern from "cAtmosphereModel.h":
         vector[float] get_layer_heights()
         # common section
         string output_path
-        string bathymetry_path
-        string BathymetrySuffix
         string config_xml_path
         bool verbose
         bool paraview_panorama_vts_flag
@@ -25,20 +23,9 @@ cdef extern from "cAtmosphereModel.h":
         int time_start
         int time_end
         int time_step
-        string velocity_v_file
-        string velocity_w_file
-        string temperature_file
-        string precipitation_file
-        string salinity_file
-        string temperature_global_file
-        string temperature_equat_file
-        string temperature_pole_file
-        string reconstruction_script_path
         bool use_earthbyte_reconstruction
         bool use_NASA_velocity
         bool use_NASA_temperature
-        bool use_NASA_salinity
-        int Ma_switch
         int CategoryIceScheme
         double p_0
         double t_0
@@ -49,8 +36,6 @@ cdef extern from "cAtmosphereModel.h":
         double r_air
         double r_0_water
         double t_equat_modern
-        double t_pole_modern
-        double t_paleo_max
         double rad_equator_short
         double rad_pole_short
         double rad_equator
@@ -72,14 +57,13 @@ cdef extern from "cAtmosphereModel.h":
         # atmosphere section
         int nm
         int checkpoint
+        int diagnostic_stride
         int panorama_print
         double coeff_Dalton
         int convection_perturbation
         int convection_mode
         int iter_prec
         string evap_model
-        int Ma_max
-        int Ma_max_half
         double L_atm
         double zeta
         double tropopause_pole
@@ -125,5 +109,3 @@ cdef extern from "cAtmosphereModel.h":
         double co2_0
         double co2_scale
         double c_ocean
-        double sst_coupling_alpha
-        int hyd_sst_iter

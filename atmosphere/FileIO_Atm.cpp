@@ -162,106 +162,11 @@ void cAtmosphereModel::AtmosphereDataTransfer(const string &Name_Bathymetry_File
 //     coupling moves SST STRUCTURE around without shifting the global ocean energy
 //     (the Scotese ocean-mean, the one thing we trust, is preserved exactly).
 // Under-relaxation across rounds is the caller's job (sst_coupling_alpha ~0.3-0.5).
-void cAtmosphereModel::read_Hydrosphere_SST(int Ma){
-    if(sst_coupling_alpha <= 0.0) return;                              // OFF: one-way chain / Picard round 0
-
-    cout << endl << "      AGCM: read_Hydrosphere_SST   alpha = " << sst_coupling_alpha << endl;
-
-    string stem_t = bathymetry_name;                                  // already extension-stripped at init
-    { auto dot = stem_t.rfind('.'); if(dot != string::npos) stem_t = stem_t.substr(0, dot); }
-    string base_t = output_path;
-    if(!base_t.empty() && base_t.back() == '/') base_t.pop_back();
-
-    // Select which hydrosphere SST snapshot to read (mirrors HydrosphereDataTransfer's
-    // atm_transfer_iter logic): hyd_sst_iter >= 0 reads exactly that iteration; < 0 reads
-    // the highest-iter snapshot present (i.e. wherever the hydrosphere run stopped).
-    const string prefix = stem_t + "_Transfer_Hyd_SST_";
-    string Name_SST_File;
-    if(hyd_sst_iter >= 0){
-        Name_SST_File = base_t + "/" + prefix + std::to_string(hyd_sst_iter) + ".vwtp";
-    }else{
-        int best = -1;
-        if(DIR *dir = opendir(base_t.c_str())){
-            while(struct dirent *ent = readdir(dir)){
-                const string fn = ent->d_name;
-                if(fn.size() > prefix.size() + 5
-                && fn.compare(0, prefix.size(), prefix) == 0
-                && fn.compare(fn.size() - 5, 5, ".vwtp") == 0){
-                    const string mid = fn.substr(prefix.size(), fn.size() - prefix.size() - 5);
-                    if(!mid.empty() && mid.find_first_not_of("0123456789") == string::npos)
-                        best = std::max(best, std::stoi(mid));
-                }
-            }
-            closedir(dir);
-        }
-        if(best < 0){
-            cout << "      AGCM: no hydrosphere SST snapshot (" << prefix
-                 << "<iter>.vwtp) in " << base_t << " — skipping SST coupling (round 0?)" << endl;
-            return;
-        }
-        Name_SST_File = base_t + "/" + prefix + std::to_string(best) + ".vwtp";
-    }
-
-    ifstream SST_File(Name_SST_File);
-    if(!SST_File.is_open()){
-        cout << "      AGCM: hydrosphere SST file not found, skipping SST coupling: "
-             << Name_SST_File << endl;
-        return;
-    }
-    cout << "      AGCM: hydrosphere SST file = " << Name_SST_File
-         << (hyd_sst_iter >= 0 ? "  (hyd_sst_iter)" : "  (latest snapshot)") << endl;
-
-    string line;
-    if(getline(SST_File, line)){                                      // optional "# iter_n = ..." headline
-        if(!line.empty() && line[0] == '#')
-            cout << "      AGCM: SST file headline: " << line << endl;
-        else { SST_File.clear(); SST_File.seekg(0, ios::beg); }
-    }
-
-    // Non-dimensional SST clamp band: T_nd = T_K / t_0, so [-1.8, 40] C maps as below.
-    const double sst_lo = (t_0 - 1.8) / t_0;
-    const double sst_hi = (t_0 + 40.0) / t_0;
-
-    // Pass 1: ocean-mean of t.x[0] BEFORE blending (the invariant to preserve).
-    double sum_before = 0.0; long n_ocean = 0;
-    for(int j = 0; j < jm; j++)
-        for(int k = 0; k < km; k++)
-            if(!is_land(h, 0, j, k)){ sum_before += t.x[0][j][k]; ++n_ocean; }
-
-    // Pass 2: read + blend over ocean cells.
-    bool truncated = false;
-    for(int j = 0; j < jm && !truncated; j++){
-        for(int k = 0; k < km; k++){
-            if(!getline(SST_File, line)){
-                cerr << "WARNING: read_Hydrosphere_SST: file truncated at j="
-                     << j << " k=" << k << "\n";
-                truncated = true; break;
-            }
-            if(is_land(h, 0, j, k)) continue;                         // ocean only
-            double sst = 0.0; { istringstream ss(line); ss >> sst; }
-            if(!is_finite_safe(sst)) continue;                        // leave cell untouched
-            sst = std::min(std::max(sst, sst_lo), sst_hi);            // clamp to [-1.8,40] C
-            t.x[0][j][k] = (1.0 - sst_coupling_alpha) * t.x[0][j][k]
-                         + sst_coupling_alpha * sst;
-        }
-    }
-    SST_File.close();
-
-    // Pass 3: ocean-mean anchor — shift every ocean cell so the ocean-mean is unchanged.
-    if(n_ocean > 0){
-        double sum_after = 0.0;
-        for(int j = 0; j < jm; j++)
-            for(int k = 0; k < km; k++)
-                if(!is_land(h, 0, j, k)) sum_after += t.x[0][j][k];
-        const double corr = (sum_before - sum_after) / static_cast<double>(n_ocean);
-        for(int j = 0; j < jm; j++)
-            for(int k = 0; k < km; k++)
-                if(!is_land(h, 0, j, k)) t.x[0][j][k] += corr;
-        cout << "      AGCM: SST coupling applied over " << n_ocean
-             << " ocean cells (mean-anchor shift " << corr << " nd)" << endl;
-    }
-    cout << "      AGCM: read_Hydrosphere_SST ended" << endl;
-}
+// ATHAD: read_Hydrosphere_SST() lived here — the atmosphere half of the atm<->ocean
+// Picard loop, blending a previous hydrosphere run's sea-surface temperature into t.x[0].
+// There is no hydrosphere in ATHAD and no ocean to couple to: the Hadean surface is a
+// magma ocean whose temperature is prescribed, not solved by a companion model. Removed
+// with its two parameters (sst_coupling_alpha, hyd_sst_iter).
 /*
 *
 */

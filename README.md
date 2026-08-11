@@ -332,4 +332,56 @@ the measurements that did not work out — rather than what is intended.
    iterating `t_skin` against the model's own albedo. `initComposition()` prints both values
    and warns when they diverge.
 
-*(Further entries are added as each phase is measured.)*
+8. **Rotation, paleo-time removal, Python bindings (done).**
+
+   **Rotation.** ω = 3.17e-4 rad/s — a 5.5 h Hadean day, 4.35× modern, reported at
+   startup. Checked against the family's four Coriolis/centrifugal sign fixes rather than
+   re-derived. Two findings:
+
+   - The **dynamical** Coriolis signs in `RHS_Atm_Turb.cpp` already agree with ATURAN
+     `8b284cb` / ATNEPT `024c37f` once the opposite storage convention is accounted for
+     (they store −a because their RHS subtracts; this file stores +a because its RHS adds).
+     ATOM_Precipitation had fixed this independently. No change needed.
+   - The **diagnostic** in `ThermoAtm::forces()` did not match. It carried a
+     +2Ω·sinθ·u term the momentum equations drop under the traditional approximation, so
+     the ParaView "Coriolis force" field showed a force that was never applied. It now
+     follows the same `ATOM_CORIOLIS_NONTRAD` switch as the dynamics.
+   - The centrifugal diagnostic used `(1 + |sinθ|)`, which is **maximal at the pole** where
+     the true value is zero. Replaced by the correct decomposition about the rotation axis,
+     `a_r = ω²r sin²θ`, `a_θ = ω²r sinθcosθ` (ATURAN `4201957` / ATJUP `8649675`).
+     Diagnostic only — ATHAD's RHS carries no centrifugal term, the force being curl-free
+     and absorbed by the pressure projection, which is what ATURAN found.
+
+   **Paleo-time removal.** Nineteen parameters deleted (topography grids, NASA surface
+   fields, Scotese curves, the pygplates reconstruction script, `Ma_switch`, `Ma_max`,
+   `t_paleo_max`, `co2_paleo`, …), plus `read_Hydrosphere_SST()` and its two parameters —
+   the atmosphere half of an atm↔ocean Picard loop with no ocean to couple to.
+   `time_start/end/step` remain: the time-slice loop is still structural, and a single
+   slice is all that runs.
+
+   **Python bindings.** `pyatom` → `pyathad`, hydrosphere halves stripped. `model.py` was
+   driving *both* spheres and — at the bottom — actually running the ocean rather than the
+   atmosphere; it now drives the one model that exists.
+
+   **Diagnostic cadence** (separate from `checkpoint`, which writes ParaView files):
+   every **10** iterations for a short run (`nm ≤ 100`), every **100** for a longer one,
+   overridable with `diagnostic_stride`. The chosen value is reported at startup.
+   Verified: nm=20 prints at iters 10 and 20; nm=400 selects the 100 stride.
+
+   A 20-iteration run completes clean — no NaN, no non-positive pressure, OLR steady at
+   236.0 W/m².
+
+## Remaining work
+
+- **`geothermal_flux` is the open number.** The model now says it must be ≥ ~195 W/m² for
+  the prescribed 1500 K surface to be self-consistent with a runaway greenhouse; the
+  assumed 150 W/m² gives 236 W/m², below the limit. Check against magma-ocean cooling
+  estimates.
+- **`t_skin` is not yet a fixed point** — it uses the clear-sky albedo while the cloud deck
+  raises it. Iterate it against the model's own albedo.
+- **The three κ opacities** carry factor-of-two uncertainty and are the biggest lever on
+  the OLR. A grey scheme cannot represent the window regions that set the real limit.
+- **The surface temperature is prescribed, not solved.** Everything above is conditional
+  on that.
+- **Boussinesq** remains untested against a column whose density spans two orders of
+  magnitude (see CLAUDE.md).

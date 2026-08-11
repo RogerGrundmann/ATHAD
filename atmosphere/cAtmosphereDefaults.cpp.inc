@@ -6,8 +6,6 @@ void cAtmosphereModel::SetDefaultConfig() {
 
   // common section
   output_path = "output-Hadean/";
-  bathymetry_path = "../data/topo_grids";
-  BathymetrySuffix = "Ma_smooth.xyz";
   config_xml_path = "../python";
   verbose = false;
   paraview_panorama_vts_flag = true;
@@ -15,25 +13,14 @@ void cAtmosphereModel::SetDefaultConfig() {
   centrifugal = 1;
   buoyancy = 1;
   r_Earth = 6370.001;
-  omega = 7.292e-05;
+  omega = 0.000317;
   g = 9.8066;
   time_start = 0;
   time_end = 0;
   time_step = 10;
-  velocity_v_file = "../data/v_surface.txt";
-  velocity_w_file = "../data/w_surface.txt";
-  temperature_file = "../data/SurfaceTemperature_NASA.xyz";
-  precipitation_file = "../data/SurfacePrecipitation_NASA.xyz";
-  salinity_file = "../data/SurfaceSalinity_NASA.xyz";
-  temperature_global_file = "../data/scotese_etal_2021_global_temp_1my.txt";
-  temperature_equat_file = "../data/scotese_etal_2021_equat_temp_1my.txt";
-  temperature_pole_file = "../data/scotese_etal_2021_polar_temp_1my.txt";
-  reconstruction_script_path = "../reconstruction/reconstruct_atom_data.py";
   use_earthbyte_reconstruction = false;
   use_NASA_velocity = false;
   use_NASA_temperature = true;
-  use_NASA_salinity = true;
-  Ma_switch = 100;
   CategoryIceScheme = 2;
   p_0 = 250000.0;
   t_0 = 273.15;
@@ -44,8 +31,6 @@ void cAtmosphereModel::SetDefaultConfig() {
   r_air = 42.97;
   r_0_water = 997.0;
   t_equat_modern = 15.4;
-  t_pole_modern = -15.4;
-  t_paleo_max = 10.0;
   rad_equator_short = 116.0;
   rad_pole_short = 71.0;
   rad_equator = 398.2;
@@ -68,14 +53,13 @@ void cAtmosphereModel::SetDefaultConfig() {
   // atmosphere section
   nm = 400;
   checkpoint = 20;
+  diagnostic_stride = 0;
   panorama_print = 100;
   coeff_Dalton = 0.7;
   convection_perturbation = 1;
   convection_mode = 1;
   iter_prec = 3;
   evap_model = "Meyer";
-  Ma_max = 300;
-  Ma_max_half = 150;
   L_atm = 12051.0;
   zeta = 3.0;
   tropopause_pole = 195000.0;
@@ -121,6 +105,4 @@ void cAtmosphereModel::SetDefaultConfig() {
   co2_0 = 0.2053;
   co2_scale = 1.0;
   c_ocean = 70;
-  sst_coupling_alpha = 0.0;
-  hyd_sst_iter = -1;
 }
