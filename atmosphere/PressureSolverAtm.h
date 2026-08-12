@@ -463,6 +463,53 @@ public:
             }
         }
 
+        // ------------------------------------------------------------------
+        // ATHAD: measure the divergence the projection is supposed to be removing.
+        //
+        // Nothing measured it, so "the projection enforces div u = 0" was an assumption
+        // about the code rather than an observation of it — and the file's own note says
+        // div and grad are NOT discretely adjoint here (the Laplacian uses squared metric
+        // factors where the source and the gradient correction are single-power), which
+        // means the projection cannot remove exactly what it measured. This is the number
+        // that says how far off it is, and the A/B control for ATM_POISSON_METRIC_FIX.
+        //
+        // Formed on the ACTUAL velocity u/v/w with the same expression as div_src above,
+        // so the two are directly comparable.
+        if (verbose) {
+            double d2 = 0.0, dmax = 0.0;
+            long   n  = 0;
+            #pragma omp parallel for collapse(2) schedule(static) reduction(+:d2,n) \
+                    reduction(max:dmax)
+            for (int i = 1; i < m.im-1; i++) {
+                for (int j = 1; j < m.jm-1; j++) {
+                    const double rm      = m.rad.z[i];
+                    const double exp_rm  = 1.0 / (rm + 1.0);
+                    const double rmet    = m.metricRadius(rm);
+                    const double sinthe  = sinthe_table[j];
+                    const double inv_rm  = 1.0 / rmet;
+                    const double inv_rms = 1.0 / (rmet * sinthe);
+                    const double cotanthe = cos(m.the.z[j]) / sinthe;
+
+                    for (int k = 1; k < m.km-1; k++) {
+                        if (land[i*m.jm*m.km + j*m.km + k]) continue;
+                        double d = (m.u.x[i+1][j][k] - m.u.x[i-1][j][k]) * inv_2dr   * exp_rm
+                                 + (m.v.x[i][j+1][k] - m.v.x[i][j-1][k]) * inv_2dthe * inv_rm
+                                 + (m.w.x[i][j][k+1] - m.w.x[i][j][k-1]) * inv_2dphi * inv_rms;
+                        if (metric_div)
+                            d += (2.0 * m.u.x[i][j][k] + m.v.x[i][j][k] * cotanthe) * inv_rm;
+                        if (!is_finite_safe(d)) continue;
+                        d2 += d * d;
+                        if (std::fabs(d) > dmax) dmax = std::fabs(d);
+                        n++;
+                    }
+                }
+            }
+            cout << "      ATOM: div(u) after projection  rms = "
+                 << std::scientific << std::setprecision(3) << ((n > 0) ? sqrt(d2 / n) : 0.0)
+                 << "   max = " << dmax << std::fixed
+                 << "   (metric_fix = " << (poisson_metric_fix ? "on" : "off") << ")" << endl;
+        }
+
         auto end = std::chrono::high_resolution_clock::now();
         if (verbose) {
             auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);

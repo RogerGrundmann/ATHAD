@@ -145,7 +145,33 @@ private:
                         double q_v_b   = q_v_old;
                         double q_c_b   = q_c_old;
                         double q_i_b   = q_i_old;
-                        double q_v_hyp = q_sat;
+                        // ATHAD: the first Newton step must be DAMPED like every other one.
+                        //
+                        // This was `q_v_hyp = q_sat`, i.e. an undamped jump straight to the
+                        // saturation value, with the loop's omega = 1/(1+Gain) damping only
+                        // applied from the second pass onward. On Earth that is harmless:
+                        // condensing the ~0.01 kg/kg a terrestrial parcel holds releases
+                        // ~12 K, and the loop mops it up.
+                        //
+                        // Here it is fatal. At 243 km the column runs q_v = 0.72 against
+                        // q_sat = 0.076, so the undamped step condenses 0.65 kg/kg in one
+                        // go and releases 0.65*L/cp = 800 K of latent heat. T is then
+                        // clamped to the critical point, where p_sat = 220 bar against a
+                        // local 0.085 bar — so q_sat becomes 1, the target inverts, and the
+                        // next pass evaporates everything back. The iteration flip-flops
+                        // between fully condensed and fully evaporated and ends at zero, so
+                        // the model produced NO cloud, ice or rain anywhere in the domain
+                        // while sitting ninefold supersaturated.
+                        //
+                        // Starting from q_v_b makes the first pass a no-op that computes a
+                        // properly damped target. The equilibrium it should find is modest:
+                        // condensing ~0.04 kg/kg warms the parcel ~47 K, at which point the
+                        // vapour is superheated and nothing further can condense.
+                        //
+                        // The defect is not a constant this time, it is an ASSUMPTION —
+                        // that latent heating is a perturbation. At 67 % water by mass,
+                        // condensation is a bulk phase change of the atmosphere.
+                        double q_v_hyp = q_v_b;
                         const double T_original = t_row[k] * m.t_0;
 
                         for (int iter = 1; iter <= iter_prec_end; iter++) {

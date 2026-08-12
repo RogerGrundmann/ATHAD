@@ -805,6 +805,66 @@ the measurements that did not work out — rather than what is intended.
     ParaView output of a 400-iteration run has active moist physics only over its last 100
     iterations.
 
+16. **The cloud came back: an undamped Newton step, and precipitation mass returned
+    (done). And step 1 of the anelastic scope, measured and falsified.**
+
+    The output showed water vapour everywhere and **no cloud, ice or rain anywhere in the
+    domain** — while the column at 243 km sat ninefold supersaturated, `q_H2O` = 0.72
+    against `q_sat` = 0.076, flagged `CONDENSING`. Two separate causes.
+
+    **The precipitation mass was being destroyed.** `evaporateWhereImpossible()` (item 14)
+    zeroed `P_rain` and `P_snow` without returning their mass to the vapour. The deck
+    condensed, the ice scheme autoconverted it to rain, the rain fell one level into the
+    superheated band, and it vanished. A downward flux `P` falling at speed `v` corresponds
+    to a mass fraction `P/(v·ρ)` in the air it passes through; that is now converted before
+    the flux is cleared, using the fall speeds the schemes' own residence times are built
+    from (1.6 m/s rain, 0.96 m/s snow).
+
+    **The first Newton step of the saturation adjustment was undamped**, and that is what
+    actually suppressed the cloud. `adjustSaturation` initialised `q_v_hyp = q_sat`, a jump
+    straight to the saturation value, and applied its `omega = 1/(1+Gain)` damping only
+    from the second pass. On Earth this is harmless — condensing the ~0.01 kg/kg a
+    terrestrial parcel holds releases about 12 K. Here the undamped step condenses
+    **0.65 kg/kg in one go and releases 800 K** of latent heat. `T` is then clamped at the
+    critical point, where `p_sat` = 220 bar against a local 0.085 bar, so `q_sat` becomes 1,
+    the target inverts, and the next pass evaporates everything back. The iteration
+    flip-flops between fully condensed and fully evaporated and finishes at zero.
+
+    This one is not an inherited constant, it is an inherited **assumption**: that latent
+    heating is a perturbation. At 67 % water by mass, condensation is a bulk phase change of
+    the atmosphere. Starting the iteration from `q_v_b` makes the first pass compute a
+    properly damped target. The equilibrium it should find is modest — condensing ~0.04
+    kg/kg warms the parcel ~47 K, after which the vapour is superheated and nothing more
+    can condense.
+
+    **Measured after the fix** (20 iterations, moist physics on from iteration 1):
+
+    ```
+    max cloud water = 15.687 g/kg  @ 73°S, 242 774 m
+    max cloud ice   = 14.400 g/kg  @ 68°S, 256 027 m
+    ```
+
+    A cloud deck at the condensation level, in both hemispheres, at the high latitudes
+    where the column is coldest — and none anywhere it cannot exist.
+
+    **Step 1 of the anelastic scope, measured.** `PressureSolverAtm` now reports the
+    divergence of the *actual* velocity after the projection — nothing had ever measured
+    it, so "the projection enforces ∇·u = 0" was an assumption about the code rather than
+    an observation of it. A/B on the existing `ATM_POISSON_METRIC_FIX` knob:
+
+    | | `div(u)` rms | water drift, 20 iters | ceiling deletions |
+    |---|---|---|---|
+    | metric fix off | 2.625e-02 | +0.1698 % | 0.014293 |
+    | metric fix on | **2.153e-02** | +0.1698 % | 0.014293 |
+
+    The consistent metric reduces the residual divergence by 18 % — real, and worth
+    keeping — but the water drift is **bit-identical**. So the metric inconsistency is not
+    the cause of the mass error, and step 1 of the scope is falsified as an explanation
+    while remaining valid as a repair. Note also the absolute number: an rms `∇·u` of
+    2.6e-02 is not a small residual. The projection is leaving a great deal of divergence
+    behind, which is consistent with the anelastic diagnosis and makes steps 2–7 the
+    remaining candidate.
+
 ## Scope: the anelastic continuity fix
 
 The tracer mass error of item 15 comes from a velocity field that does not satisfy

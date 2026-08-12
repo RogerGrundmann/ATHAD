@@ -152,6 +152,30 @@ namespace IceSchemeCommon {
             }
         }
 
+        // Precipitation falling into such a cell evaporates too, and its mass must go
+        // somewhere. The first version simply zeroed the fluxes, which DESTROYED the
+        // water: the deck at 243 km condensed, the ice scheme autoconverted it to rain,
+        // the rain fell one level into the superheated band, and it vanished — leaving a
+        // column with vapour everywhere and no cloud, ice or rain anywhere, which is
+        // exactly what the output showed.
+        //
+        // A downward flux P [kg/(m2 s)] falling at speed v corresponds to a mass
+        // concentration P/v [kg/m3] in the air it is passing through, hence a mass
+        // fraction P/(v*rho). Convert, then clear. The fall speeds are the ones the
+        // schemes' own residence times are built from (dt_rain_dim = step/1.6,
+        // dt_snow_dim = step/0.96).
+        {
+            constexpr double v_rain = 1.6, v_snow = 0.96, v_graupel = 2.0;   // [m/s]
+            const double rho = std::max(1.0e-6, m.r_humid.x[i][j][k]);
+            const double q_p = std::max(0.0, m.P_rain.x[i][j][k])    / (v_rain    * rho)
+                             + std::max(0.0, m.P_snow.x[i][j][k])    / (v_snow    * rho)
+                             + std::max(0.0, m.P_graupel.x[i][j][k]) / (v_graupel * rho);
+            if (q_p > 0.0) {
+                const double c_max = std::max(0.0, 1.0 - m.co2.x[i][j][k]);
+                m.c.x[i][j][k] = std::min(c_max, m.c.x[i][j][k] + q_p);
+            }
+        }
+
         m.P_rain.x[i][j][k]        = 0.0;
         m.P_snow.x[i][j][k]        = 0.0;
         m.P_graupel.x[i][j][k]     = 0.0;
