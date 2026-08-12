@@ -606,7 +606,53 @@ the measurements that did not work out — rather than what is intended.
     Wrong on Earth too (28 of 41 levels = 4.9 km, not the intended 11 km), but wrong there
     in a way that still landed inside the troposphere, so it never showed.
 
+12. **CO₂ made genuinely prognostic, and a 100-iteration run (done).**
+
+    The CO₂ in the ParaView output was *exactly* constant — `min co2 = max co2 = 0.205300`
+    in every cell at every checkpoint. `ThermoAtm::co2Atmosphere()` fills the whole field
+    with the uniform `co2_0·co2_scale`, and it was being called **inside the time loop**,
+    immediately before `densities()`. Meanwhile the model does carry a full CO₂ transport
+    equation — `RHS_Atm_Turb` builds `rhs_co2`, `RungeKutta_Atm_Turb` carries it through
+    all four stages — and every iteration the result was discarded. CLAUDE.md's "H₂O and
+    CO₂ are prognostic" was false for CO₂.
+
+    `co2Atmosphere()` is now the initial condition only. In its place in the loop,
+    `ThermoAtm::co2Column()`:
+
+    - fills `co2_total`, which was declared ("areas of higher co2 concentration") and
+      **never written**, so its min/max and the `co2_average` derived from it both read
+      0.000. It now carries the column CO₂ mass path in kg/m², the CO₂ analogue of
+      precipitable water: 519 108 kg/m² global mean, 505 205 (pole) to 522 343 (equator);
+    - reports the drift of the global mass-weighted mean q_CO₂. There is no CO₂ source or
+      sink anywhere in the model, so that mean is conserved and any drift is transport
+      error. Measured over 20 iterations: **−0.0000 %**.
+
+    Unit labels corrected with it: the 3-D field is kg/kg not ppm, the column is kg/m², and
+    the startup banner's `co2_0=0.205 ppm` is kg/kg.
+
+    **The field still comes out uniform — and that is now the answer rather than the
+    assumption.** A passive tracer with no sources and no gradients has `∇q = 0`, so
+    advection and diffusion both vanish and uniform is the exact solution. The difference
+    is that the model now computes it, monitors it, and will transport any structure that
+    does appear instead of erasing it every step.
+
+    **100-iteration run**, 300 km shell, 24 threads, no NaN, ParaView every 10 iterations.
+    The model relaxes monotonically toward radiative balance:
+
+    | iter | 10 | 20 | 40 | 60 | 80 | 100 |
+    |---|---|---|---|---|---|---|
+    | OLR [W/m²] | 617.8 | 581.0 | 522.0 | 477.0 | 441.7 | 413.4 |
+    | imbalance [W/m²] | −347.0 | −310.2 | −251.2 | −206.2 | −170.9 | −142.6 |
+
+    The imbalance decays by about 9 % per 10 iterations and the rate is slowing, so
+    reaching balance (OLR → 271 W/m²) needs of order 400 iterations. Note the OLR passes
+    *through* the 280–310 W/m² Nakajima / Komabayashi–Ingersoll band on the way down —
+    which is the first time this model has approached that limit from a computed flux
+    rather than a prescribed one. `t_skin` has converged to 262.88 K and the lid emissivity
+    is 0.0000, so the outgoing flux is a column integral throughout.
+
 ## Remaining work
+
 
 
 - **The temperature profile is still prescribed, not solved.** `ThermoAtm::densities()`
@@ -615,8 +661,10 @@ the measurements that did not work out — rather than what is intended.
   radiation must *set* the profile rather than nudge it toward a prescribed one; the
   prescription still wins. The OLR is now a genuine integral **over a prescribed profile** —
   a real improvement, but not yet a prediction.
-- **The OLR is not grid-converged**: 519 W/m² at a 260 km shell against 581 at 300 km,
-  with `im` fixed at 61. Refine vertically and check.
+- **The run is not converged**: 100 iterations leaves a −143 W/m² imbalance, still decaying
+  ~9 % per 10 iterations. Of order 400 iterations are needed. Run it.
+- **The OLR is not grid-converged either**: 519 W/m² at a 260 km shell against 581 at
+  300 km, with `im` fixed at 61. Refine vertically and check.
 - **The opacity is too low to hold the surface.** OLR 581 W/m² against 271 absorbed. Since
   `kappa_H2O`/`kappa_CO2`/`kappa_bg` carry a factor-of-two uncertainty and are the biggest
   lever, this is the first quantity worth testing against the new scheme.

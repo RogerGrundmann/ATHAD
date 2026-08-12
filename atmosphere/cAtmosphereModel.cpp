@@ -598,7 +598,8 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     // density built before it is set uses R_of(c, 0) = 414.2 instead of 387.9 —
     // a 7 % density error through the whole column. On Earth the ordering was
     // harmless because co2 was in ppm and never touched the density.
-    ThermoAtm(*this).co2Atmosphere();                                   // well-mixed CO2 mass fraction
+    ThermoAtm(*this).co2Atmosphere();                                   // INITIAL well-mixed CO2 mass fraction
+    ThermoAtm(*this).co2Column(true);                                   // column CO2 path + the conservation reference
     ThermoAtm(*this).densities();
     ThermoAtm(*this).forces();
     ThermoAtm(*this).standAtm_DewPoint_HumidRel();                      // International Standard Atmosphere temperature profile, dew point temperature, relative humidity profile
@@ -992,7 +993,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
     // mode 2: t_eq stays the Scotese snapshot; the in-loop MLR heating carries the radiation.
     std::cout << "      AGCM: radiation_mode=" << radiation_mode
               << " (0=legacy,1=MLR->t_eq,2=MLR->heat,3=Scotese+MLR-CO2-perturb,4=+seed-t,5=strong-relax-teq)  co2_0="
-              << co2_0 << " ppm" << std::endl;
+              << co2_0 << " kg/kg" << std::endl;
 
     // Restart shortcut: overwrite the just-built initial conditions with a saved 3D
     // state and resume from its total_iter_count (skips re-running the dry spin-up).
@@ -1297,12 +1298,22 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 }
             }  // moist_phys_active
 
-            // ATHAD: co2Atmosphere() must run BEFORE densities(). The CO2 field is now a
-            // mass fraction that enters the local mixture gas constant R_of(c, co2), so a
-            // density built before it is set uses R_of(c, 0) = 414.2 instead of 387.9 —
-            // a 7 % density error through the whole column. On Earth the ordering was
-            // harmless because co2 was in ppm and never touched the density.
-            ThermoAtm(*this).co2Atmosphere();                           // well-mixed CO2 mass fraction
+            // ATHAD: CO2 is PROGNOSTIC and is no longer re-imposed here.
+            //
+            // What was here: ThermoAtm::co2Atmosphere(), which fills the whole field with
+            // the uniform co2_0*co2_scale. Calling it inside the time loop overwrote the
+            // transported field every iteration — rhs_co2 is built by RHS_Atm_Turb and
+            // carried through all four RK4 stages, and every bit of it was discarded — so
+            // the CO2 in the output was exactly constant (min = max = 0.205300 in every
+            // cell) and the "prognostic CO2" of CLAUDE.md was diagnostic. It now runs at
+            // initialisation only: the field starts well mixed, which is what a
+            // non-condensable gas below the homopause should be, and is then transported.
+            //
+            // co2Column() takes over the call site. It fills co2_total (the column CO2 mass
+            // path, previously declared and never written) and reports the drift of the
+            // global mass-weighted mean q_CO2 — a conserved quantity here, since the model
+            // has no CO2 source or sink, so any drift is transport error.
+            ThermoAtm(*this).co2Column(iter_n % diagnosticStride() == 0);
             ThermoAtm(*this).densities();
             ThermoAtm(*this).forces();
             ThermoAtm(*this).standAtm_DewPoint_HumidRel();              // International Standard Atmosphere temperature profile, dew point temperature, relative humidity profile

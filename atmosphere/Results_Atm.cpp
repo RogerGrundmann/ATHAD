@@ -172,7 +172,7 @@ void cAtmosphereModel::print_min_max_atm(){
 
 
     cout << endl << endl << endl << " greenhouse gas: " << endl;
-    searchMinMax_3D(" max co2 ", " min co2 ", "ppm", co2, 1.0);
+    searchMinMax_3D(" max co2 ", " min co2 ", "kg/kg", co2, 1.0);
     searchMinMax_3D(" max epsilon ",  " min epsilon ", "%", epsilon, 1.0);
 
 
@@ -195,8 +195,8 @@ void cAtmosphereModel::print_min_max_atm(){
         " results based on two dimensional considerations of the problem" 
         << endl;
     cout << endl << " co2 distribution: " << endl;
-    searchMinMax_2D(" max co2_total ", " min co2_total ", 
-         " ppm ", co2_total, 1.0);
+    searchMinMax_2D(" max co2 column ", " min co2 column ", 
+         " kg/m2 ", co2_total, 1.0);
 
 
 

@@ -54,6 +54,13 @@ Only **H₂O (`c`) and CO₂ (`co2`) are prognostic**, both as **mass fractions*
 at 20 % by mass ppm is meaningless). The other six are a fixed well-mixed background
 entering R_mix, cp_mix and the opacity.
 
+CO₂ is prognostic *in fact* only since README item 12: `co2Atmosphere()` used to re-impose
+a uniform field inside the time loop and discard the transported one. It is now the initial
+condition only, and `ThermoAtm::co2Column()` monitors the global mass-weighted mean, which
+is conserved (no CO₂ source or sink exists). The field still comes out uniform — with no
+gradients a passive tracer has nothing to transport — but that is now computed rather than
+asserted.
+
 ## Where the physics lives
 
 | File | What it owns |

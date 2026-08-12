@@ -83,6 +83,11 @@ public:
     // meaningless at ATHAD's R and T — see param.py, cosmo_lapse_fraction.
     double m_beta_cosmo = 42.0;
 
+    // Initial global mass-weighted mean CO2 mass fraction, captured on the first
+    // ThermoAtm::co2Column() call. CO2 has no source or sink, so this is conserved and any
+    // later departure from it is transport error. Negative means "not yet captured".
+    double m_q_co2_ref = -1.0;
+
     // ATHAD shortwave budget, cos(latitude)-weighted over the whole sphere. albedo.y is
     // the model's OWN albedo — MultiLayerRadiation builds it from the condensate the model
     // made — so this is what the t_skin fixed point and the planetary-balance diagnostic

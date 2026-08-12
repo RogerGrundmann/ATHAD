@@ -720,15 +720,15 @@ public:
             " Evaporation_Dalton_average per year", Evaporation_Dalton_average, " mm/a",
             " Evaporation_Dalton_average per day", Evaporation_Dalton_average / 365.0, " mm/d");
 
-        row(" co2_average", co2_average, " ppm",
+        row(" co2 column average", co2_average, " kg/m2",
             " Evaporation_average per year", Evaporation_Dalton_average, " mm/a",
             " Evaporation_average per day", Evaporation_Dalton_average / 365.0, " mm/d");
 
-        row(" co2_average", co2_average, " ppm",
+        row(" co2 column average", co2_average, " kg/m2",
             " Evaporation_Meyer_average per year", Evaporation_Meyer_average, " mm/a",
             " Evaporation_Meyer_average per day", Evaporation_Meyer_average / 365.0, " mm/d");
 
-        row(" co2_average", co2_average, " ppm",
+        row(" co2 column average", co2_average, " kg/m2",
             " Evaporation_Rohwer_average per year", Evaporation_Rohwer_average, " mm/a",
             " Evaporation_Rohwer_average per day", Evaporation_Rohwer_average / 365.0, " mm/d");
 
@@ -781,6 +781,69 @@ public:
              << " kg/kg (co2_0 = " << m.co2_0
              << ", co2_scale = " << m.co2_scale << ")" << endl;
         cout << "      AGCM: co2_atmosphere ended" << endl;
+    }
+
+    // ------------------------------------------------------------------
+    // Column CO2 mass path [kg/m2] and the global CO2 mass-conservation check.
+    //
+    // This replaces the in-loop call to co2Atmosphere(). CO2 has a full transport
+    // equation — RHS_Atm_Turb builds rhs_co2 and RungeKutta_Atm_Turb carries it through
+    // all four stages — and co2Atmosphere() was overwriting the result with a uniform
+    // field every iteration, so the CO2 in the output was exactly constant (min = max =
+    // 0.205300 in every cell) and the "prognostic CO2" of CLAUDE.md was diagnostic.
+    // co2Atmosphere() is now the INITIAL CONDITION only: the field starts well mixed, as
+    // a non-condensable gas below the homopause should be, and is then transported.
+    //
+    // Because there is no CO2 source or sink anywhere in the model, the global
+    // mass-weighted mean mass fraction is a conserved quantity, and any drift in it is
+    // the transport scheme's error rather than physics. That is what the drift line
+    // reports; watch it, since nothing else would notice.
+    //
+    // co2_total was declared ("areas of higher co2 concentration") and never filled, so
+    // its min/max and the co2_average derived from it both read 0.000. It now carries the
+    // column CO2 mass path, which is the CO2 analogue of precipitable water.
+    void co2Column(bool report)
+    {
+        using namespace std;
+
+        double w_num = 0.0, w_den = 0.0;
+
+        #pragma omp parallel for collapse(2) reduction(+:w_num,w_den) schedule(static)
+        for (int j = 0; j < m.jm; j++) {
+            for (int k = 0; k < m.km; k++) {
+                const double coslat = cos((j / (double)(m.jm - 1) - 0.5) * M_PI);
+                double col = 0.0;
+
+                for (int i = 0; i < m.im; i++) {
+                    // Layer air mass from the pressure drop across it; the top layer
+                    // carries everything above it. Same construction as the optical depth.
+                    const double dp_Pa = (i < m.im - 1)
+                        ? (m.p_stat.x[i][j][k] - m.p_stat.x[i+1][j][k]) * 100.0
+                        :  m.p_stat.x[i][j][k] * 100.0;
+                    if (!(dp_Pa > 0.0)) continue;
+
+                    const double u_air = dp_Pa / m.g;                       // [kg/m2]
+                    const double q_c   = std::max(0.0, m.co2.x[i][j][k]);
+
+                    col   += q_c * u_air;
+                    w_den += coslat * u_air;
+                    w_num += coslat * q_c * u_air;
+                }
+                m.co2_total.y[j][k] = col;                                  // [kg/m2]
+            }
+        }
+
+        const double q_mean = (w_den > 0.0) ? w_num / w_den : 0.0;
+        if (m.m_q_co2_ref <= 0.0) m.m_q_co2_ref = q_mean;                   // first call sets the reference
+
+        if (report) {
+            const double drift = (m.m_q_co2_ref > 0.0)
+                               ? 100.0 * (q_mean / m.m_q_co2_ref - 1.0) : 0.0;
+            cout << "      AGCM: CO2 mass-weighted mean q = " << fixed << setprecision(6)
+                 << q_mean << " kg/kg   (initial " << m.m_q_co2_ref
+                 << ", drift " << showpos << setprecision(4) << drift << " %"
+                 << noshowpos << ")" << endl;
+        }
     }
 
     // ------------------------------------------------------------------
