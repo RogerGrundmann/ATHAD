@@ -108,17 +108,28 @@ A grey scheme also cannot represent the window regions that set the real runaway
 
 ## What the model currently says
 
-- Shell 230 km, 61 levels; equator column 1499 K / 249.9 bar at the surface, reaching
-  ~0.023 bar at the top.
-- **A cloud deck forms from ~207 km (0.09 bar) upward** — the only place where p_H₂O
-  finally exceeds p_sat. Everything below is supercritical or superheated.
-- **OLR = 236.0 W/m² = absorbed SW + geothermal.** Energy balance closes; surface
-  suppressed ×1214.
-- **236 W/m² is below the 280–310 W/m² Nakajima / Komabayashi–Ingersoll runaway limit.**
-  So at 0.71 S₀ with 150 W/m² geothermal the planet does not absorb enough to sustain a
-  runaway greenhouse, and the 1500 K surface is held by fiat. A self-consistent 1500 K
-  runaway needs **geothermal ≥ ~195 W/m²**. That is the one claim the model makes rather
-  than receives — check it against magma-ocean cooling estimates.
+**In flux.** Finishing the saturation conversion (README item 9) removed 60 km of
+manufactured cloud and warmed the upper column by ~170 K, which invalidated the shell
+sizing and the energy balance that were tuned against it. Current measured state:
+
+- Shell 230 km, 61 levels; equator column 1499 K / 249.9 bar at the surface, but now only
+  **0.295 bar at the top — above the 0.1 bar radiating level, so the shell is too
+  shallow.** Re-derive `L_atm`.
+- Condensation is possible only at the topmost level (230 km). Everything below is
+  supercritical or superheated.
+- **Mean planetary albedo 0.4999** — which is `alpha_cloud = 0.50`, a bare literal in
+  `MultiLayerRadiation`. The reflectivity saturates the moment any condensate exists, so
+  the model reports that constant rather than computing an albedo.
+- **OLR = 236.0 W/m² against 203.8 W/m² absorbed + geothermal: an imbalance of
+  −32.3 W/m².** The budget stopped closing because `t_skin` is still the configured 254 K
+  while the model's own albedo implies 244.8 K. Closing it means iterating `t_skin`.
+- **The insolation is wrong by a factor of 2.2.** `rad_equator_short`/`rad_pole_short` are
+  Earth's *surface*-absorbed fluxes scaled by 0.71, used as top-of-atmosphere insolation,
+  so Earth's albedo is counted twice. Area-weighted mean 107.5 W/m² against the 241.6 W/m²
+  that 0.71 S₀ delivers. Fixing it raises the absorbed flux and works *for* the runaway.
+- The **geothermal ≥ ~195 W/m²** claim was derived with the clear-sky albedo and the
+  too-low insolation, so it stands only until those two are fixed. It remains the one
+  claim the model makes rather than receives.
 
 Bit-identical at 1, 4 and 8 OpenMP threads. Text diagnostics print every 10 iterations for
 short runs (`nm ≤ 100`), every 100 for longer ones; `diagnostic_stride` overrides.
@@ -132,13 +143,22 @@ C++ class, file and function names are kept **identical to `ATOM_Precipitation`*
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
 `config_athad.xml`, `pyathad`). Preserve that.
 
-**Thirteen defects found in the inherited code so far, all latent on Earth and live here.**
+**Sixteen defects found in the inherited code so far, all latent on Earth and live here.**
 The pattern is consistent and worth expecting: *Earth's numbers as bare literals inside
 physics kernels, each with a comment justifying it by Earth's conditions.* Examples —
 `dr = 0.025` silently tied to `im = 41`; a 333.15 K cap written back into the prognostic
 temperature; `287.0` J/(kg·K) as the density gas constant; convective triggers as absolute
 hPa; `p_stat` cubically extrapolated at the lid. When something behaves oddly, look for a
 constant that was true at 1 bar and 288 K.
+
+The three most recent are worth stating because they show the pattern's worst form — an
+Earth-only regime written as a *fallback branch*, so it never runs at home and is never
+tested: `SaturationAdjustment::clampAndFade` returned `q_sat = ep*1e-5` for superheated
+vapour when the correct answer is 1, and so condensed the entire water column in the one
+place where nothing can condense; the same file's Newton loop kept the dilute form the
+entry point had already been fixed away from; and `AtmMixture::M_nonwater` took only the
+CO2 fraction, so the renormalisation "to exclude H2O" its comment promised was
+arithmetically a no-op.
 
 **Fixes worth porting back upstream** (not yet applied to ATOM_Precipitation as of
 2026-08-11): the `t.x[-1]` out-of-bounds in `MoistConvection::findCloudBaseLFS`; the
@@ -153,9 +173,15 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
-- **`t_skin` is not a fixed point.** It uses the clear-sky albedo while the cloud deck
-  raises it (albedo 0.4 would give 245.5 K). Closing it means iterating `t_skin` against
-  the model's own albedo. `initComposition()` prints both values and warns on divergence.
+- **The shell no longer reaches the radiating level** (0.295 bar at the top). It has to be
+  re-sized against the corrected profile.
+- **The insolation is 45 % of what 0.71 S₀ delivers** — Earth surface fluxes used as TOA
+  insolation. See "What the model currently says".
+- **`t_skin` is not a fixed point.** It is configured at 254 K while the model's own
+  albedo implies 244.8 K, leaving a −32.3 W/m² imbalance. Closing it means iterating
+  `t_skin` against the model's own albedo. `initComposition()` prints the one-shot
+  clear-sky estimate; `ThermoAtm::printPlanetaryBalance` prints the value the model's own
+  albedo implies.
 - **The surface temperature is prescribed, not solved.** Every result is conditional on it.
 - **Boussinesq.** The solver rests on the Boussinesq buoyancy approximation, but density
   varies by ~2 orders of magnitude across the column. This may force an anelastic or

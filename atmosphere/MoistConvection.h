@@ -156,12 +156,14 @@ private:
     // the correct "the column is entirely vapour, q_sat = 1". Water is 67 % of ATHAD's
     // mass, so there is no small parameter to expand in and the exact form is used.
     //
-    // M_other is taken from the reference CO2 mass fraction rather than the local cell:
-    // ATHAD's CO2 is well mixed by construction (co2Atmosphere fills it uniformly), so
-    // the two agree, and this keeps the helper usable from every call site unchanged.
-    double safe_q_sat(double E_sat, double p_u) const noexcept {
+    // M_other is built from the reference CO2 mass fraction but the LOCAL water mass
+    // fraction q_v. ATHAD's CO2 is well mixed by construction (co2Atmosphere fills it
+    // uniformly), so the reference and the cell agree; water is not, and it is 67 % of
+    // the mass, so it decides how much of the non-water carrier is CO2 (heavy) versus
+    // background (light) — 28.6 g/mol at q_v = 0 against 35.1 at q_v = 0.67.
+    double safe_q_sat(double E_sat, double p_u, double q_v) const noexcept {
         return SaturationH2O::saturationMassFraction(
-                   E_sat, p_u, AtmMixture::M_nonwater(m.co2_0, m.m_comp.M_bg));
+                   E_sat, p_u, AtmMixture::M_nonwater(q_v, m.co2_0, m.m_comp.M_bg));
     }
 
     // Clausius-Clapeyron scaling factor for the convective moisture-perturbation
@@ -176,8 +178,10 @@ private:
                 ? SaturationH2O::saturationPressure(T)            // over water
                 : SaturationH2O::sublimationPressure(T);          // over ice
         };
-        double qs_T   = safe_q_sat(E_sat_of(T_K),     p_hPa);
-        double qs_ref = safe_q_sat(E_sat_of(T_ref_cc), p_hPa);
+        // The reference water mass fraction is used for both, so M_other cancels in the
+        // ratio this helper returns.
+        double qs_T   = safe_q_sat(E_sat_of(T_K),     p_hPa, m.c_0);
+        double qs_ref = safe_q_sat(E_sat_of(T_ref_cc), p_hPa, m.c_0);
         return (qs_ref > 0.0) ? qs_T / qs_ref : 1.0;
     }
 
@@ -497,7 +501,7 @@ private:
                     double p_u     = m.p_stat.x[i][j][k];
 
                     double E_sat_add = SaturationH2O::saturationPressureAuto(t_u_add);
-                    double q_sat_add = safe_q_sat(E_sat_add, p_u);
+                    double q_sat_add = safe_q_sat(E_sat_add, p_u, m.c.x[i][j][k]);
 
 
                     m.q_v_u.x[i][j][k]     = m.c.x[i][j][k] + q_pert;
@@ -553,7 +557,7 @@ private:
                     double p_u     = m.p_stat.x[i][j][k];
 
                     double E_sat_add = SaturationH2O::saturationPressureAuto(t_u_add);
-                    double q_sat_add = safe_q_sat(E_sat_add, p_u);
+                    double q_sat_add = safe_q_sat(E_sat_add, p_u, m.c.x[i][j][k]);
 
                     if(i == local_i_end+1)  m.M_u.x[i-1][j][k] = m.M_u.x[local_i_beg][j][k];
 
@@ -653,7 +657,7 @@ void findCloudBaseLFS() {
 
                     double E_sat_add = SaturationH2O::saturationPressureAuto(t_u_add);
 
-                    q_sat_col[i] = safe_q_sat(E_sat_add, p_u);
+                    q_sat_col[i] = safe_q_sat(E_sat_add, p_u, m.c.x[i][j][k]);
                 }
 
                 for (int i = i_deep_beg_local[j][k]; i < m.im; i++) {
@@ -912,7 +916,7 @@ void findCloudBaseLFS() {
                 m.D_d.x[i_lfs][j][k] = del_d * fabs(m.M_d.x[i_lfs][j][k]);
 
                 double E_sat = SaturationH2O::saturationPressureAuto(t_u);
-                double q_sat = safe_q_sat(E_sat, p_u);
+                double q_sat = safe_q_sat(E_sat, p_u, m.c.x[i_lfs][j][k]);
 
                 m.q_v_d.x[i_lfs][j][k] = 0.5 * (cloud.x[i_lfs][j][k] + scale * q_sat);
 
@@ -953,7 +957,7 @@ void findCloudBaseLFS() {
                     m.s_d.x[i][j][k] = m.cp_l * t_u / m.s_0;
 
                     double E_sat = SaturationH2O::saturationPressureAuto(t_u);
-                    double q_sat = safe_q_sat(E_sat, p_u);
+                    double q_sat = safe_q_sat(E_sat, p_u, m.c.x[i][j][k]);
 
                     m.q_v_d.x[i][j][k] = 0.5 * (cloud.x[i][j][k] + scale * q_sat);
 
@@ -1093,7 +1097,7 @@ void findCloudBaseLFS() {
                         double dcond_tot = 0.0;
                         for(int it = 0; it < 2; ++it){
                             const double E_s     = SaturationH2O::saturationPressureAuto(T_u);
-                            const double q_sat_u = safe_q_sat(E_s, p_u);
+                            const double q_sat_u = safe_q_sat(E_s, p_u, m.c.x[i][j][k]);
                             const double dq      = m.q_v_u.x[i][j][k] - q_sat_u;
                             if(dq <= 0.0) break;
                             const double L_u   = (T_u >= m.t_0) ? m.lv : m.ls;

@@ -196,12 +196,20 @@ namespace AtmMixture {
     }
 
     // Mean molar mass of everything EXCEPT water [kg/mol] — what the exact saturation
-    // mass-fraction conversion needs as its "other" carrier. Built from the local CO2
-    // mass fraction and the background, renormalised to exclude H2O.
-    inline double M_nonwater(double co2, double M_background)
+    // mass-fraction conversion needs as its "other" carrier. Built from the local CO2 and
+    // background mass fractions, renormalised to exclude H2O.
+    //
+    // It needs the water mass fraction to do that. The first version took only (co2,
+    // M_background) and set q_b = 1 - q_c, so the renormalisation by (q_c + q_b) was
+    // identically 1 and the water's share of the mass was silently handed to the
+    // background gas. At the reference composition that returned 28.58 g/mol instead of
+    // 35.11 — the carrier reported 19 % too light, hence a q_sat some 23 % too large
+    // wherever the conversion is dilute. Harmless on Earth, where water is ~1 % of the
+    // mass and the misallocation is invisible; here water is 67 %.
+    inline double M_nonwater(double c, double co2, double M_background)
     {
-        const double q_c = std::min(std::max(co2, 0.0), 1.0);
-        const double q_b = std::max(0.0, 1.0 - q_c);
+        double q_v, q_c, q_b;
+        split(c, co2, q_v, q_c, q_b);
         const double sum = q_c + q_b;
         if (!(sum > 0.0)) return M_background;
         const double inv = (q_c / sum) / M_CO2 + (q_b / sum) / M_background;

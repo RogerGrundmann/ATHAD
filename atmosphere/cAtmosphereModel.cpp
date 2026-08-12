@@ -1263,6 +1263,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 std::string tag = "iter " + std::to_string(iter_n);
                 probe.printColumnProfile((jm - 1) / 2, ("equator, " + tag).c_str());
                 probe.printLevelSummary(tag.c_str());
+                probe.printPlanetaryBalance(tag.c_str());
             }
 
             if(iter_n % checkpoint == 0){

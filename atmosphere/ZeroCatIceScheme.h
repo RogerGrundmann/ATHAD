@@ -121,8 +121,7 @@ private:
                         double t_u  = m.t.x[i][j][k] * m.t_0;
                         double cl_i = m.cloud.x[i][j][k];
 
-                        double E_sat = SaturationH2O::saturationPressure(t_u);
-                        double q_sat = m.ep * E_sat / (m.p_stat.x[i][j][k] - E_sat);
+                        double q_sat = IceSchemeCommon::qSatWater(m, t_u, i, j, k);
 
                         // Accretion: cloud water collected by raindrops
                         double S_ac = (t_u >= m.t_0 && Rain > 0.0)

@@ -220,10 +220,8 @@ private:
 
                         double step_i = step_table[i];
 
-                        double E_sat = SaturationH2O::saturationPressure(t_u);
-                        double q_sat = m.ep * E_sat / (p_u - E_sat);
-                        double E_Ice  = SaturationH2O::sublimationPressure(t_u);
-                        double q_Ice  = m.ep * E_Ice / (p_u - E_Ice);
+                        double q_sat = IceSchemeCommon::qSatWater(m, t_u, i, j, k);
+                        double q_Ice = IceSchemeCommon::qSatIce(m, t_u, i, j, k);
 
                         double dt_rain_dim = step_i / 1.6;
                         double dt_snow_dim = step_i / 0.96;
@@ -307,7 +305,11 @@ private:
                             ? 101325.0 * inv_p_u_0 * (2.22e-5 + 1.46e-7 * (t_u - m.t_0))
                             : 101325.0 * inv_p_u_0 * (2.22e-5 + 1.25e-7 * (t_u - m.t_0));
                         double l_h = 0.024 + 8.0e-5 * (t_u - m.t_0);
-                        double q_sat_t_0 = m.ep * E_sat_t_0_Pa / (p_u_0 - E_sat_t_0_Pa);
+                        // Exact conversion; E and p are both in Pa, and only their ratio
+                        // is used, so the units are consistent.
+                        double q_sat_t_0 = SaturationH2O::saturationMassFraction(
+                            E_sat_t_0_Pa, p_u_0,
+                            AtmMixture::M_nonwater(c_ijk, m.co2.x[i][j][k], m.m_comp.M_bg));
 
                         double t_crit = (c_ijk >= q_sat_t_0)
                             ? m.t_0 - (1.0 / l_h) * m.ls * d_v * r_h_i * (c_ijk - q_sat_t_0)

@@ -805,6 +805,7 @@ public:
              << setw(10) << "T[K]"   << setw(13) << "p[bar]"
              << setw(11) << "rho"    << setw(10) << "R"
              << setw(9)  << "q_H2O"  << setw(10) << "q_sat"
+             << setw(10) << "q_cld"  << setw(10) << "q_ice"
              << setw(14) << "phase" << endl;
 
         int i_cond_top = m.im;                 // lowest level where saturation can bite
@@ -820,15 +821,26 @@ public:
             // supercritical (T >= 647.096 K, no liquid phase exists) or the vapour is
             // superheated (p_sat(T) exceeds the local pressure, so it cannot saturate).
             // Only where q_sat < q_H2O can water actually condense.
-            const double M_other = AtmMixture::M_nonwater(m.co2.x[i][j_lat][k], m.m_comp.M_bg);
+            const double M_other = AtmMixture::M_nonwater(m.c.x[i][j_lat][k],
+                                                          m.co2.x[i][j_lat][k], m.m_comp.M_bg);
             const double q_sat   = SaturationH2O::saturationMassFractionAt(T, p, M_other);
             const double q_v     = m.c.x[i][j_lat][k];
+
+            const double q_cld = m.cloud.x[i][j_lat][k];
+            const double q_ice = m.ice.x[i][j_lat][k];
 
             const char* phase;
             if      (T >= AtmMixture::T_CRIT_H2O) phase = "supercrit";
             else if (q_sat >= 1.0)                phase = "superheat";
             else if (q_v > q_sat)                 phase = "CONDENSING";
             else                                  phase = "subsat";
+
+            // Condensate where none can exist is the signature of a saturation formula
+            // being evaluated outside its regime, which is how the dilute q_sat kept
+            // manufacturing cloud here. Flag it in the phase column rather than leaving it
+            // to be spotted in the density.
+            if ((q_cld + q_ice) > 1.0e-6 && (T >= AtmMixture::T_CRIT_H2O || q_sat >= 1.0))
+                phase = "CLOUD?!";
 
             if (q_sat < 1.0 && i < i_cond_top) i_cond_top = i;
 
@@ -840,6 +852,8 @@ public:
                  << setw(10) << setprecision(1) << R
                  << setw(9)  << setprecision(4) << q_v
                  << setw(10) << setprecision(4) << q_sat
+                 << setw(10) << setprecision(4) << q_cld
+                 << setw(10) << setprecision(4) << q_ice
                  << setw(14) << phase << endl;
         }
 
@@ -969,6 +983,77 @@ public:
         } else {
             cout << "        static pressure positive everywhere" << endl;
         }
+        cout << endl;
+    }
+
+    // ------------------------------------------------------------------------
+    // Planetary energy balance: the global means the column profile cannot show.
+    //
+    // The column diagnostic prints ONE meridian's OLR; the budget that has to close is
+    // the global one, and the albedo that closes it is the model's OWN — built by
+    // MultiLayerRadiation from the condensate the model actually made, not the clear-sky
+    // value assumed in the config. Both are computed here, area-weighted by cos(latitude)
+    // exactly as AtomUtils::GetMean_2D weights them.
+    //
+    // The implied skin temperature printed at the end is the fixed-point target for
+    // t_skin: sigma*T_skin^4 = absorbed SW + geothermal, with THIS albedo. See
+    // cAtmosphereModel::solveSkinTemperature().
+    void printPlanetaryBalance(const char* label)
+    {
+        using namespace std;
+
+        double w_sum = 0.0, alb_w = 0.0, sw_w = 0.0, abs_w = 0.0, olr_w = 0.0;
+        const bool have_sw = ((int)m.short_wave_radiation.size() == m.jm);
+
+        for (int j = 0; j < m.jm; j++) {
+            const double lat_deg = (j <= 90) ? (90 - j) : (j - 90);
+            const double w       = cos(lat_deg * M_PI / 180.0);
+            const double sw_j    = have_sw ? m.short_wave_radiation[j] : 0.0;
+
+            double alb_k = 0.0, olr_k = 0.0;
+            for (int k = 0; k < m.km; k++) {
+                alb_k += m.albedo.y[j][k];
+
+                // Upward flux at the top: every layer's emission attenuated by all the
+                // layers above it, plus the surface seen through the whole column.
+                double olr = 0.0, trans = 1.0;
+                for (int i = m.im - 1; i >= 0; i--) {
+                    const double eps = m.epsilon.x[i][j][k];
+                    olr   += eps * m.sigma * pow(m.t.x[i][j][k] * m.t_0, 4.0) * trans;
+                    trans *= (1.0 - eps);
+                }
+                olr += m.sigma * pow(m.t.x[0][j][k] * m.t_0, 4.0) * trans;
+                olr_k += olr;
+            }
+            alb_k /= (double)m.km;
+            olr_k /= (double)m.km;
+
+            w_sum += w;
+            alb_w += w * alb_k;
+            sw_w  += w * sw_j;
+            abs_w += w * (1.0 - alb_k) * sw_j;
+            olr_w += w * olr_k;
+        }
+
+        const double alb_mean = alb_w / w_sum;
+        const double sw_mean  = sw_w  / w_sum;
+        const double abs_mean = abs_w / w_sum;
+        const double olr_mean = olr_w / w_sum;
+        const double in_mean  = abs_mean + m.geothermal_flux;
+
+        cout << endl << "      Planetary balance — " << label << endl;
+        cout.precision(2);
+        cout << "        mean planetary albedo ............ = " << fixed << setprecision(4)
+             << alb_mean << "   (clear-sky surface value 0.08)" << endl;
+        cout << "        mean incident short wave ......... = " << setprecision(2)
+             << sw_mean << " W/m2" << endl;
+        cout << "        absorbed SW + geothermal ......... = " << abs_mean << " + "
+             << m.geothermal_flux << " = " << in_mean << " W/m2" << endl;
+        cout << "        outgoing long wave (OLR) ......... = " << olr_mean << " W/m2" << endl;
+        cout << "        imbalance (in - out) ............. = " << (in_mean - olr_mean)
+             << " W/m2" << endl;
+        cout << "        implied skin temperature ......... = "
+             << pow(in_mean / m.sigma, 0.25) << " K   (t_skin = " << m.t_skin << " K)" << endl;
         cout << endl;
     }
 

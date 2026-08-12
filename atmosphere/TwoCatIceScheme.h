@@ -170,8 +170,8 @@ private:
                 double Rain_check = m.P_rain.x[i_check][j][k];
 
                 // Column-private variables
-                double q_sat = 0.0, E_sat = 0.0;
-                double q_Ice = 0.0, E_Ice = 0.0;
+                double q_sat = 0.0;
+                double q_Ice = 0.0;
                 double dt_snow_dim = 0.0, dt_rain_dim = 0.0;
                 double t_u, p_u;
                 double m_i = m_i_max;
@@ -234,11 +234,11 @@ private:
                         t_u = m.t.x[i][j][k] * m.t_0;                   // in K
                         p_u = m.p_stat.x[i][j][k];                      // in hPa
 
-                        E_sat = SaturationH2O::saturationPressure(t_u);     // IAPWS saturation pressure over water [hPa]
-                        q_sat = m.ep * E_sat/(p_u - E_sat);             // relativ water vapour contents on ocean surface reduced by factor in kg/kg
-
-                        E_Ice = SaturationH2O::sublimationPressure(t_u);
-                        q_Ice = m.ep * E_Ice/(p_u - E_Ice);             // relativ water vapour contents on ocean surface reduced by factor in kg/kg
+                        // Exact saturation mass fraction (IceSchemeCommon), not the dilute
+                        // ep*E/(p - E): the latter goes negative wherever p_sat exceeds the
+                        // local pressure, which is the whole upper column here.
+                        q_sat = IceSchemeCommon::qSatWater(m, t_u, i, j, k);
+                        q_Ice = IceSchemeCommon::qSatIce(m, t_u, i, j, k);
 
                         step[i] = m.get_layer_height(i+1)
                                 - m.get_layer_height(i);                // local atmospheric shell thickness

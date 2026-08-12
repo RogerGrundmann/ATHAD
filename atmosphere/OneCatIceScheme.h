@@ -149,10 +149,10 @@ private:
                         step[i] = m.get_layer_height(i+1) - m.get_layer_height(i); // local atmospheric shell thickness in m
 
                         E_sat = SaturationH2O::saturationPressure(t_u);     // IAPWS saturation pressure over water [hPa]
-                        q_sat = m.ep * E_sat/(m.p_stat.x[i][j][k] - E_sat);   // relativ water vapour contents on ocean surface reduced by factor in kg/kg
+                        q_sat = IceSchemeCommon::qSatWater(m, t_u, i, j, k);
 
                         E_Ice = SaturationH2O::sublimationPressure(t_u);
-                        q_Ice = m.ep * E_Ice/(m.p_stat.x[i][j][k] - E_Ice);      // relativ water vapour contents on ocean surface reduced by factor in kg/kg
+                        q_Ice = IceSchemeCommon::qSatIce(m, t_u, i, j, k);
 
                         // Snow is grown through the cloud-ICE reservoir via the shared, bounded
                         // vapour->ice->snow throttle (TwoCat's), replacing OneCat's unbounded

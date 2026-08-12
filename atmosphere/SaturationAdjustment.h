@@ -129,7 +129,7 @@ private:
                     // the old temperature cap existed to contain. The exact form
                     // saturates at 1 instead, which is what "the column is all vapour"
                     // actually means.
-                    const double M_other = AtmMixture::M_nonwater(m.co2.x[i][j][k],
+                    const double M_other = AtmMixture::M_nonwater(c_row[k], m.co2.x[i][j][k],
                                                                   m.m_comp.M_bg);
                     double E_sat  = SaturationH2O::saturationPressureAuto(T);
                     double q_sat  = SaturationH2O::saturationMassFraction(E_sat, p_local,
@@ -173,9 +173,13 @@ private:
 
                             double E_sat = SaturationH2O::saturationPressure(T);
                             double E_Ice = SaturationH2O::sublimationPressure(T);
-                            double q_sat = (p_local > E_sat)
-                                ? m.ep * E_sat / (p_local - E_sat)
-                                : m.ep * 1e-5;
+                            // Same exact conversion as the entry q_sat above. This copy inside
+                            // the Newton loop was left on the dilute form, so the loop pulled
+                            // q_v toward ep*1e-5 — effectively zero — on every superheated cell
+                            // it was iterating, undoing the entry fix on the cells that reach
+                            // this branch at all.
+                            double q_sat = SaturationH2O::saturationMassFraction(
+                                               E_sat, p_local, M_other);
                             double q_Ice = SaturationH2O::saturationMassFraction(
                                                E_Ice, p_local, M_other);
 
@@ -303,11 +307,33 @@ private:
                     // above freezing, → ice below) and energy (latent heat → T). In a clean
                     // run the per-call excess is small (physical); the T_max recap below is
                     // the backstop if a transient ever drives a large excess.
+                    // ATHAD: the EXACT saturation mass fraction, and the sign of the
+                    // superheated branch reversed.
+                    //
+                    // What was here: q_sat = (p > E_sat) ? ep*E_sat/(p - E_sat) : ep*1e-5.
+                    // Both halves are wrong off Earth, and the second is wrong in the most
+                    // damaging possible direction. When p_sat(T) EXCEEDS the local pressure
+                    // the vapour is superheated: it cannot condense at all, so the correct
+                    // saturation limit is 1 (all of the water stays vapour). This wrote
+                    // ep*1e-5 ~ 7e-6 instead — a limit of essentially zero — so the block
+                    // below dumped the ENTIRE 0.67 water mass fraction into cloud and
+                    // released its latent heat, in exactly the layers where nothing can
+                    // condense. On ATHAD's column that is every level between ~373 K and the
+                    // critical point: a 60 km deep slab of manufactured cloud from ~140 to
+                    // ~200 km, which then set the planetary albedo and, smeared downward by
+                    // damp_wiggles(), inflated the density in the supercritical layers
+                    // beneath it through the (1 - cloud - ice) loading term.
+                    //
+                    // Latent on Earth: p_sat exceeds the local pressure only above ~373 K,
+                    // and no cell in a terrestrial column is ever that warm, so the branch
+                    // never ran. It is the same class of defect as the 333.15 K cap above —
+                    // an Earth-only regime assumption written as a fallback.
                     const double p_local = p_row[k];
+                    const double M_other = AtmMixture::M_nonwater(c_row[k], m.co2.x[i][j][k],
+                                                                  m.m_comp.M_bg);
                     const double E_sat = SaturationH2O::saturationPressureAuto(T_dim);
-                    const double q_sat = (p_local > E_sat)
-                        ? m.ep * E_sat / (p_local - E_sat)
-                        : m.ep * 1e-5;
+                    const double q_sat = SaturationH2O::saturationMassFraction(
+                                             E_sat, p_local, M_other);
                     if (c_row[k] > q_sat) {
                         const double excess = c_row[k] - q_sat;
                         c_row[k] = q_sat;

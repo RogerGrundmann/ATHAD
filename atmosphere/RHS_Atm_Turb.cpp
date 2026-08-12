@@ -458,8 +458,16 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
     double t_u    = t.x[i][j][k] * t_0;
     double E_Rain = SaturationH2O::saturationPressure(t_u);
     double E_Ice  = SaturationH2O::sublimationPressure(t_u);
-    double q_Rain = ep * E_Rain / (p_hydro.x[i][j][k] - E_Rain);
-    double q_Ice  = ep * E_Ice  / (p_hydro.x[i][j][k] - E_Ice);
+    // Exact saturation mass fractions. The dilute ep*E/(p - E) is negative wherever
+    // p_sat exceeds the local pressure — the whole column above ~140 km here — and these
+    // two feed the 0.85*q thresholds that switch the latent-heat term on. A negative
+    // threshold switches it on unconditionally.
+    const double M_other_ijk = AtmMixture::M_nonwater(c.x[i][j][k], co2.x[i][j][k],
+                                                      m_comp.M_bg);
+    double q_Rain = SaturationH2O::saturationMassFraction(E_Rain, p_hydro.x[i][j][k],
+                                                          M_other_ijk);
+    double q_Ice  = SaturationH2O::saturationMassFraction(E_Ice,  p_hydro.x[i][j][k],
+                                                          M_other_ijk);
     double Q_Latent_Ice = 0.0;
 
     double coeff_S = lamda * t_0 / L_atm;

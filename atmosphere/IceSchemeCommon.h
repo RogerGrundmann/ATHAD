@@ -73,12 +73,14 @@ namespace IceSchemeCommon {
     // did not even guard p <= E, so it returned a NEGATIVE saturation humidity wherever
     // the extrapolated E exceeded the local pressure.
     inline double qSatWater(cAtmosphereModel& m, double t_u, int i, int j, int k) {
-        const double M_other = AtmMixture::M_nonwater(m.co2.x[i][j][k], m.m_comp.M_bg);
+        const double M_other = AtmMixture::M_nonwater(m.c.x[i][j][k], m.co2.x[i][j][k],
+                                                     m.m_comp.M_bg);
         return SaturationH2O::saturationMassFraction(
                    SaturationH2O::saturationPressure(t_u), m.p_stat.x[i][j][k], M_other);
     }
     inline double qSatIce(cAtmosphereModel& m, double t_u, int i, int j, int k) {
-        const double M_other = AtmMixture::M_nonwater(m.co2.x[i][j][k], m.m_comp.M_bg);
+        const double M_other = AtmMixture::M_nonwater(m.c.x[i][j][k], m.co2.x[i][j][k],
+                                                     m.m_comp.M_bg);
         return SaturationH2O::saturationMassFraction(
                    SaturationH2O::sublimationPressure(t_u), m.p_stat.x[i][j][k], M_other);
     }

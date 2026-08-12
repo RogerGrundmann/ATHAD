@@ -115,10 +115,14 @@ void cAtmosphereModel::init_vapour_cloud() {                            // calcu
                     E_sat = w * E_wat + (1.0 - w) * E_ice;
                 }                                                                                                                                                                                                     
 
-                // Saturation specific humidity with safety fallback
-                const double q_Satur = (p_u > E_sat) ? 
-                                       (ep * E_sat / (p_u - E_sat)) : 
-                                       (ep * FALLBACK_Q_FACTOR);
+                // Saturation MASS FRACTION, exact conversion. The dilute
+                // ep*E/(p - E) with a fallback constant when E >= p is wrong in both
+                // branches once water is the bulk gas — see SaturationH2O.h. This
+                // routine is not called (see cAtmosphereModel::RunTimeSlice), but the
+                // forbidden form left sitting in it is one uncomment away from being live.
+                const double q_Satur = SaturationH2O::saturationMassFraction(
+                    E_sat, p_u, AtmMixture::M_nonwater(c.x[i][j][k], co2.x[i][j][k],
+                                                       m_comp.M_bg));
 
                 // ------------------------------------------------------------
                 // Surface Evaporation (only above topography)
@@ -131,12 +135,12 @@ void cAtmosphereModel::init_vapour_cloud() {                            // calcu
                 }
 
                 // Calculate specific humidity from evaporation
-                if (p_u > E_sat_loc && E_sat_loc > 0.0) {
-                    q_sat_loc = ep * E_sat_loc / (p_u - E_sat_loc);
-                } else if (E_sat_loc <= 0.0) {
-                    q_sat_loc = 0.0;
+                if (E_sat_loc > 0.0) {
+                    q_sat_loc = SaturationH2O::saturationMassFraction(
+                        E_sat_loc, p_u, AtmMixture::M_nonwater(c.x[i][j][k],
+                                                               co2.x[i][j][k], m_comp.M_bg));
                 } else {
-                    q_sat_loc = ep * FALLBACK_Q_FACTOR;
+                    q_sat_loc = 0.0;
                 }
 
                 // ------------------------------------------------------------
@@ -898,18 +902,25 @@ void cAtmosphereModel::initCloudIce() {
                 const double t_u = t.x[i][j][k] * t_0;
                 const double p_u = p_stat.x[i][j][k];
 
-                // ATHAD: nothing condenses above the critical point. Without this guard the
-                // Magnus E_sat at 1500 K (~1.2e7 hPa) EXCEEDS the 250 bar column pressure, so
-                // q_sat = ep*E_sat/(p_u - E_sat) comes out NEGATIVE, and (c - H_crit*q_sat)
-                // then manufactures cloud out of the subtraction of a negative number. That
-                // produced a condensate mass fraction of ~0.47, which inflated the density by
-                // a factor 1.87 through the (1 - cloud - ice) loading term.
+                // ATHAD: nothing condenses above the critical point, and nothing condenses
+                // where the vapour is superheated either.
+                //
+                // The critical-point guard below was the first half of this fix. The second
+                // half is the conversion itself: q_sat = ep*E_sat/(p_u - E_sat) goes NEGATIVE
+                // whenever E_sat exceeds the local pressure, and (c - H_crit*q_sat) then
+                // manufactures cloud out of the subtraction of a negative number. The guard
+                // stopped that above 647 K but not in the SUBcritical band between ~373 K and
+                // the critical point, where p_sat still exceeds the local pressure through the
+                // whole upper column — 140 to 200 km here. The exact form returns 1 there,
+                // which is what "no condensation is possible" actually means.
                 if (t_u >= AtmMixture::T_CRIT_H2O) continue;
 
                 const double E_sat = (t_u >= t_0)
                     ? SaturationH2O::saturationPressure(t_u)
                     : SaturationH2O::sublimationPressure(t_u);
-                const double q_sat = ep * E_sat / (p_u - E_sat);
+                const double q_sat = SaturationH2O::saturationMassFraction(
+                    E_sat, p_u, AtmMixture::M_nonwater(c.x[i][j][k], co2.x[i][j][k],
+                                                       m_comp.M_bg));
 
 //                sum += std::max(0.0, c.x[i][j][k] - q_sat); }
 //                sum += std::max(0.0, c.x[i][j][k] - 0.84 * q_sat); }
@@ -948,12 +959,17 @@ void cAtmosphereModel::initCloudIce() {
                 const double t_u = t.x[i][j][k] * t_0;
                 const double p_u = p_stat.x[i][j][k];
 
-                // ATHAD: nothing condenses above the critical point. Without this guard the
-                // Magnus E_sat at 1500 K (~1.2e7 hPa) EXCEEDS the 250 bar column pressure, so
-                // q_sat = ep*E_sat/(p_u - E_sat) comes out NEGATIVE, and (c - H_crit*q_sat)
-                // then manufactures cloud out of the subtraction of a negative number. That
-                // produced a condensate mass fraction of ~0.47, which inflated the density by
-                // a factor 1.87 through the (1 - cloud - ice) loading term.
+                // ATHAD: nothing condenses above the critical point, and nothing condenses
+                // where the vapour is superheated either.
+                //
+                // The critical-point guard below was the first half of this fix. The second
+                // half is the conversion itself: q_sat = ep*E_sat/(p_u - E_sat) goes NEGATIVE
+                // whenever E_sat exceeds the local pressure, and (c - H_crit*q_sat) then
+                // manufactures cloud out of the subtraction of a negative number. The guard
+                // stopped that above 647 K but not in the SUBcritical band between ~373 K and
+                // the critical point, where p_sat still exceeds the local pressure through the
+                // whole upper column — 140 to 200 km here. The exact form returns 1 there,
+                // which is what "no condensation is possible" actually means.
                 if (t_u >= AtmMixture::T_CRIT_H2O) {
                     cloud.x[i][j][k] = 0.0;
                     ice.x[i][j][k]   = 0.0;
@@ -964,7 +980,9 @@ void cAtmosphereModel::initCloudIce() {
                 const double E_sat = (t_u >= t_0)
                     ? SaturationH2O::saturationPressure(t_u)
                     : SaturationH2O::sublimationPressure(t_u);
-                const double q_sat = ep * E_sat / (p_u - E_sat);
+                const double q_sat = SaturationH2O::saturationMassFraction(
+                    E_sat, p_u, AtmMixture::M_nonwater(c.x[i][j][k], co2.x[i][j][k],
+                                                       m_comp.M_bg));
 
                 const double x_norm = p_u * inv_p_crit;
                 double H_crit = Hu_cr_max - Hu_curv * x_norm * (1.0 - x_norm);

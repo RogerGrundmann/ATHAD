@@ -373,14 +373,107 @@ the measurements that did not work out — rather than what is intended.
    A 20-iteration run completes clean — no NaN, no non-positive pressure, OLR steady at
    236.0 W/m².
 
+9. **The saturation conversion finished, and 60 km of manufactured cloud removed (done).**
+
+   Phase 5 replaced Magnus with IAPWS everywhere, which fixed the saturation *pressure*.
+   It did not finish the *conversion* from that pressure to a mass fraction. About twenty
+   sites still carried the dilute form `q_sat = ep·E/(p − E)` that invariant 2 in
+   CLAUDE.md forbids, and the equatorial column printout was showing the consequence
+   without anyone reading it that way: water vapour oscillating between 0 and 0.88 above
+   140 km, and a density that *rose* with height at 142 km.
+
+   Three distinct defects, all latent on Earth:
+
+   - **`SaturationAdjustment::clampAndFade` had the superheated branch inverted.** It read
+     `q_sat = (p > E_sat) ? ep·E_sat/(p − E_sat) : ep·1e-5`. When p_sat(T) exceeds the
+     local pressure the vapour is superheated and **cannot condense at all**, so the
+     saturation limit is 1 — all of the water stays vapour. The fallback asserted the
+     opposite, a limit of ~7e-6, and the block below it therefore dumped the **entire
+     0.67 water mass fraction into cloud** and released its latent heat, in exactly the
+     layers where nothing can condense. On this column that is every level between ~373 K
+     and the critical point: a **60 km slab of manufactured cloud from ~140 to ~200 km**,
+     which set the planetary albedo and, smeared downward by `damp_wiggles`, inflated the
+     density in the supercritical layers beneath it through the `(1 − cloud − ice)`
+     loading term. Latent on Earth because no terrestrial cell is ever above 373 K, so the
+     branch never ran — the same shape of defect as the 333.15 K temperature cap.
+   - **The fix from Phase 5 was applied to the entry `q_sat` but not to the copy inside
+     the same function's Newton loop**, which went on pulling q_v toward `ep·1e-5`.
+   - **`AtmMixture::M_nonwater` could not do what its name and comment claim.** It took
+     `(co2, M_background)` and set `q_b = 1 − q_c`, so its renormalisation "to exclude
+     H₂O" was identically 1 and the water's share of the mass was silently handed to the
+     background gas. It returned 28.58 g/mol where the reference composition gives 35.11 —
+     the carrier 19 % too light, hence a q_sat some 23 % too large in every exact
+     conversion in the model. Invisible on Earth, where water is ~1 % of the mass. It now
+     takes the local water mass fraction as well.
+
+   All remaining dilute sites went with them: `initCloudIce` (guarded above the critical
+   point but not in the subcritical superheated band, where its q_sat goes negative and
+   the `c − H_crit·q_sat` subtraction manufactures cloud), all four ice schemes,
+   `RHS_Atm_Turb`'s `q_Rain`/`q_Ice` thresholds — where a negative threshold switches the
+   latent-heat term on unconditionally — and the dead `init_vapour_cloud`, which is one
+   uncomment away from being live.
+
+   Diagnostics added, because the defect was visible for weeks in output nobody could
+   read: the column profile now prints `q_cld` and `q_ice` and flags a level `CLOUD?!`
+   when it carries condensate that cannot exist there, and a new
+   `ThermoAtm::printPlanetaryBalance` prints the cos(latitude)-weighted mean albedo,
+   absorbed shortwave, OLR and the implied skin temperature every diagnostic step.
+
+   **Measured, 20 iterations, 8 threads, clean (no NaN, pressure positive everywhere):**
+
+   | | before | after |
+   |---|---|---|
+   | condensate at 142–200 km | up to 0.42 | ≤ 0.05, and falling |
+   | q_H₂O at 186 km | 0.0000 | 0.9177 |
+   | T at 218 km | 254.0 K | 427.3 K |
+   | domain top | 0.028 bar | 0.295 bar |
+   | mean planetary albedo | — (not measured) | 0.4999 |
+
+   The upper column is **much warmer**, and that is the point: with the bogus condensation
+   gone it stays steam, keeps steam's high cp, and cools along a shallower adiabat. The
+   234 km shell no longer reaches the radiating level.
+
+   **Two things this breaks, both now open:**
+
+   - **The shell is too shallow again.** The top is at 0.295 bar, above the 0.1 bar
+     radiating level. The 300 → 230 km reduction in Phase 7 was made against the profile
+     the manufactured latent heat produced, so it has to be re-derived.
+   - **The planetary albedo is pinned at 0.4999**, which is the hard-coded thick-cloud
+     asymptote `alpha_cloud = 0.50` in `MultiLayerRadiation`. Once any condensate is
+     present the reflectivity `tau/(tau+2)` saturates, so the model is not *computing* an
+     albedo, it is *reporting a constant* — and that constant is a bare literal inside a
+     physics kernel, not a parameter. It has to be exposed and justified before the OLR or
+     the runaway claim that depends on it means anything.
+
+   With that albedo the budget no longer closes: absorbed SW + geothermal = 203.8 W/m²
+   against an OLR of 236.0, an imbalance of **−32.3 W/m²**, because `t_skin` is still the
+   configured 254 K while the energy balance now implies 244.8 K. That is the fixed point
+   below, and it is no longer optional.
+
 ## Remaining work
 
-- **`geothermal_flux` is the open number.** The model now says it must be ≥ ~195 W/m² for
-  the prescribed 1500 K surface to be self-consistent with a runaway greenhouse; the
-  assumed 150 W/m² gives 236 W/m², below the limit. Check against magma-ocean cooling
-  estimates.
-- **`t_skin` is not yet a fixed point** — it uses the clear-sky albedo while the cloud deck
-  raises it. Iterate it against the model's own albedo.
+- **The shell no longer reaches the radiating level** (0.295 bar at the top, needs
+  ≤ 0.1 bar) — see item 9. Re-derive `L_atm` against the corrected profile.
+- **The insolation parameters are Earth SURFACE fluxes, not top-of-atmosphere.**
+  `rad_equator_short` / `rad_pole_short` = 116 / 71 W/m² are ATOM_Precipitation's
+  163.3 / 100.0 scaled by 0.71, and those are Earth's absorbed-at-the-surface shortwave —
+  already reduced by Earth's albedo and atmospheric absorption. `MultiLayerRadiation` uses
+  them as the incident flux at the top and then applies ATHAD's albedo, so Earth's albedo
+  is counted twice. The cos(latitude)-weighted mean they give is **107.5 W/m² against the
+  241.6 W/m² that 0.71 S₀ actually delivers** — the planet is being lit at 45 % of its own
+  insolation. This is the largest single error now known in the energy budget and it
+  works against the runaway.
+- **`alpha_cloud = 0.50` is a bare literal** in `MultiLayerRadiation` and is currently
+  *the* planetary albedo (see item 9). Expose it as a parameter and justify the value.
+- **`geothermal_flux` is the open number.** The ≥ ~195 W/m² figure below was derived with
+  the clear-sky albedo and the too-low insolation above, so it needs redoing once both are
+  fixed. Check against magma-ocean cooling estimates.
+- **`t_skin` is not yet a fixed point** — it is configured at 254 K while the model's own
+  albedo implies 244.8 K, leaving a −32.3 W/m² imbalance. Iterate it against the model's
+  own albedo.
+- **`initCloudIce`'s H_crit parabola is keyed to absolute pressure** (`p_crit = 1000` hPa,
+  `p_mid = 550`), an Earth surface pressure. It should be a fraction of the local surface
+  pressure, like the deep-convection triggers.
 - **The three κ opacities** carry factor-of-two uncertainty and are the biggest lever on
   the OLR. A grey scheme cannot represent the window regions that set the real limit.
 - **The surface temperature is prescribed, not solved.** Everything above is conditional
