@@ -83,6 +83,19 @@ public:
     // meaningless at ATHAD's R and T — see param.py, cosmo_lapse_fraction.
     double m_beta_cosmo = 42.0;
 
+    // ATHAD shortwave budget, cos(latitude)-weighted over the whole sphere. albedo.y is
+    // the model's OWN albedo — MultiLayerRadiation builds it from the condensate the model
+    // made — so this is what the t_skin fixed point and the planetary-balance diagnostic
+    // both have to be measured against. Returns false before the first radiation call,
+    // when albedo.y is still zero and the numbers would be meaningless.
+    bool planetaryShortWave(double& albedo_mean, double& sw_mean, double& absorbed_mean) const;
+
+    // One relaxation step of the t_skin fixed point:
+    //     sigma*t_skin^4 = (1 - albedo_mean)*sw_mean + geothermal_flux
+    // No-op when t_skin_relax <= 0. See param.py (t_skin, t_skin_relax) for why the
+    // reported OLR is identically sigma*t_skin^4 and what this does and does not buy.
+    void updateSkinTemperature(bool report);
+
     cAtmosphereModel();
     ~cAtmosphereModel();
 

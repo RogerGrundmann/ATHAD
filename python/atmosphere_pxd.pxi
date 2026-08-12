@@ -33,6 +33,7 @@ cdef extern from "cAtmosphereModel.h":
         double t_surf_pole
         double cosmo_lapse_fraction
         double t_skin
+        double t_skin_relax
         double r_air
         double r_0_water
         double t_equat_modern
@@ -68,8 +69,8 @@ cdef extern from "cAtmosphereModel.h":
         double zeta
         double tropopause_pole
         double tropopause_equator
-        double albedo_pole
-        double albedo_equator
+        double albedo_surface
+        double albedo_cloud
         double epsilon_equator
         double epsilon_pole
         double epsilon_tropopause

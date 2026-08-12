@@ -88,7 +88,11 @@ public:
         // the reflective cloud deck a runaway greenhouse is supposed to have must be EARNED
         // by condensate the model generated, not asserted as a constant albedo. Asserting
         // 0.4 while the column condenses nothing was the inconsistency being removed.
-        constexpr double alb_surface_molten = 0.08;   // dark silicate melt, clear sky
+        //
+        // Now a PARAMETER (albedo_surface), not a literal. It was written here as a
+        // constexpr while the config carried an inert albedo_pole/albedo_equator pair that
+        // nothing read — so the file said one thing and the configuration said another.
+        const double alb_surface_molten = m.albedo_surface;   // dark silicate melt, clear sky
         #pragma omp parallel for schedule(static)
         for (int j = 0; j < m.jm; j++)
             for (int k = 0; k < m.km; k++)
@@ -228,7 +232,12 @@ public:
                     // tropics now land ~0.3, thin/clear cells relax toward the surface value, and
                     // the polar ice albedo shows through — a physical gradient. (The same cloud-water
                     // excess still inflates the LW tau_cloud above; capping that is the next step.)
-                    constexpr double alpha_cloud = 0.50;   // thick cloud-top SW albedo
+                    // alpha_cloud is a PARAMETER (albedo_cloud), and on ATHAD it is very
+                    // nearly the entire planetary albedo: the deck's condensate path runs to
+                    // 1e5 g/m2 against a cwp_tau of 100, so refl = tau/(tau+2) saturates and
+                    // every cloudy column returns alpha_cloud to four decimals. Whatever
+                    // this number is set to IS the model's albedo. It was a bare literal.
+                    const double alpha_cloud     = m.albedo_cloud;   // thick cloud-top SW albedo
                     constexpr double f_ice_sw    = 0.50;   // ice SW reflectivity weight vs liquid
                     constexpr double cwp_tau     = 100.0;  // g/m2 per unit effective optical thickness
                     const double cwp_sw = lwp_col + f_ice_sw * iwp_col;          // [g/m2]

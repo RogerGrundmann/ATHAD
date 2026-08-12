@@ -450,27 +450,110 @@ the measurements that did not work out — rather than what is intended.
    configured 254 K while the energy balance now implies 244.8 K. That is the fixed point
    below, and it is no longer optional.
 
+10. **The insolation, the albedo parameters, the t_skin fixed point — and what they
+    exposed: the OLR is not an output (done, and it is bad news).**
+
+    Three fixes, and then the thing they uncovered.
+
+    **The insolation was Earth's surface flux used as top-of-atmosphere insolation.**
+    `rad_equator_short` / `rad_pole_short` were 116 / 71 W/m², which is
+    ATOM_Precipitation's 163.3 / 100.0 scaled by 0.71 — and those are Earth's
+    absorbed-at-the-*surface* shortwave, already reduced by Earth's albedo and its
+    atmosphere's absorption. `MultiLayerRadiation` uses them as the flux incident at the
+    top and then applies ATHAD's own albedo, counting Earth's albedo twice. The
+    cos(latitude)-weighted mean was **107.5 W/m² where 0.71 S₀ delivers 241.6**: the planet
+    was lit at 45 % of its own insolation. Replaced by a fit of the model's parabola to the
+    annual-mean insolation of a zero-obliquity planet, `Q(φ) = S/π·cos φ`, constrained so
+    the weighted mean is exactly S/4 — 298.0 at the equator, 0.0 at the pole, RMS 6 W/m².
+    Measured mean after the change: **241.56 W/m²**. (Hadean obliquity is unknown. Zero is
+    the assumption and also the only shape the parabola can follow; at Earth's 23.44° the
+    true curve flattens toward the pole in a way it cannot.)
+
+    **The albedo constants became parameters.** `alpha_cloud = 0.50` and the molten-surface
+    0.08 were bare literals in `MultiLayerRadiation` while the config carried an
+    `albedo_pole`/`albedo_equator` pair that nothing read. They are now `albedo_cloud` and
+    `albedo_surface`, and the inert pair is gone. This matters more than tidiness:
+    the cloud deck's condensate path is ~10⁵ g/m² against a `cwp_tau` of 100, so
+    `refl = τ/(τ+2)` saturates and **every cloudy column returns `albedo_cloud` to four
+    decimals**. The measured mean planetary albedo is 0.4999. The model is not computing an
+    albedo; it is reporting that constant.
+
+    **`t_skin` is now an iterated fixed point** against the model's own albedo,
+    `σ·t_skin⁴ = (1−ᾱ)·S̄ + F_geo`, relaxed by `t_skin_relax` (0.25) after each radiation
+    call. It converges from the configured 254 K to **262.85 K** against a target of
+    262.88 K within 20 iterations. Setting `t_skin_relax = 0` restores the old fixed value.
+
+    **What all of that exposed.** The model's outgoing longwave flux is not a computed
+    quantity. It is σT⁴ of the topmost layer, which is prescribed.
+
+    | run | lid T | lid ε | reported OLR | σ·T_lid⁴ |
+    |---|---|---|---|---|
+    | `t_skin` = 254 K | 254.0 K | 1.0000 | 236.01 W/m² | 236.01 |
+    | `t_skin` = 240 K | 240.0 K | 1.0000 | 188.13 W/m² | 188.13 |
+    | after these fixes | 343.98 K | 1.0000 | 802.32 W/m² | 793.84 |
+
+    The first two rows are a deliberate experiment: changing one configured number moved
+    the "measured" OLR to σ times that number to five significant figures. The lid is
+    optically thick (τ ≈ 6 at 0.29 bar), so the emission level sits on the domain boundary
+    and the model reports the boundary condition back.
+
+    **The 236.0 W/m² of Phase 7, and the "energy balance closes" that went with it, was
+    this.** It was worse than a coincidence: `bcRadius` pins the lid temperature to a
+    snapshot `t_top_init` taken once from the initial condition, and that snapshot came
+    from `initTemperatureData`, which builds its adiabat *before* the water and CO₂ fields
+    exist and therefore with a background-only cp and a much steeper lapse. `densities()`
+    rebuilt the whole column on the correct mixture cp every iteration — and could never
+    move the lid, because bcRadius pinned it straight back to the stale value. The lid
+    stayed at 254.0 K, the OLR stayed at σ·254⁴, and the agreement with the energy budget
+    was the budget being read back out of the number it had been used to set. `densities()`
+    now refreshes the snapshot, which is what makes the 343.98 K above visible.
+
+    **So the honest current state is a −531 W/m² imbalance and no meaningful OLR**, and
+    that is a better description of the model than the closed budget it replaces.
+
+    **The shell cannot currently be deepened to fix it.** 230 km tops out at 0.29 bar,
+    three times above the 0.1 bar radiating level. Going deeper — 260 km (top 0.017 bar)
+    and 300 km (top 3.2e-4 bar) — produces a finite, sane initial state and then **NaN
+    across the entire field in the first `MultiLayerRadiation` call**: the field is finite
+    in the diagnostic immediately before it and NaN in the one immediately after, in both
+    runs. The scheme's tridiagonal (Thomas) assembly is built from products of the layer
+    emissivity and its rows degenerate as ε → 0 — which is exactly the condition at the top
+    of any domain that reaches the radiating level. The radiation has to be reformulated
+    before the shell can grow, so 230 km stays.
+
+    Also fixed in passing: `python/PythonStream.cpp` still included `pyatom.h`, so the
+    default `make` target had not built the Python bindings since the fork. It does now.
+
 ## Remaining work
 
-- **The shell no longer reaches the radiating level** (0.295 bar at the top, needs
-  ≤ 0.1 bar) — see item 9. Re-derive `L_atm` against the corrected profile.
-- **The insolation parameters are Earth SURFACE fluxes, not top-of-atmosphere.**
-  `rad_equator_short` / `rad_pole_short` = 116 / 71 W/m² are ATOM_Precipitation's
-  163.3 / 100.0 scaled by 0.71, and those are Earth's absorbed-at-the-surface shortwave —
-  already reduced by Earth's albedo and atmospheric absorption. `MultiLayerRadiation` uses
-  them as the incident flux at the top and then applies ATHAD's albedo, so Earth's albedo
-  is counted twice. The cos(latitude)-weighted mean they give is **107.5 W/m² against the
-  241.6 W/m² that 0.71 S₀ actually delivers** — the planet is being lit at 45 % of its own
-  insolation. This is the largest single error now known in the energy budget and it
-  works against the runaway.
-- **`alpha_cloud = 0.50` is a bare literal** in `MultiLayerRadiation` and is currently
-  *the* planetary albedo (see item 9). Expose it as a parameter and justify the value.
-- **`geothermal_flux` is the open number.** The ≥ ~195 W/m² figure below was derived with
-  the clear-sky albedo and the too-low insolation above, so it needs redoing once both are
-  fixed. Check against magma-ocean cooling estimates.
-- **`t_skin` is not yet a fixed point** — it is configured at 254 K while the model's own
-  albedo implies 244.8 K, leaving a −32.3 W/m² imbalance. Iterate it against the model's
-  own albedo.
+**The next task is the radiation scheme**, and everything else waits on it. Two coupled
+defects:
+
+- **The tridiagonal solve degenerates for optically thin layers** (item 10), which is why
+  the domain cannot reach the radiating level. A formulation that stays well conditioned
+  as ε → 0 — a direct up/down flux integration rather than the Thomas inversion — would
+  remove the ceiling.
+- **The temperature profile is prescribed, not solved.** `ThermoAtm::densities()`
+  re-imposes the adiabat + isothermal top on `t` every iteration, so whatever the dynamics
+  and the radiation compute is overwritten before it can matter. Invariant 3 in CLAUDE.md
+  says radiation must *set* the profile rather than nudge it toward a prescribed one; in
+  the current code the prescription wins. Until it does not, the OLR is an input however
+  deep the shell is, because the model will always emit σT⁴ at whichever prescribed level
+  first becomes opaque.
+
+After that:
+
+
+- **`albedo_cloud = 0.50` IS the model's planetary albedo** and is an assumption. It is
+  now the second-biggest lever after the opacities. A deep, cold, slowly sedimenting
+  Hadean deck could plausibly be brighter.
+- **`geothermal_flux` is the open number.** The ≥ ~195 W/m² figure was derived with the
+  clear-sky albedo and the too-low insolation, so it has to be redone once the radiation
+  can produce an OLR worth comparing to. Check against magma-ocean cooling estimates.
+- **`initTemperatureData` builds its column before the composition exists** — no water, no
+  CO₂, so a background-only cp and too steep a lapse. `densities()` overwrites it, so the
+  only thing that ever escaped was the lid snapshot (item 10), which is now refreshed. It
+  should still be built on the real mixture.
 - **`initCloudIce`'s H_crit parabola is keyed to absolute pressure** (`p_crit = 1000` hPa,
   `p_mid = 550`), an Earth surface pressure. It should be a fraction of the local surface
   pressure, like the deep-convection triggers.

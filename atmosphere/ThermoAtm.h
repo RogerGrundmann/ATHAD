@@ -1002,18 +1002,15 @@ public:
     {
         using namespace std;
 
-        double w_sum = 0.0, alb_w = 0.0, sw_w = 0.0, abs_w = 0.0, olr_w = 0.0;
-        const bool have_sw = ((int)m.short_wave_radiation.size() == m.jm);
+        double alb_mean = 0.0, sw_mean = 0.0, abs_mean = 0.0;
+        const bool measured = m.planetaryShortWave(alb_mean, sw_mean, abs_mean);
 
+        double w_sum = 0.0, olr_w = 0.0, lid_w = 0.0, eps_top_w = 0.0;
         for (int j = 0; j < m.jm; j++) {
-            const double lat_deg = (j <= 90) ? (90 - j) : (j - 90);
-            const double w       = cos(lat_deg * M_PI / 180.0);
-            const double sw_j    = have_sw ? m.short_wave_radiation[j] : 0.0;
+            const double w = cos((j / (double)(m.jm - 1) - 0.5) * M_PI);
 
-            double alb_k = 0.0, olr_k = 0.0;
+            double olr_k = 0.0, lid_k = 0.0, eps_top_k = 0.0;
             for (int k = 0; k < m.km; k++) {
-                alb_k += m.albedo.y[j][k];
-
                 // Upward flux at the top: every layer's emission attenuated by all the
                 // layers above it, plus the surface seen through the whole column.
                 double olr = 0.0, trans = 1.0;
@@ -1023,28 +1020,35 @@ public:
                     trans *= (1.0 - eps);
                 }
                 olr += m.sigma * pow(m.t.x[0][j][k] * m.t_0, 4.0) * trans;
-                olr_k += olr;
+                olr_k     += olr;
+                lid_k     += m.t.x[m.im-1][j][k] * m.t_0;
+                eps_top_k += m.epsilon.x[m.im-1][j][k];
             }
-            alb_k /= (double)m.km;
-            olr_k /= (double)m.km;
+            olr_k     /= (double)m.km;
+            lid_k     /= (double)m.km;
+            eps_top_k /= (double)m.km;
 
-            w_sum += w;
-            alb_w += w * alb_k;
-            sw_w  += w * sw_j;
-            abs_w += w * (1.0 - alb_k) * sw_j;
-            olr_w += w * olr_k;
+            w_sum     += w;
+            olr_w     += w * olr_k;
+            lid_w     += w * lid_k;
+            eps_top_w += w * eps_top_k;
         }
 
-        const double alb_mean = alb_w / w_sum;
-        const double sw_mean  = sw_w  / w_sum;
-        const double abs_mean = abs_w / w_sum;
         const double olr_mean = olr_w / w_sum;
+        const double lid_mean = lid_w / w_sum;
+        const double eps_top  = eps_top_w / w_sum;
         const double in_mean  = abs_mean + m.geothermal_flux;
 
         cout << endl << "      Planetary balance — " << label << endl;
         cout.precision(2);
+        if (!measured) {
+            cout << "        not yet meaningful — radiation has not run"
+                 << " (albedo and layer emissivities are still zero)" << endl << endl;
+            return;
+        }
         cout << "        mean planetary albedo ............ = " << fixed << setprecision(4)
-             << alb_mean << "   (clear-sky surface value 0.08)" << endl;
+             << alb_mean << "   (clear-sky surface " << m.albedo_surface
+             << ", thick cloud " << m.albedo_cloud << ")" << endl;
         cout << "        mean incident short wave ......... = " << setprecision(2)
              << sw_mean << " W/m2" << endl;
         cout << "        absorbed SW + geothermal ......... = " << abs_mean << " + "
@@ -1054,6 +1058,20 @@ public:
              << " W/m2" << endl;
         cout << "        implied skin temperature ......... = "
              << pow(in_mean / m.sigma, 0.25) << " K   (t_skin = " << m.t_skin << " K)" << endl;
+        // Where the OLR actually comes from. The lid emissivity decides whether the OLR
+        // is an integral over the column or simply sigma*T_lid^4 — and while the lid is
+        // opaque it is the latter, so the OLR is a PRESCRIBED temperature reported back,
+        // not a computed flux. Print the identity rather than let two
+        // independently-derived-looking numbers read as an agreement.
+        // See cAtmosphereModel::updateSkinTemperature and param.py (t_skin, L_atm).
+        cout << "        lid temperature / emissivity ..... = " << setprecision(2) << lid_mean
+             << " K  /  eps = " << setprecision(4) << eps_top << endl;
+        cout << "        sigma*T_lid^4 .................... = " << setprecision(2)
+             << m.sigma * pow(lid_mean, 4.0) << " W/m2";
+        if (eps_top > 0.9)
+            cout << "   <-- the OLR above IS this: the lid is opaque, so the model"
+                 << " reports a prescribed temperature, not a computed flux";
+        cout << endl;
         cout << endl;
     }
 
@@ -1152,6 +1170,17 @@ public:
                     T_prev = T_i;
                     p_prev = p_i;
                 }
+
+                // Refresh the lid snapshot bcRadius pins t to. It used to be taken once
+                // from the initial condition, which was right while t_skin was a constant
+                // and wrong the moment it became a fixed-point iterate: densities() would
+                // rebuild the column on the new t_skin and bcRadius would then pin the lid
+                // back to the ORIGINAL value, so the top — which is the emission level, and
+                // therefore the whole OLR — never moved. The pin still holds the lid against
+                // the cubic extrapolation it replaced; it now holds it to the current
+                // prescribed profile rather than to a stale one.
+                if ((int)m.t_top_init.size() == m.jm)
+                    m.t_top_init[j][k] = m.t.x[m.im-1][j][k];
 
                 const int    i_m = m.i_topography[j][k];
                 m.p_stat_landscape.y[j][k] = m.p_stat.x[i_m][j][k];

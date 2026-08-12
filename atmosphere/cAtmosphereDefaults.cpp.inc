@@ -28,11 +28,12 @@ void cAtmosphereModel::SetDefaultConfig() {
   t_surf_pole = 1450.0;
   cosmo_lapse_fraction = 1.0;
   t_skin = 254.0;
+  t_skin_relax = 0.25;
   r_air = 42.97;
   r_0_water = 997.0;
   t_equat_modern = 15.4;
-  rad_equator_short = 116.0;
-  rad_pole_short = 71.0;
+  rad_equator_short = 298.0;
+  rad_pole_short = 0.0;
   rad_equator = 398.2;
   rad_pole = 360.0;
   sigma = 5.67028e-08;
@@ -64,8 +65,8 @@ void cAtmosphereModel::SetDefaultConfig() {
   zeta = 3.0;
   tropopause_pole = 195000.0;
   tropopause_equator = 207000.0;
-  albedo_pole = 0.1;
-  albedo_equator = 0.1;
+  albedo_surface = 0.08;
+  albedo_cloud = 0.5;
   epsilon_equator = 0.48;
   epsilon_pole = 0.45;
   epsilon_tropopause = 0.001;

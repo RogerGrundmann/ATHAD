@@ -296,6 +296,15 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.t_skin = <double> value
     
+    property t_skin_relax:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.t_skin_relax
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.t_skin_relax = <double> value
+    
     property r_air:
         def __get__(Atmosphere self):
             self._check_alive()
@@ -603,23 +612,23 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.tropopause_equator = <double> value
     
-    property albedo_pole:
+    property albedo_surface:
         def __get__(Atmosphere self):
             self._check_alive()
-            return self._thisptr.albedo_pole
+            return self._thisptr.albedo_surface
     
         def __set__(Atmosphere self, value):
             self._check_alive()
-            self._thisptr.albedo_pole = <double> value
+            self._thisptr.albedo_surface = <double> value
     
-    property albedo_equator:
+    property albedo_cloud:
         def __get__(Atmosphere self):
             self._check_alive()
-            return self._thisptr.albedo_equator
+            return self._thisptr.albedo_cloud
     
         def __set__(Atmosphere self, value):
             self._check_alive()
-            self._thisptr.albedo_equator = <double> value
+            self._thisptr.albedo_cloud = <double> value
     
     property epsilon_equator:
         def __get__(Atmosphere self):

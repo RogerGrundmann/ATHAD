@@ -29,6 +29,7 @@
     Config::FillDoubleWithElement(elem_common, "t_surf_pole", t_surf_pole);
     Config::FillDoubleWithElement(elem_common, "cosmo_lapse_fraction", cosmo_lapse_fraction);
     Config::FillDoubleWithElement(elem_common, "t_skin", t_skin);
+    Config::FillDoubleWithElement(elem_common, "t_skin_relax", t_skin_relax);
     Config::FillDoubleWithElement(elem_common, "r_air", r_air);
     Config::FillDoubleWithElement(elem_common, "r_0_water", r_0_water);
     Config::FillDoubleWithElement(elem_common, "t_equat_modern", t_equat_modern);
@@ -68,8 +69,8 @@
     Config::FillDoubleWithElement(elem_atmosphere, "zeta", zeta);
     Config::FillDoubleWithElement(elem_atmosphere, "tropopause_pole", tropopause_pole);
     Config::FillDoubleWithElement(elem_atmosphere, "tropopause_equator", tropopause_equator);
-    Config::FillDoubleWithElement(elem_atmosphere, "albedo_pole", albedo_pole);
-    Config::FillDoubleWithElement(elem_atmosphere, "albedo_equator", albedo_equator);
+    Config::FillDoubleWithElement(elem_atmosphere, "albedo_surface", albedo_surface);
+    Config::FillDoubleWithElement(elem_atmosphere, "albedo_cloud", albedo_cloud);
     Config::FillDoubleWithElement(elem_atmosphere, "epsilon_equator", epsilon_equator);
     Config::FillDoubleWithElement(elem_atmosphere, "epsilon_pole", epsilon_pole);
     Config::FillDoubleWithElement(elem_atmosphere, "epsilon_tropopause", epsilon_tropopause);

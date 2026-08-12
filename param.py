@@ -135,14 +135,34 @@ def main():
             # previously MEASURED OLR, which is circular — the model then reproduced an OLR of
             # sigma*T_skin^4 and confirmed nothing but its own arithmetic.
             #
-            # This is a one-shot estimate, not an iterated fixed point: it uses the clear-sky
-            # albedo, while the cloud deck that now forms above ~207 km will raise it (0.4
-            # would give 245.5 K). initComposition() prints both this value and the balance
-            # value and warns if they diverge.
+            # This is now the STARTING value of an iterated fixed point, not a fixed input.
+            # With t_skin_relax > 0 the model re-derives it in the loop against its OWN mean
+            # albedo — the clear-sky value here is only where the iteration begins.
+            #
+            # READ THIS BEFORE QUOTING THE OLR. The column's top is isothermal AT t_skin by
+            # construction (ThermoAtm::densities re-imposes the profile every iteration) and
+            # it is optically thick, so the emission level sits there and the reported OLR is
+            # identically sigma*t_skin^4. Measured: t_skin = 254 K -> OLR 236.01 W/m2;
+            # t_skin = 240 K -> OLR 188.13 W/m2; sigma*T^4 = 236.01 and 188.13. The OLR is an
+            # INPUT wearing an output's clothes. Closing the fixed point below makes it equal
+            # the absorbed flux — which is then true by construction, not by test. Making the
+            # OLR a genuine prediction requires letting the top find its own temperature
+            # radiatively instead of having it prescribed. See the README.
             #
             # It replaces the inherited t_00 = 236.15 K ("-37 C"), which was Earth's
             # tropopause temperature and landed near the right range here by coincidence.
-            ('t_skin', 'ATHAD: radiative-equilibrium temperature of the optically thin top, in K', 'double', 254.0),
+            ('t_skin', 'ATHAD: starting radiative-equilibrium temperature of the optically thin top, in K', 'double', 254.0),
+
+            # ATHAD: under-relaxation of the t_skin fixed-point iteration, per radiation call.
+            #
+            #     sigma*t_skin^4 = (1 - albedo_mean)*SW_mean + geothermal_flux
+            #
+            # with albedo_mean the model's OWN cos(latitude)-weighted albedo, built by
+            # MultiLayerRadiation from the condensate the model actually made. Set to 0 to
+            # hold t_skin at the configured value (the old behaviour, which left the budget
+            # open by -32 W/m2). 0.25 converges in a handful of iterations and is well inside
+            # the stability limit, the map being a gentle T^(1/4).
+            ('t_skin_relax', 'ATHAD: relaxation of the t_skin fixed point per radiation call; 0 = hold t_skin fixed', 'double', 0.25),
             # ATHAD reference density of the MIXTURE at the surface, not of dry air:
             # rho = p/(R_mix*T) = 25e6 Pa / (387.9 * 1500 K) = 42.97 kg/m³ (Earth: 1.2041).
             # This is what sets the surface pressure, via p = 1e-2*(r_air*R_Air*T).
@@ -151,13 +171,28 @@ def main():
             ('t_equat_modern', 'mean temperature of the modern earth in °C', 'double', 15.4),
 
  
-            # ATHAD insolation: the faint young Sun. At 4.4 Ga the solar constant was about
-            # 0.71 of today's 1361 W/m2, i.e. 966 W/m2. Spread over a rotating sphere the
-            # global mean absorbed-at-TOA figure is S/4 = 242 W/m2 before albedo; the
-            # equator/pole split below carries the same latitudinal contrast the Earth
-            # values did, scaled by 0.71. ASSUMPTION — see README.
-            ('rad_equator_short', 'ATHAD: short wave radiation at the equator in W/m2', 'double', 116.0),
-            ('rad_pole_short', 'ATHAD: short wave radiation at the poles in W/m2', 'double', 71.0),
+            # ATHAD insolation: the faint young Sun, at the TOP OF THE ATMOSPHERE.
+            #
+            # At 4.4 Ga the solar constant was about 0.71 of today's 1361 W/m2, i.e.
+            # S = 966.3 W/m2, so the global mean incident flux is S/4 = 241.6 W/m2.
+            #
+            # The previous values, 116 and 71, were ATOM_Precipitation's 163.3 and 100.0
+            # scaled by 0.71 — and those are Earth's absorbed-at-the-SURFACE shortwave,
+            # already reduced by Earth's albedo and its atmosphere's absorption.
+            # MultiLayerRadiation uses these as the flux INCIDENT at the top and then
+            # applies ATHAD's own albedo, so Earth's albedo was being counted twice: the
+            # cos(latitude)-weighted mean came to 107.5 W/m2, lighting the planet at 45 %
+            # of its own insolation.
+            #
+            # The values below are a fit of the model's parabola short_wave_radiation[j] to
+            # the annual-mean insolation of a ZERO-OBLIQUITY planet, Q(phi) = S/pi*cos(phi),
+            # constrained so the cos(latitude)-weighted mean is exactly S/4. RMS error
+            # 6 W/m2. Hadean obliquity is unknown; zero is the assumption, and it is also
+            # the shape the parabola can actually represent — at Earth's 23.44 deg the true
+            # curve flattens toward the pole (122 W/m2 there) in a way a parabola cannot
+            # follow, giving twice the RMS error. ASSUMPTION — see README.
+            ('rad_equator_short', 'ATHAD: TOA short wave insolation at the equator in W/m2', 'double', 298.0),
+            ('rad_pole_short', 'ATHAD: TOA short wave insolation at the poles in W/m2', 'double', 0.0),
 
             # These two are the LONGWAVE boundary values of the inherited scheme. They are
             # present-day Earth fluxes and have no Hadean meaning; mode 2 computes the
@@ -270,13 +305,27 @@ def main():
             #     Earth: (exp(3.715) - 1) *   400.0 =  16.0 km
             #     ATHAD: (exp(3.000) - 1) * 12051.0 = 230.0 km
             #
-            # 230 km is set by where the column reaches the radiating level. It was 300 km
-            # while the profile still used the inherited COSMO shape with an Earth lapse
-            # fraction; on the proper dry adiabat the atmosphere is far more compressed —
-            # 24.8 bar at 112 km, 5.8 bar at 157 km, 0.069 bar at 218 km — so 300 km put
-            # the top ~90 km into near-vacuum (6e-8 bar), wasting resolution and inviting
-            # divide-by-density trouble. 230 km lands the top near 0.012 bar, comfortably
-            # past the 0.1 bar radiating level and above the condensation level at ~207 km.
+            # 230 km IS TOO SHALLOW AND IS KEPT ANYWAY, because the radiation scheme cannot
+            # currently take a deeper one. Read this before changing it.
+            #
+            # The shell is set by where the column reaches the radiating level, and the
+            # profile has moved under it twice: 300 km on the inherited COSMO shape, 230 km
+            # once the proper dry adiabat turned out to compress the atmosphere far more.
+            # Finishing the saturation conversion moved it back — with the upper column
+            # staying steam it keeps steam's high cp and cools along a shallower adiabat, so
+            # 230 km now tops out at 0.29 bar, three times ABOVE the 0.1 bar radiating level,
+            # with a top layer of optical depth ~6. An opaque lid emits sigma*T_lid^4 straight
+            # out of the domain, which is why the model's OLR is not an output (see t_skin).
+            #
+            # Deepening it fails. Measured: L_atm = 13623 (260 km, top 0.017 bar) and
+            # L_atm = 15719 (300 km, top 3.2e-4 bar) both produce a finite, sane initial
+            # state and then NaN across the whole field in the FIRST MultiLayerRadiation
+            # call — the field is finite in the diagnostic immediately before it and NaN in
+            # the one immediately after. The scheme's tridiagonal (Thomas) assembly is built
+            # from products of the layer emissivity, and its rows degenerate as eps -> 0,
+            # which is precisely the condition a domain that reaches the radiating level
+            # must have at its top. So the radiation has to be reformulated before the shell
+            # can be deepened. See the README.
             #
             # zeta 3.0 with im = 61 keeps the top cell at ~1.7 local scale heights.
             ('L_atm', 'ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 230 km', 'double', 12051.0),
@@ -293,14 +342,24 @@ def main():
             ('tropopause_equator', 'ATHAD: top of the convective column at the equator in m', 'double', 207000.0),
 
 
-            # NOTE these two are INERT: MultiLayerRadiation builds albedo.y from its own
-            # surface constants and then applies a cloud bump on top, never reading these.
-            # Kept only because other inherited code still references them. The albedo that
-            # actually acts is alb_surface_molten in MultiLayerRadiation.h plus the
-            # condensate-driven cloud bump — which is the point: the cloud albedo should be
-            # EARNED by condensate the model produced, not asserted as a constant.
-            ('albedo_pole', 'inherited; unused — MultiLayerRadiation builds the albedo itself', 'double', 0.1),
-            ('albedo_equator', 'inherited; unused — MultiLayerRadiation builds the albedo itself', 'double', 0.1),
+            # ATHAD albedo. These replace the inherited albedo_pole/albedo_equator, which
+            # were INERT — MultiLayerRadiation built its own albedo from bare literals and
+            # never read them, so the pole/equator pair was configuration theatre.
+            #
+            # albedo_surface: a quenching silicate melt is dark. Measured basaltic-melt
+            # albedos are 0.05-0.10. There is no land, no snow and no sea ice, so this is a
+            # single global clear-sky value, not Earth's latitude parabola.
+            #
+            # albedo_cloud: the SW albedo of an optically thick cloud top, composited over
+            # the surface value by refl = tau/(tau+2) on the condensate path. IT IS
+            # CURRENTLY THE WHOLE ANSWER. The reflectivity saturates the moment any
+            # condensate is present, and ATHAD's cloud deck is enormously thick, so the
+            # model's mean planetary albedo IS this number to four decimal places. It is
+            # therefore the second-biggest lever after the opacities, and it is an
+            # ASSUMPTION: 0.50 is a thick terrestrial water cloud. A deep, cold, slowly
+            # sedimenting Hadean deck could plausibly be brighter.
+            ('albedo_surface', 'ATHAD: clear-sky albedo of the molten silicate surface', 'double', 0.08),
+            ('albedo_cloud', 'ATHAD: shortwave albedo of an optically thick cloud top', 'double', 0.50),
 
             ('epsilon_equator', 'emissivity and absorptivity caused by other gases than water vapour/(by Häckel)', 'double', 0.48),
             ('epsilon_pole', 'emissivity and absorptivity caused by other gases than water vapour at the poles', 'double', 0.45),

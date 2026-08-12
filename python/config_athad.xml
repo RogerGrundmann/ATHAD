@@ -21,12 +21,13 @@
         <t_surf_equator>1500.0</t_surf_equator>  <!-- ATHAD: prescribed Hadean surface temperature at the equator in K(double) -->
         <t_surf_pole>1450.0</t_surf_pole>  <!-- ATHAD: prescribed Hadean surface temperature at the poles in K(double) -->
         <cosmo_lapse_fraction>1.0</cosmo_lapse_fraction>  <!-- ATHAD: near-surface lapse rate as a fraction of the dry adiabat; 1.0 = dry adiabat(double) -->
-        <t_skin>254.0</t_skin>  <!-- ATHAD: radiative-equilibrium temperature of the optically thin top, in K(double) -->
+        <t_skin>254.0</t_skin>  <!-- ATHAD: starting radiative-equilibrium temperature of the optically thin top, in K(double) -->
+        <t_skin_relax>0.25</t_skin_relax>  <!-- ATHAD: relaxation of the t_skin fixed point per radiation call; 0 = hold t_skin fixed(double) -->
         <r_air>42.97</r_air>  <!-- ATHAD: reference density of the atmospheric mixture at the surface in kg/m³(double) -->
         <r_0_water>997.0</r_0_water>  <!-- reference density of fresh water in kg/m3(double) -->
         <t_equat_modern>15.4</t_equat_modern>  <!-- mean temperature of the modern earth in °C(double) -->
-        <rad_equator_short>116.0</rad_equator_short>  <!-- ATHAD: short wave radiation at the equator in W/m2(double) -->
-        <rad_pole_short>71.0</rad_pole_short>  <!-- ATHAD: short wave radiation at the poles in W/m2(double) -->
+        <rad_equator_short>298.0</rad_equator_short>  <!-- ATHAD: TOA short wave insolation at the equator in W/m2(double) -->
+        <rad_pole_short>0.0</rad_pole_short>  <!-- ATHAD: TOA short wave insolation at the poles in W/m2(double) -->
         <rad_equator>398.2</rad_equator>  <!-- inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)(double) -->
         <rad_pole>360.0</rad_pole>  <!-- inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)(double) -->
         <sigma>5.67028e-08</sigma>  <!-- Stefan-Boltzmann constant W/(m²*K4)(double) -->
@@ -58,8 +59,8 @@
         <zeta>3.0</zeta>  <!-- ATHAD: radial coordinate-stretching factor (was a hard-coded 3.715)(double) -->
         <tropopause_pole>195000.0</tropopause_pole>  <!-- ATHAD: top of the convective column at the poles in m(double) -->
         <tropopause_equator>207000.0</tropopause_equator>  <!-- ATHAD: top of the convective column at the equator in m(double) -->
-        <albedo_pole>0.1</albedo_pole>  <!-- inherited; unused — MultiLayerRadiation builds the albedo itself(double) -->
-        <albedo_equator>0.1</albedo_equator>  <!-- inherited; unused — MultiLayerRadiation builds the albedo itself(double) -->
+        <albedo_surface>0.08</albedo_surface>  <!-- ATHAD: clear-sky albedo of the molten silicate surface(double) -->
+        <albedo_cloud>0.5</albedo_cloud>  <!-- ATHAD: shortwave albedo of an optically thick cloud top(double) -->
         <epsilon_equator>0.48</epsilon_equator>  <!-- emissivity and absorptivity caused by other gases than water vapour/(by Häckel)(double) -->
         <epsilon_pole>0.45</epsilon_pole>  <!-- emissivity and absorptivity caused by other gases than water vapour at the poles(double) -->
         <epsilon_tropopause>0.001</epsilon_tropopause>  <!-- emissivity and absorptivity caused by other gases than water vapour in the tropopause(double) -->

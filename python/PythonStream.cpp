@@ -5,7 +5,7 @@
 
 #include <Python.h>
 #include "PythonStream.h"
-#include "pyatom.h"
+#include "pyathad.h"
 
 using namespace std;
 

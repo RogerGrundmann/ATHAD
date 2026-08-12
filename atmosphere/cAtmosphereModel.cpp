@@ -233,6 +233,85 @@ void cAtmosphereModel::initComposition(){
 /*
 *
 */
+// Cos(latitude)-weighted shortwave budget over the sphere, using the model's OWN albedo.
+//
+// The weight is cos(latitude) with latitude taken from j/(jm-1), which is the same weight
+// AtomUtils::GetMean_2D uses — written here in a form that does not assume jm == 181, as
+// the node-weight table does.
+bool cAtmosphereModel::planetaryShortWave(double& albedo_mean, double& sw_mean,
+                                          double& absorbed_mean) const
+{
+    albedo_mean = sw_mean = absorbed_mean = 0.0;
+    if((int)short_wave_radiation.size() != jm || jm < 2 || km < 1) return false;
+
+    double w_sum = 0.0, alb_w = 0.0, sw_w = 0.0, abs_w = 0.0, alb_max = 0.0;
+    for(int j = 0; j < jm; j++){
+        const double w = std::cos((j / (double)(jm - 1) - 0.5) * M_PI);
+        double alb_k = 0.0;
+        for(int k = 0; k < km; k++) alb_k += albedo.y[j][k];
+        alb_k /= (double)km;
+        alb_max = std::max(alb_max, alb_k);
+
+        w_sum += w;
+        alb_w += w * alb_k;
+        sw_w  += w * short_wave_radiation[j];
+        abs_w += w * (1.0 - alb_k) * short_wave_radiation[j];
+    }
+    if(!(w_sum > 0.0)) return false;
+
+    albedo_mean   = alb_w / w_sum;
+    sw_mean       = sw_w  / w_sum;
+    absorbed_mean = abs_w / w_sum;
+
+    // Before the first MultiLayerRadiation call albedo.y is all zeros, which would report a
+    // perfectly black planet rather than "not measured yet".
+    return alb_max > 0.0;
+}
+/*
+*
+*/
+// One relaxation step of the t_skin fixed point.
+//
+// t_skin is the temperature of the isothermal top that ThermoAtm::densities() imposes
+// wherever the adiabat falls below it. That top is optically thick, so the emission level
+// sits there and the OLR the model reports is identically sigma*t_skin^4 — verified by
+// running the model at 254 K and at 240 K and getting 236.01 and 188.13 W/m2, against
+// sigma*T^4 = 236.01 and 188.13. Prescribing t_skin therefore prescribes the OLR.
+//
+// This does not repair that. What it repairs is the CONSISTENCY of the prescription: the
+// configured 254 K came from a one-shot estimate using the clear-sky albedo (0.08), while
+// the model's own albedo is ~0.50, so the planet was emitting 236 W/m2 while absorbing
+// 204 — a 32 W/m2 imbalance that no amount of running would close, because nothing in the
+// model could move t_skin. Iterating it against the model's own albedo closes the budget.
+// The budget is then closed BY CONSTRUCTION and is not a test of anything; what the model
+// still genuinely computes is the albedo, the optical depth and where water condenses.
+//
+// Making the OLR a real output means letting the top find its own temperature radiatively
+// instead of having densities() re-impose it every iteration. See the README.
+void cAtmosphereModel::updateSkinTemperature(bool report)
+{
+    if(t_skin_relax <= 0.0) return;
+
+    double alb_mean = 0.0, sw_mean = 0.0, abs_mean = 0.0;
+    if(!planetaryShortWave(alb_mean, sw_mean, abs_mean)) return;
+
+    const double in_mean = abs_mean + geothermal_flux;
+    if(!(in_mean > 0.0)) return;
+
+    const double target = std::pow(in_mean / sigma, 0.25);
+    const double t_old  = t_skin;
+    t_skin += std::min(1.0, t_skin_relax) * (target - t_skin);
+
+    if(report)
+        cout << "      AGCM: t_skin " << std::fixed << std::setprecision(2) << t_old
+             << " -> " << t_skin << " K   (fixed-point target " << target
+             << " K from albedo " << std::setprecision(4) << alb_mean
+             << ", absorbed + geothermal " << std::setprecision(2) << in_mean << " W/m2)"
+             << endl;
+}
+/*
+*
+*/
 // THE definition of the grid coordinates — see the declaration in cAtmosphereModel.h.
 //
 // This used to be written in three places with two different meanings, which is a trap rather
@@ -1461,8 +1540,14 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
         // climate (water-vapour feedback, CO2) instead of being frozen at the initial state.
         if (radiation_mode == 1 && iter_n % teq_refresh_stride == 0)
             refresh_radiative_teq();                            // A: refresh MLR -> t_eq target
-        else if (radiation_mode == 2)
+        else if (radiation_mode == 2) {
             apply_radiative_heating();                          // B: MLR direct heating on T
+            // MLR has just rebuilt albedo.y from the current condensate, so this is the
+            // point at which the model's own albedo is known. Relax t_skin toward the
+            // energy-balance value it implies; densities() picks the new value up on the
+            // next iteration when it re-imposes the isothermal top.
+            updateSkinTemperature(iter_n % diagnosticStride() == 0);
+        }
         else if (radiation_mode == 4 && iter_n % teq_refresh_stride == 0)
             refresh_radiation_diag();                           // 4: refresh radiation.x diag (t unchanged)
         else if (radiation_mode == 5) {

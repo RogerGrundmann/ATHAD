@@ -80,7 +80,10 @@ entering R_mix, cp_mix and the opacity.
 
 3. **Radiation runs in mode 2** (direct σT⁴). Modes 0/1/3/4/5 all lean on the Scotese
    snapshot or the 280 ppm CO₂ reference; neither exists at 4.4 Ga. Radiation must *set*
-   the profile, not nudge it toward a prescribed one.
+   the profile, not nudge it toward a prescribed one — **and it currently does not**:
+   `ThermoAtm::densities()` re-imposes the adiabat on `t` every iteration, overwriting
+   whatever the dynamics and the radiation computed. That is why the OLR is an input.
+   Fixing it is the open task, not a licence to restore a prescribed target.
 
 4. **The column is on its own adiabat, integrated not fitted.** `dT/dz = −g/cp` with local
    cp, hydrostatic on the layer-mean T, isothermal above `t_skin`. Do **not** restore the
@@ -108,28 +111,34 @@ A grey scheme also cannot represent the window regions that set the real runaway
 
 ## What the model currently says
 
-**In flux.** Finishing the saturation conversion (README item 9) removed 60 km of
-manufactured cloud and warmed the upper column by ~170 K, which invalidated the shell
-sizing and the energy balance that were tuned against it. Current measured state:
+**The model does not currently produce an outgoing longwave flux.** That is the headline,
+and it retracts the previous one. Everything below is measured; see README items 9 and 10.
 
-- Shell 230 km, 61 levels; equator column 1499 K / 249.9 bar at the surface, but now only
-  **0.295 bar at the top — above the 0.1 bar radiating level, so the shell is too
-  shallow.** Re-derive `L_atm`.
-- Condensation is possible only at the topmost level (230 km). Everything below is
-  supercritical or superheated.
-- **Mean planetary albedo 0.4999** — which is `alpha_cloud = 0.50`, a bare literal in
-  `MultiLayerRadiation`. The reflectivity saturates the moment any condensate exists, so
-  the model reports that constant rather than computing an albedo.
-- **OLR = 236.0 W/m² against 203.8 W/m² absorbed + geothermal: an imbalance of
-  −32.3 W/m².** The budget stopped closing because `t_skin` is still the configured 254 K
-  while the model's own albedo implies 244.8 K. Closing it means iterating `t_skin`.
-- **The insolation is wrong by a factor of 2.2.** `rad_equator_short`/`rad_pole_short` are
-  Earth's *surface*-absorbed fluxes scaled by 0.71, used as top-of-atmosphere insolation,
-  so Earth's albedo is counted twice. Area-weighted mean 107.5 W/m² against the 241.6 W/m²
-  that 0.71 S₀ delivers. Fixing it raises the absorbed flux and works *for* the runaway.
-- The **geothermal ≥ ~195 W/m²** claim was derived with the clear-sky albedo and the
-  too-low insolation, so it stands only until those two are fixed. It remains the one
-  claim the model makes rather than receives.
+- **OLR ≡ σ·T_lid⁴.** The topmost layer is optically thick (τ ≈ 6), so the model emits at
+  its lid temperature — which is prescribed, not solved. Verified by experiment: setting
+  `t_skin` to 254 K gives a "measured" OLR of 236.01 W/m², setting it to 240 K gives
+  188.13, and σT⁴ is 236.01 and 188.13. The Phase 7 result "OLR = 236.0 W/m², energy
+  balance closes" was that identity plus a **stale lid pin**: `bcRadius` held the lid at a
+  snapshot taken from `initTemperatureData`, which builds its adiabat before the water and
+  CO₂ fields exist, so `densities()` could rebuild the column every iteration and never
+  move the lid. `densities()` now refreshes the snapshot, and the lid reads 344 K.
+- Current state: shell 230 km, top **0.29 bar — three times above the 0.1 bar radiating
+  level**; lid 344 K with ε = 1.0; OLR 802 W/m² against 271 W/m² absorbed + geothermal, an
+  imbalance of **−531 W/m²**. This is a truer description than the closed budget it
+  replaces.
+- **The shell cannot be deepened yet.** 260 km and 300 km both build a sane initial state
+  and then NaN across the whole field in the first `MultiLayerRadiation` call. The Thomas
+  assembly degenerates as ε → 0, which is the condition at the top of any domain that
+  reaches the radiating level. **The radiation scheme is the next task.**
+- **Mean planetary albedo 0.4999 = `albedo_cloud`.** The reflectivity saturates the moment
+  any condensate exists, so the model reports that parameter rather than computing an
+  albedo.
+- Insolation fixed: the parameters were Earth's *surface*-absorbed fluxes used as TOA
+  insolation, lighting the planet at 45 % of 0.71 S₀. Now a zero-obliquity annual-mean fit
+  constrained to S/4; measured mean **241.56 W/m²**.
+- `t_skin` is now a fixed point against the model's own albedo, converging 254 → 262.85 K.
+- The **geothermal ≥ ~195 W/m²** claim was derived from the OLR identity above and does not
+  survive it. The model currently makes no claim of its own.
 
 Bit-identical at 1, 4 and 8 OpenMP threads. Text diagnostics print every 10 iterations for
 short runs (`nm ≤ 100`), every 100 for longer ones; `diagnostic_stride` overrides.
@@ -173,15 +182,11 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
-- **The shell no longer reaches the radiating level** (0.295 bar at the top). It has to be
-  re-sized against the corrected profile.
-- **The insolation is 45 % of what 0.71 S₀ delivers** — Earth surface fluxes used as TOA
-  insolation. See "What the model currently says".
-- **`t_skin` is not a fixed point.** It is configured at 254 K while the model's own
-  albedo implies 244.8 K, leaving a −32.3 W/m² imbalance. Closing it means iterating
-  `t_skin` against the model's own albedo. `initComposition()` prints the one-shot
-  clear-sky estimate; `ThermoAtm::printPlanetaryBalance` prints the value the model's own
-  albedo implies.
+- **The radiation scheme is the blocking task.** Its tridiagonal solve degenerates for
+  optically thin layers, so the domain cannot reach the radiating level; and the profile
+  it is supposed to determine is overwritten by `densities()` every iteration. Until both
+  are fixed the OLR is an input. `ThermoAtm::printPlanetaryBalance` prints the lid
+  temperature and emissivity next to the OLR so the identity stays visible.
 - **The surface temperature is prescribed, not solved.** Every result is conditional on it.
 - **Boussinesq.** The solver rests on the Boussinesq buoyancy approximation, but density
   varies by ~2 orders of magnitude across the column. This may force an anelastic or
