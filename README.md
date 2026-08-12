@@ -805,7 +805,69 @@ the measurements that did not work out — rather than what is intended.
     ParaView output of a 400-iteration run has active moist physics only over its last 100
     iterations.
 
+## Scope: the anelastic continuity fix
+
+The tracer mass error of item 15 comes from a velocity field that does not satisfy
+continuity for the prescribed density. `PressureSolverAtm` projects onto `∇·u = 0`; a
+column whose density spans five orders of magnitude needs `∇·(ρ̄u) = 0`. This is the scope
+of that change, written before touching it because it is the dynamical core and every
+result in this README moves with it.
+
+**What the solver does now.** `PressureSolverAtm::run()` builds a provisional velocity
+(`aux_u/v/w`), takes its divergence with single-power metric factors, solves a Poisson
+equation for `p_dyn` with a variable-coefficient Laplacian, and corrects the velocity by
+the pressure gradient. The file documents its own defect: the Laplacian coefficients use
+`exp_2_rm`, `inv_rm2`, `inv_rm2sinthe2` while the divergence source and the gradient
+correction are single-power, so `div` and `grad` are **not discretely adjoint** and the
+projection does not exactly remove the divergence it measured. Three stabilisers
+(`p_dyn_cap = 2.0`, the `p_dyn_ceiling`, the topography Dirichlet pins) were calibrated
+against that inconsistency.
+
+**The change, in order of dependency.**
+
+1. **Resolve the metric inconsistency first.** Until `div` and `grad` are adjoint, no
+   projection — Boussinesq or anelastic — removes the divergence. This is the file's own
+   open TODO and it is independently testable: measure `∇·u` before and after the
+   projection and require it to drop. *Do this step alone first and re-measure the water
+   drift; it may account for much of it.*
+2. **Introduce a base-state density `ρ̄(z)`** — one-dimensional, time-independent, the
+   horizontal average of the prescribed profile. It must be a function of height only:
+   a fully three-dimensional ρ makes the elliptic operator time-varying and costs
+   solvability. Rebuild it when `densities()` rebuilds the profile.
+3. **Anelastic divergence source.** `D = (1/ρ̄)∇·(ρ̄u*) = ∇·u* + u*_r · dln ρ̄/dr`. Because
+   ρ̄ depends on r only, this is one extra term on the radial component.
+4. **Anelastic Poisson operator.** `∇·(ρ̄∇φ) = ρ̄∇²φ + (dρ̄/dr)(∂φ/∂r)`, so the existing
+   7-point stencil gains a first-derivative term in `r` proportional to `dln ρ̄/dr`. No new
+   solver is needed — the change is to the stencil coefficients.
+5. **Boundary conditions.** Impose `ρ̄u_r = 0` at the surface and the lid. `aux_u` is
+   currently `c43/c13`-extrapolated at both ends, which does not impose zero normal mass
+   flux.
+6. **Re-derive the stabilisers.** `p_dyn_cap` and the ceiling were tuned against the
+   inconsistent operator and will otherwise clip the anelastic projection before it acts.
+7. **Check the buoyancy reference.** `BuoyancyForce = coeff_buoy·(t − t_ref_level[i])` is
+   already base-state-referenced; confirm the reference is the same ρ̄.
+
+**Verification — the point of the diagnostics already in place.**
+
+| test | now | required |
+|---|---|---|
+| `waterBudget()` drift, 20 iters | +0.17 % | ≈ 0 |
+| water-vapour ceiling hits | ~460 000 cells | ≈ 0 |
+| CO₂ max − min (uniformity) | 0 exactly | still 0 |
+| Ψ_max over 400 iters | 676k → 1259k, growing | bounded |
+| `∇·u` after projection | not measured | measured, and small |
+| bit-identical at 1/4/8 threads | passes | still passes |
+
+The CO₂ uniformity test is the one that catches an over-correction: any scheme that makes a
+well-mixed tracer develop structure is wrong, whatever it does for the mass budget.
+
+**Effort and risk.** The code is modest — a few dozen lines across `PressureSolverAtm` and
+the divergence source. The verification is the work, and every number in this README
+changes. Step 1 is separable, independently valuable, and should be measured before
+steps 2–7 are started.
+
 ## Remaining work
+
 
 
 
