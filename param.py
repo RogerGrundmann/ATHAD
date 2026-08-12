@@ -248,6 +248,12 @@ def main():
             ('checkpoint_save_iter', 'dump the full 3D prognostic state to output_path/atm_restart_<iter>.bin when total_iter_count reaches this, for a fast debug restart; -1 disables', 'int', 300),
 #            ('checkpoint_save_iter', 'dump the full 3D prognostic state to output_path/atm_restart_<iter>.bin when total_iter_count reaches this, for a fast debug restart; -1 disables', 'int', 200),
             ('restart_from_iter', 'load output_path/atm_restart_<iter>.bin and resume from it, skipping the dry spin-up (debug shortcut); -1 disables', 'int', -1),
+
+            # ATHAD: iterations between full 3D restart dumps. Was a constexpr 100 buried in
+            # the iteration loop, next to two configurable siblings (checkpoint for the vtk
+            # slices, panorama_print for the vts panoramas) — so the one output you cannot
+            # switch off was the one that writes 925 MB per dump. 0 or negative disables.
+            ('restart_stride', 'ATHAD: iterations between full 3D restart dumps (.bin, ~925 MB each); 0 disables', 'int', 100),
 #            ('restart_from_iter', 'load output_path/atm_restart_<iter>.bin and resume from it, skipping the dry spin-up (debug shortcut); -1 disables', 'int', 300),
 
 #            ('dt_visc', 'non-dimensional time step used in the viscous (production) phase', 'double', 0.001),

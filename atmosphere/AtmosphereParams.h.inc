@@ -47,6 +47,7 @@ int inviscid_ramp_iters;
 int moist_phys_start_iter;
 int checkpoint_save_iter;
 int restart_from_iter;
+int restart_stride;
 double dt_visc;
 double dt_inviscid;
 

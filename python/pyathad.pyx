@@ -476,6 +476,15 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.restart_from_iter = <int> value
     
+    property restart_stride:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.restart_stride
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.restart_stride = <int> value
+    
     property dt_visc:
         def __get__(Atmosphere self):
             self._check_alive()

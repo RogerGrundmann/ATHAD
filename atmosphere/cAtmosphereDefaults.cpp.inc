@@ -48,6 +48,7 @@ void cAtmosphereModel::SetDefaultConfig() {
   moist_phys_start_iter = 300;
   checkpoint_save_iter = 300;
   restart_from_iter = -1;
+  restart_stride = 100;
   dt_visc = 4e-05;
   dt_inviscid = 8e-06;
 

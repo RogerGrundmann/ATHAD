@@ -114,8 +114,18 @@ public:
         // stabilisers (p_dyn_cap, p_dyn_ceiling, topo Dirichlet pins) that were calibrated on
         // the old operator. NB: this repairs the metric POWER only; the collocated checkerboard
         // (Rhie-Chow face reconstruction) is a separate, larger port not done here.
+        // ATHAD: ON by default since the A/B measured it. With the consistent metric the
+        // residual divergence of the projected velocity falls from rms 2.625e-02 to
+        // 2.153e-02 — an 18 % improvement — while the water-mass drift is bit-identical
+        // (+0.1698 % over 20 iterations either way), so this is a genuine repair of the
+        // discrete div/grad adjointness and NOT the cause of the tracer mass error. The
+        // env var still forces it off for A/B (ATM_POISSON_METRIC_FIX=0).
+        //
+        // Caveat carried from the note above: p_dyn_cap, the p_dyn_ceiling and the
+        // topography Dirichlet pins were calibrated against the OLD operator. Watch a long
+        // run for instability; re-deriving them is step 6 of the anelastic scope.
         const bool poisson_metric_fix = [](){ const char* e = getenv("ATM_POISSON_METRIC_FIX");
-                                              return e ? (atof(e) != 0.0) : false; }();
+                                              return e ? (atof(e) != 0.0) : true; }();
 
         // ATOM_METRIC_DIVERGENCE — hoisted out of the cell loop; see lib/Utils.h.
         const bool metric_div = AtomUtils::metric_divergence();

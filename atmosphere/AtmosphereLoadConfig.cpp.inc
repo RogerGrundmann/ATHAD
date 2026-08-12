@@ -49,6 +49,7 @@
     Config::FillIntWithElement(elem_common, "moist_phys_start_iter", moist_phys_start_iter);
     Config::FillIntWithElement(elem_common, "checkpoint_save_iter", checkpoint_save_iter);
     Config::FillIntWithElement(elem_common, "restart_from_iter", restart_from_iter);
+    Config::FillIntWithElement(elem_common, "restart_stride", restart_stride);
     Config::FillDoubleWithElement(elem_common, "dt_visc", dt_visc);
     Config::FillDoubleWithElement(elem_common, "dt_inviscid", dt_inviscid);
   }

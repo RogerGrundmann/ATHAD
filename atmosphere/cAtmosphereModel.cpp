@@ -1669,7 +1669,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
         // output_path/atm_restart_<Ma>Ma_<total_iter_count>.bin (Ma+iter stamped, so a
         // paleo chain of several time-slices never clobbers another slice's restart).
         {
-            constexpr int restart_save_stride = 100;
+            const int restart_save_stride = restart_stride;
             if(restart_save_stride > 0 && total_iter_count > 0
                && total_iter_count % restart_save_stride == 0){
                 bool clean = true;
