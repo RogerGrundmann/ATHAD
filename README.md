@@ -651,7 +651,56 @@ the measurements that did not work out — rather than what is intended.
     rather than a prescribed one. `t_skin` has converged to 262.88 K and the lid emissivity
     is 0.0000, so the outgoing flux is a column integral throughout.
 
+13. **The Hadley cells were not symmetric, and nothing here can make them so (done).**
+
+    Spotted in the iteration-0 ParaView output. `VelocityInitializer::compute()` set the
+    meridional wind at 15°N to a surface coefficient of **4.0** and at 15°S to **3.0**:
+
+    ```cpp
+    init_v_or_w(m.v,  75, -3.0,  4.0);   // lat:  15N
+    init_v_or_w(m.v, 105, -3.0,  3.0);   // lat:  15S
+    ```
+
+    Every other mirror pair in the whole u/v/w initialisation is identical — 0/180, 15/165,
+    30/150, 45/135, 60/120 — and the `form_diagonals` spans are mirrored too, so this was
+    the only asymmetry in the velocity initial condition. The commented-out lines that sat
+    directly above each showed the values had once been the other way round (3.0 north,
+    4.0 south), so it had never been symmetric; someone had swapped which hemisphere won.
+
+    Measured in `meridional_streamfunction_10.csv`, at the level of maximum |Ψ|:
+
+    | lat | Ψ(+lat) | Ψ(−lat) | sum (0 if symmetric) |
+    |---|---|---|---|
+    | 30° | 74 187 | −72 049 | 2 138 |
+    | 15° | −278 138 | 366 213 | **88 075** |
+    | 10° | −198 131 | 260 698 | 62 567 |
+
+    (10⁹ kg/s.) The southern cell is stronger than the northern by 366/278 = **1.32**
+    against the coefficients' 4.0/3.0 = 1.33, and the global antisymmetry error is 11.4 %.
+    At 30°, away from the injected asymmetry, the mismatch is 2.9 %. It does not wash out:
+    still 8.3 % at iteration 100.
+
+    On Earth this asymmetry is physical — the ITCZ sits north of the equator because of the
+    land–sea distribution. **ATHAD cannot have it.** There is no land, no topography, the
+    prescribed surface temperature is a symmetric parabola, the insolation profile is
+    explicitly mirrored (`short_wave_radiation[j] = short_wave_radiation[j_max-j]`), and
+    there is no obliquity and no seasonal cycle. Nothing in the model can sustain a
+    hemispheric asymmetry, so all of it was inherited from these two numbers.
+
+    Both are now **3.5**, their mean, which removes the asymmetry and leaves the total
+    initial Hadley mass flux unchanged. Measured after the fix, same diagnostic:
+
+    | lat | Ψ(+lat) | Ψ(−lat) | sum |
+    |---|---|---|---|
+    | 30° | 73 094 | −73 138 | −44 |
+    | 15° | −322 169 | 322 181 | 12 |
+    | 10° | −229 399 | 229 418 | 19 |
+
+    **Global antisymmetry error 11.38 % → 0.0152 %**, the residue being floating-point and
+    OpenMP reduction noise rather than structure.
+
 ## Remaining work
+
 
 
 

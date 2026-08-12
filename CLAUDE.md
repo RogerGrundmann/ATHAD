@@ -73,8 +73,13 @@ asserted.
 
 ## Four invariants — do not silently break these
 
-1. **There is no topography.** `h ≡ 0`, `i_topography ≡ 0` everywhere, so
-   `AtomUtils::is_land()` is false at every point. The Hadean surface is unknown; a
+1. **There is no topography, and the planet is hemispherically symmetric.** `h ≡ 0`,
+   `i_topography ≡ 0` everywhere, so `AtomUtils::is_land()` is false at every point.
+   Nothing in the model can sustain a north-south asymmetry either: the surface
+   temperature is a symmetric parabola, the insolation is explicitly mirrored, and there
+   is no obliquity and no seasonal cycle. So any asymmetry in the output is a defect —
+   see README item 13, where the Hadley cells differed by 32 % because of one initial
+   velocity coefficient inherited from Earth's land-sea-driven ITCZ offset. The Hadean surface is unknown; a
    featureless global surface is the deliberate choice, not a missing data file. Do not
    reintroduce a bathymetry read, and do not "fix" the dead land branches.
    `LandOceanFraction()` throws if a land point ever appears.

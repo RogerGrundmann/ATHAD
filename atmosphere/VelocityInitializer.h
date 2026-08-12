@@ -47,14 +47,29 @@ public:
         // southern Ferrel cell
         init_v_or_w(m.v, 150, -0.2,  0.0);                              // lat: -60   j=150
         init_v_or_w(m.v, 135,  4.0, -1.5);                              // lat: -45   j=135
-        // northern Hadley cell
+        // Hadley cells — SYMMETRIC about the equator.
+        //
+        // These two carried 4.0 at 15N against 3.0 at 15S (and, before someone swapped
+        // them, 3.0 against 4.0 — the commented-out pair that used to sit here). Every
+        // other mirror pair in this routine is identical, so this was the only asymmetry
+        // in the whole velocity initialisation, and it showed: the meridional
+        // streamfunction came out with the southern cell stronger than the northern by
+        // 366/278 = 1.32 at 15 degrees, against 4.0/3.0 = 1.33, and 11 % antisymmetry
+        // error globally that had not washed out by iteration 100.
+        //
+        // On Earth a north-south Hadley asymmetry is physical: the ITCZ sits north of the
+        // equator because of the land-sea distribution. ATHAD has no land, no topography,
+        // a symmetric prescribed surface temperature, an insolation profile that is
+        // EXPLICITLY mirrored (short_wave_radiation[j] = short_wave_radiation[j_max-j]),
+        // no obliquity and no seasons. Nothing here can sustain a hemispheric asymmetry,
+        // so all of it was inherited from these two numbers.
+        //
+        // 3.5 is their mean, which removes the asymmetry and leaves the total initial
+        // Hadley mass flux unchanged.
         init_v_or_w(m.v,  60,  0.0,  0.5);                              // lat:  30   j=60
-//        init_v_or_w(m.v,  75, -3.0,  3.0);                              // lat:  15   j=75
-        init_v_or_w(m.v,  75, -3.0,  4.0);                              // lat:  15   j=75
-        // southern Hadley cell
+        init_v_or_w(m.v,  75, -3.0,  3.5);                              // lat:  15   j=75
         init_v_or_w(m.v, 120,  0.0,  0.5);                              // lat: -30   j=120
-//        init_v_or_w(m.v, 105, -3.0,  4.0);                              // lat: -15   j=105
-        init_v_or_w(m.v, 105, -3.0,  3.0);                              // lat: -15   j=105
+        init_v_or_w(m.v, 105, -3.0,  3.5);                              // lat: -15   j=105
 
         // initialise w: tropopause and surface values per latitude.
         // w is the ZONAL jet (East+). The SURFACE value (2nd coeff) is what the
