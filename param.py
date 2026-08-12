@@ -303,10 +303,7 @@ def main():
             # L_atm is the AMPLITUDE of the exponential stretch, NOT the shell thickness
             # and NOT a layer spacing. The shell is (exp(zeta) - 1) * L_atm:
             #     Earth: (exp(3.715) - 1) *   400.0 =  16.0 km
-            #     ATHAD: (exp(3.000) - 1) * 12051.0 = 230.0 km
-            #
-            # 230 km IS TOO SHALLOW AND IS KEPT ANYWAY, because the radiation scheme cannot
-            # currently take a deeper one. Read this before changing it.
+            #     ATHAD: (exp(3.000) - 1) * 15719.0 = 300.0 km
             #
             # The shell is set by where the column reaches the radiating level, and the
             # profile has moved under it twice: 300 km on the inherited COSMO shape, 230 km
@@ -317,18 +314,23 @@ def main():
             # with a top layer of optical depth ~6. An opaque lid emits sigma*T_lid^4 straight
             # out of the domain, which is why the model's OLR is not an output (see t_skin).
             #
-            # Deepening it fails. Measured: L_atm = 13623 (260 km, top 0.017 bar) and
-            # L_atm = 15719 (300 km, top 3.2e-4 bar) both produce a finite, sane initial
-            # state and then NaN across the whole field in the FIRST MultiLayerRadiation
-            # call — the field is finite in the diagnostic immediately before it and NaN in
-            # the one immediately after. The scheme's tridiagonal (Thomas) assembly is built
-            # from products of the layer emissivity, and its rows degenerate as eps -> 0,
-            # which is precisely the condition a domain that reaches the radiating level
-            # must have at its top. So the radiation has to be reformulated before the shell
-            # can be deepened. See the README.
+            # Deepening it used to be impossible: at 260 km and 300 km the old tridiagonal
+            # radiation solve produced NaN across the whole field in its first call, its rows
+            # degenerating as eps -> 0. That is fixed (MultiLayerRadiation is now two-stream
+            # flux sweeps), and 300 km is what the fix buys:
+            #
+            #     shell   top p      lid eps   OLR      sigma*T_lid^4
+            #     230 km  0.29  bar  1.0000    795 W/m2  787 W/m2   <- OLR == lid, an input
+            #     260 km  0.017 bar  0.0610    519       271
+            #     300 km  3.8e-4 bar 0.0000    581       271        <- OLR is a real integral
+            #
+            # At 300 km the top layer is transparent, the isothermal skin is resolved from
+            # 256 km up, and the outgoing flux is no longer the boundary temperature read
+            # back out. The OLR still varies with the shell depth (519 vs 581), because im is
+            # fixed at 61 and a deeper shell is a coarser grid — it is not yet converged.
             #
             # zeta 3.0 with im = 61 keeps the top cell at ~1.7 local scale heights.
-            ('L_atm', 'ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 230 km', 'double', 12051.0),
+            ('L_atm', 'ATHAD: amplitude of the radial stretch in m; shell = (exp(zeta)-1)*L_atm = 300 km', 'double', 15719.0),
             ('zeta', 'ATHAD: radial coordinate-stretching factor (was a hard-coded 3.715)', 'double', 3.0),
 
             # ATHAD: the radiative-convective boundary of a runaway steam atmosphere sits

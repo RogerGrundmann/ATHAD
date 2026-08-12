@@ -80,10 +80,11 @@ entering R_mix, cp_mix and the opacity.
 
 3. **Radiation runs in mode 2** (direct σT⁴). Modes 0/1/3/4/5 all lean on the Scotese
    snapshot or the 280 ppm CO₂ reference; neither exists at 4.4 Ga. Radiation must *set*
-   the profile, not nudge it toward a prescribed one — **and it currently does not**:
+   the profile, not nudge it toward a prescribed one — **and it still does not**:
    `ThermoAtm::densities()` re-imposes the adiabat on `t` every iteration, overwriting
-   whatever the dynamics and the radiation computed. That is why the OLR is an input.
-   Fixing it is the open task, not a licence to restore a prescribed target.
+   what the dynamics and the radiation computed. The OLR is now a real integral over that
+   prescribed profile. Fixing the prescription is the open task, not a licence to restore
+   a prescribed target.
 
 4. **The column is on its own adiabat, integrated not fitted.** `dT/dz = −g/cp` with local
    cp, hydrostatic on the layer-mean T, isothermal above `t_skin`. Do **not** restore the
@@ -111,34 +112,31 @@ A grey scheme also cannot represent the window regions that set the real runaway
 
 ## What the model currently says
 
-**The model does not currently produce an outgoing longwave flux.** That is the headline,
-and it retracts the previous one. Everything below is measured; see README items 9 and 10.
+**The model now computes an outgoing longwave flux.** Everything below is measured; see
+README items 9-11.
 
-- **OLR ≡ σ·T_lid⁴.** The topmost layer is optically thick (τ ≈ 6), so the model emits at
-  its lid temperature — which is prescribed, not solved. Verified by experiment: setting
-  `t_skin` to 254 K gives a "measured" OLR of 236.01 W/m², setting it to 240 K gives
-  188.13, and σT⁴ is 236.01 and 188.13. The Phase 7 result "OLR = 236.0 W/m², energy
-  balance closes" was that identity plus a **stale lid pin**: `bcRadius` held the lid at a
-  snapshot taken from `initTemperatureData`, which builds its adiabat before the water and
-  CO₂ fields exist, so `densities()` could rebuild the column every iteration and never
-  move the lid. `densities()` now refreshes the snapshot, and the lid reads 344 K.
-- Current state: shell 230 km, top **0.29 bar — three times above the 0.1 bar radiating
-  level**; lid 344 K with ε = 1.0; OLR 802 W/m² against 271 W/m² absorbed + geothermal, an
-  imbalance of **−531 W/m²**. This is a truer description than the closed budget it
-  replaces.
-- **The shell cannot be deepened yet.** 260 km and 300 km both build a sane initial state
-  and then NaN across the whole field in the first `MultiLayerRadiation` call. The Thomas
-  assembly degenerates as ε → 0, which is the condition at the top of any domain that
-  reaches the radiating level. **The radiation scheme is the next task.**
-- **Mean planetary albedo 0.4999 = `albedo_cloud`.** The reflectivity saturates the moment
-  any condensate exists, so the model reports that parameter rather than computing an
-  albedo.
-- Insolation fixed: the parameters were Earth's *surface*-absorbed fluxes used as TOA
-  insolation, lighting the planet at 45 % of 0.71 S₀. Now a zero-obliquity annual-mean fit
-  constrained to S/4; measured mean **241.56 W/m²**.
-- `t_skin` is now a fixed point against the model's own albedo, converging 254 → 262.85 K.
-- The **geothermal ≥ ~195 W/m²** claim was derived from the OLR identity above and does not
-  survive it. The model currently makes no claim of its own.
+- `MultiLayerRadiation` is two-stream flux sweeps, not the inherited tridiagonal solve:
+  `up[i] = up[i-1](1-eps_i) + eps_i sigma T_i^4` upward, the mirror downward, and radiative
+  equilibrium `sigma T_i^4 = (up[i-1] + dn[i+1])/2` in which **eps cancels**. Nothing
+  divides by eps, so an optically thin top is exact rather than fatal. This removed the
+  ceiling on the shell.
+- **Shell 300 km**, 61 levels; top 3.8e-4 bar with lid eps = 0.0000, isothermal skin
+  resolved from 256 km, condensation from 242.8 km. **OLR = 581 W/m2 against
+  sigma*T_lid^4 = 271 — decoupled, i.e. a real column integral.** At the old 230 km the
+  two were equal and the OLR was an input.
+- **The model's first genuine statement: its opacity is too low.** OLR 581 W/m2 against
+  271 absorbed + geothermal, so the atmosphere radiates away more than twice what it takes
+  in and cannot hold the prescribed 1500 K surface. That is a claim about
+  `kappa_H2O` = 0.01 m2/kg, not about the boundary.
+- **Not grid-converged**: 519 W/m2 at 260 km against 581 at 300 km with `im` fixed at 61.
+- Mean planetary albedo 0.4999 = `albedo_cloud`; the reflectivity saturates the moment any
+  condensate exists, so the model reports that parameter.
+- Insolation is now TOA (mean 241.56 W/m2); `t_skin` is a fixed point against the model's
+  own albedo, converging to 262.85 K.
+- `radiation.x` is the **upward long-wave flux**, not sigma*T^4; `bcRadius` no longer pins
+  the radiation lid.
+- The **geothermal >= 195 W/m2** claim of Phase 7 is retracted: it rested on an OLR that
+  was `sigma*t_skin^4` plus a stale lid pin (README item 10).
 
 Bit-identical at 1, 4 and 8 OpenMP threads. Text diagnostics print every 10 iterations for
 short runs (`nm ≤ 100`), every 100 for longer ones; `diagnostic_stride` overrides.
@@ -152,7 +150,7 @@ C++ class, file and function names are kept **identical to `ATOM_Precipitation`*
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
 `config_athad.xml`, `pyathad`). Preserve that.
 
-**Sixteen defects found in the inherited code so far, all latent on Earth and live here.**
+**Seventeen defects found in the inherited code so far, all latent on Earth and live here.**
 The pattern is consistent and worth expecting: *Earth's numbers as bare literals inside
 physics kernels, each with a comment justifying it by Earth's conditions.* Examples —
 `dr = 0.025` silently tied to `im = 41`; a 333.15 K cap written back into the prognostic
@@ -167,7 +165,11 @@ vapour when the correct answer is 1, and so condensed the entire water column in
 place where nothing can condense; the same file's Newton loop kept the dilute form the
 entry point had already been fixed away from; and `AtmMixture::M_nonwater` took only the
 CO2 fraction, so the renormalisation "to exclude H2O" its comment promised was
-arithmetically a no-op.
+arithmetically a no-op. A fourth of the same shape: `init_tropopause_layers` converted a
+height to a level index as `round(h / L_atm)`, which is only an index on a uniform grid —
+this one is exponentially stretched, so the pole's convective top was placed at level 12
+(13 km) instead of 52 (196 km), and `VelocityInitializer` built the entire initial wind
+structure inside the bottom 4 % of the atmosphere.
 
 **Fixes worth porting back upstream** (not yet applied to ATOM_Precipitation as of
 2026-08-11): the `t.x[-1]` out-of-bounds in `MoistConvection::findCloudBaseLFS`; the
@@ -182,11 +184,10 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
-- **The radiation scheme is the blocking task.** Its tridiagonal solve degenerates for
-  optically thin layers, so the domain cannot reach the radiating level; and the profile
-  it is supposed to determine is overwritten by `densities()` every iteration. Until both
-  are fixed the OLR is an input. `ThermoAtm::printPlanetaryBalance` prints the lid
-  temperature and emissivity next to the OLR so the identity stays visible.
+- **The profile is still prescribed.** `densities()` overwrites `t` with the adiabat every
+  iteration, so the OLR is a real integral over a profile the radiation did not choose.
+  `ThermoAtm::printPlanetaryBalance` prints the lid temperature and emissivity next to the
+  OLR, and flags the case where the two coincide.
 - **The surface temperature is prescribed, not solved.** Every result is conditional on it.
 - **Boussinesq.** The solver rests on the Boussinesq buoyancy approximation, but density
   varies by ~2 orders of magnitude across the column. This may force an anelastic or

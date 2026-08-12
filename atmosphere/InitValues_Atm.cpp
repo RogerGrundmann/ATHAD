@@ -340,25 +340,55 @@ void cAtmosphereModel::init_tropopause_layers(){
     double x_max = tropopause_equator                                                                                                                                                                    
                    * std::sqrt(tropopause_equator / tropopause_pole - 1.0);                                                                                                                              
                   
-  cout << "tropopause_pole=" << tropopause_pole                                                                                                                                                            
-       << " x_max=" << x_max                                                                                                                                                                               
-       << " pole_index=" << round(tropopause_pole/L_atm) << endl;                                                                                                                                          
+    // ATHAD: height -> level index must INVERT the stretched grid.
+    //
+    // What was here: round(h / L_atm). That is a level index only if the layers were
+    // uniformly L_atm thick, and they are not — init_layer_heights builds
+    //     height(i) = (exp(zeta * i / (im-1)) - 1) * L_atm
+    // so L_atm is the AMPLITUDE of an exponential stretch, not a layer spacing (the same
+    // confusion the metric-length comment in cAtmosphereModel.h warns about). The exact
+    // inverse is
+    //     i = (im-1) * ln(1 + h / L_atm) / zeta.
+    //
+    // The error is not small and it is not latent here. At the 300 km shell the pole's
+    // 195 km convective top sits at level 52; the old formula returned round(195000/15719)
+    // = 12, which is 13 km. VelocityInitializer builds the whole jet profile between the
+    // surface and this level and applies a linear taper to zero from it to the domain top,
+    // so the initial wind structure was compressed into the bottom 4 % of the atmosphere
+    // and the remaining 96 % got the taper. On Earth (L_atm = 400 m, h = 11 km) it returned
+    // 28 of 41 levels, which is wrong too — 4.9 km, not 11 — but wrong in a way that still
+    // lands inside the troposphere, so it never showed.
+    const double idx_scale = (double)(im - 1) / zeta;
+    auto height_to_level = [&](double h) -> double {
+        if(!(h > 0.0) || !(L_atm > 0.0) || !(zeta > 0.0)) return 0.0;
+        const double i = round(idx_scale * std::log(1.0 + h / L_atm));
+        return std::min(std::max(i, 0.0), (double)(im - 1));
+    };
+    // The forward map, written out rather than taken from get_layer_height(): this
+    // routine runs in an omp section CONCURRENT with init_layer_heights(), so reading
+    // m_layer_heights here would race the vector that fills it.
+    auto level_to_height = [&](double i) {
+        return (std::exp(zeta * i / (double)(im - 1)) - 1.0) * L_atm;
+    };
 
+    cout << "tropopause_pole=" << tropopause_pole
+         << " x_max=" << x_max
+         << " pole_index=" << height_to_level(tropopause_pole)
+         << " (height " << level_to_height(height_to_level(tropopause_pole))
+         << " m of " << level_to_height(im-1) << " m)" << endl;
 
-
-                                                                                                                                                                                         
-    // Build symmetric cache of heights [m] and grid indices in one pass.                                                                                                                                
+    // Build symmetric cache of heights [m] and grid indices in one pass.
     std::vector<double> tropo_height_cache(jm);
-    tropopause_layers = std::vector<double>(jm);                                                                                                                                                         
-  
-    for(int j = 0; j <= j_half; j++){                                                                                                                                                                    
+    tropopause_layers = std::vector<double>(jm);
+
+    for(int j = 0; j <= j_half; j++){
         double x = x_max * (double)(j_half - j) / (double)j_half;
-        double h = AtomUtils::Agnesi(tropopause_equator, x);                                                                                                                                             
+        double h = AtomUtils::Agnesi(tropopause_equator, x);
         tropo_height_cache[j]       = h;
-        tropo_height_cache[j_max-j] = h;                                                                                                                                                               
-        tropopause_layers[j]        = round(h / L_atm);                                                                                                                                                 
-        tropopause_layers[j_max-j]  = tropopause_layers[j];                                                                                                                                             
-    }                                                                                                                                                                                                    
+        tropo_height_cache[j_max-j] = h;
+        tropopause_layers[j]        = height_to_level(h);
+        tropopause_layers[j_max-j]  = tropopause_layers[j];
+    }
                                                                                                                                                                                                            
     #pragma omp parallel for schedule(static)                                                                                                                                                            
    for(int k = 0; k < km; k++){

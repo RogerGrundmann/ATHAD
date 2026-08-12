@@ -624,13 +624,17 @@ public:
                 m.t.x[iml][j][k] = pin_t_top ? m.t_top_init[j][k]
                                              : m.t.x[iml-1][j][k];
 
-                // radiation lid (i=im-1): the radiative counterpart of the t lid
-                // pin above. radiation.x = σ·(t·t_0)⁴, so tie the lid flux to the
-                // just-pinned lid temperature (blackbody). This holds the top-of-
-                // atmosphere upward long-wave flux fixed with t instead of letting
-                // an extrapolation project interior curvature onto the lid.
-                m.radiation.x[iml][j][k] =
-                    m.sigma * std::pow(m.t.x[iml][j][k] * m.t_0, 4.0);
+                // radiation lid (i=im-1): LEFT ALONE. It used to be set to
+                // σ·(t·t_0)⁴ on the reasoning that "radiation.x = σ·(t·t_0)⁴", which
+                // stopped being true when MultiLayerRadiation was rewritten as flux
+                // sweeps: radiation.x is now the upward long-wave flux at the top of
+                // each layer, so radiation.x[im-1] IS the outgoing long-wave flux.
+                // Overwriting it with a blackbody at the lid temperature would throw
+                // away the one number the column integration exists to produce and
+                // put back the artefact that made the OLR a prescribed input.
+                //
+                // No extrapolation is needed in its place: MultiLayerRadiation writes
+                // every level of radiation.x, including the lid, every call.
 
                 // Pattern A
                 for (int f = 0; f < n_both; f++) {

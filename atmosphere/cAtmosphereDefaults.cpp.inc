@@ -61,7 +61,7 @@ void cAtmosphereModel::SetDefaultConfig() {
   convection_mode = 1;
   iter_prec = 3;
   evap_model = "Meyer";
-  L_atm = 12051.0;
+  L_atm = 15719.0;
   zeta = 3.0;
   tropopause_pole = 195000.0;
   tropopause_equator = 207000.0;

@@ -524,24 +524,102 @@ the measurements that did not work out — rather than what is intended.
     Also fixed in passing: `python/PythonStream.cpp` still included `pyatom.h`, so the
     default `make` target had not built the Python bindings since the fork. It does now.
 
+11. **The radiation scheme rewritten as two-stream flux sweeps; the shell deepened to
+    300 km; the OLR is a computed quantity for the first time (done).**
+
+    The inherited scheme assembled a tridiagonal system whose every entry was a product of
+    the layer emissivity — sub-diagonal `ε_{i-1}σT_{i-1}⁴`, diagonal `−2ε_iσT_i⁴`,
+    super-diagonal `ε_{i+1}σT_{i+1}⁴` — with a right-hand side built from differences of
+    cumulative transmitted sums, solved by Thomas for a correction to `σT⁴`. Optical depth
+    goes as p² through the pressure broadening, so near the top adjacent rows differ by
+    orders of magnitude while the right-hand side is a difference of two nearly equal
+    sums. It did not survive a domain that reaches the radiating level (item 10).
+
+    Replaced by the plane-parallel grey transfer it was standing in for, integrated
+    directly:
+
+    ```
+    up[i] = up[i-1]·(1 − ε_i) + ε_i·σT_i⁴        surface → top,  up[0] = σT_surf⁴
+    dn[i] = dn[i+1]·(1 − ε_i) + ε_i·σT_i⁴        top → surface,  nothing enters from space
+    ```
+
+    Radiative equilibrium of a layer is then the statement that it absorbs what it emits,
+    `ε_i(up[i-1] + dn[i+1]) = 2ε_iσT_i⁴`, **and the emissivity cancels**:
+
+    ```
+    σT_i⁴ = (up[i-1] + dn[i+1]) / 2
+    ```
+
+    Nothing divides by ε. The ε → 0 limit is exactly right rather than merely survivable —
+    a transparent layer passes both streams and takes the mean of what goes by — and at
+    the top, where `dn → 0`, it reduces to `σT⁴ = up/2`, the classical skin temperature
+    that this model has until now been *prescribing* as `t_skin`. The temperature and the
+    fluxes are iterated against each other (Lambda iteration, 4 passes); convergence is
+    slow in optically thick layers, the known weakness of the method, but there the update
+    is nearly a no-op anyway, and the fluxes are exact for the current profile at every
+    pass.
+
+    **Measured, 20 iterations, 8 threads, no NaN, pressure positive everywhere:**
+
+    | shell | top p | lid ε | OLR | σ·T_lid⁴ | |
+    |---|---|---|---|---|---|
+    | 230 km | 0.29 bar | 1.0000 | 795 W/m² | 787 W/m² | OLR *is* the lid — an input |
+    | 260 km | 0.017 bar | 0.0610 | 519 W/m² | 271 W/m² | decoupled |
+    | 300 km | 3.8e-4 bar | 0.0000 | 581 W/m² | 271 W/m² | **a real column integral** |
+
+    The 230 km row is the regression check: where the old scheme worked, the new one
+    reproduces it (795 against the old 802 W/m²). The other two rows are runs that
+    previously NaN'd in the first radiation call.
+
+    **`L_atm` is now 300 km.** The column tops out at 3.8e-4 bar with a transparent lid,
+    the isothermal skin is resolved from 256 km up, condensation begins at 242.8 km, and
+    the outgoing flux is no longer the boundary temperature read back out.
+
+    **And the first thing the model says with it is that its own opacity is too low.**
+    OLR = 581 W/m² against 271 W/m² absorbed plus geothermal: the atmosphere radiates away
+    more than twice what it takes in, so it cannot hold the prescribed 1500 K surface. That
+    is now a statement about `kappa_H2O` = 0.01 m²/kg rather than an artefact of the
+    boundary. Note also that the OLR is **not yet grid-converged** — 519 W/m² at 260 km
+    against 581 at 300 km, because `im` is fixed at 61 and a deeper shell is a coarser one.
+
+    Two consequential changes came with it:
+
+    - **`radiation.x` is now the upward long-wave flux at the top of each layer**, not
+      `σT⁴` of that layer. It is a diagnostic field (nothing feeds it back into the
+      dynamics), it is continuous across the surface by construction — so the 1-2-1
+      smoothing pass that used to hide the surface kink is gone — and `radiation.x[im-1]`
+      is the OLR, which is what the mode-5 cloud diagnostic already assumed it was.
+    - **`bcRadius` no longer pins the radiation lid** to `σ·(t·t_0)⁴`. That pin was
+      justified by "radiation.x = σ·(t·t_0)⁴", which has stopped being true; keeping it
+      would have thrown away the one number the column integration exists to produce.
+
+    **A separate defect, found by asking whether the vertical stretch reached everything:**
+    `init_tropopause_layers` converted a height to a level index with `round(h / L_atm)`.
+    That is a level index only for uniformly spaced layers, and the grid is exponentially
+    stretched — `height(i) = (exp(zeta·i/(im−1)) − 1)·L_atm`, so `L_atm` is the *amplitude*
+    of the stretch, not a spacing. The exact inverse is
+    `i = (im−1)·ln(1 + h/L_atm)/zeta`. At 300 km the pole's 195 km convective top sits at
+    level **52**; the old formula returned **12**, which is 13 km. `VelocityInitializer`
+    builds its entire jet profile between the surface and that level and applies a linear
+    taper to zero from it up to the domain top, so the initial wind structure was
+    compressed into the bottom 4 % of the atmosphere and the remaining 96 % got the taper.
+    Wrong on Earth too (28 of 41 levels = 4.9 km, not the intended 11 km), but wrong there
+    in a way that still landed inside the troposphere, so it never showed.
+
 ## Remaining work
 
-**The next task is the radiation scheme**, and everything else waits on it. Two coupled
-defects:
 
-- **The tridiagonal solve degenerates for optically thin layers** (item 10), which is why
-  the domain cannot reach the radiating level. A formulation that stays well conditioned
-  as ε → 0 — a direct up/down flux integration rather than the Thomas inversion — would
-  remove the ceiling.
-- **The temperature profile is prescribed, not solved.** `ThermoAtm::densities()`
-  re-imposes the adiabat + isothermal top on `t` every iteration, so whatever the dynamics
-  and the radiation compute is overwritten before it can matter. Invariant 3 in CLAUDE.md
-  says radiation must *set* the profile rather than nudge it toward a prescribed one; in
-  the current code the prescription wins. Until it does not, the OLR is an input however
-  deep the shell is, because the model will always emit σT⁴ at whichever prescribed level
-  first becomes opaque.
-
-After that:
+- **The temperature profile is still prescribed, not solved.** `ThermoAtm::densities()`
+  re-imposes the adiabat + isothermal top on `t` every iteration, so what the dynamics and
+  the radiation compute is overwritten before it can matter. Invariant 3 in CLAUDE.md says
+  radiation must *set* the profile rather than nudge it toward a prescribed one; the
+  prescription still wins. The OLR is now a genuine integral **over a prescribed profile** —
+  a real improvement, but not yet a prediction.
+- **The OLR is not grid-converged**: 519 W/m² at a 260 km shell against 581 at 300 km,
+  with `im` fixed at 61. Refine vertically and check.
+- **The opacity is too low to hold the surface.** OLR 581 W/m² against 271 absorbed. Since
+  `kappa_H2O`/`kappa_CO2`/`kappa_bg` carry a factor-of-two uncertainty and are the biggest
+  lever, this is the first quantity worth testing against the new scheme.
 
 
 - **`albedo_cloud = 0.50` IS the model's planetary albedo** and is an assumption. It is

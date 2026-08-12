@@ -111,24 +111,20 @@ public:
         #pragma omp parallel for schedule(dynamic)
         for (int j = 0; j < m.jm; j++) {
 
-            // Thread-local Thomas-solver scratch; reused across k within this j.
-            // Every column fully overwrites the entries it later reads (i_mount = 0,
-            // i_trop = im-1), so reuse is race-free.
-            std::vector<double> alfa(m.im, 0.0), beta(m.im, 0.0);
-            std::vector<double> AA(m.im, 0.0), CA(m.im, 0.0);
-            std::vector<double> radiation_original(m.im, 0.0);
-            std::vector<std::vector<double> > CC(m.im, std::vector<double>(m.im, 0.0));
+            // Thread-local sweep scratch; reused across k within this j. Every column
+            // fully overwrites the entries it later reads, so reuse is race-free.
+            //   up[i]  upward   long-wave flux leaving the TOP    of layer i  [W/m2]
+            //   dn[i]  downward long-wave flux leaving the BOTTOM of layer i  [W/m2]
+            //   T[i]   layer temperature [K], updated in place by the sweeps
+            std::vector<double> up(m.im, 0.0), dn(m.im + 1, 0.0), T(m.im, 0.0);
 
-            const int i_trop  = m.im - 1;   // top layer (tropopause proxy)
+            const int i_trop  = m.im - 1;   // top layer
             const int i_mount = 0;          // surface / bottom layer
 
             for (int k = 0; k < m.km; k++) {
 
-                // Grey-body emission of each layer and its "original" reference.
-                for (int i = i_mount; i <= i_trop; i++) {
-                    m.radiation.x[i][j][k] = m.sigma * pow(m.t.x[i][j][k] * m.t_0, 4.0);
-                    radiation_original[i]  = m.radiation.x[i][j][k];
-                }
+                for (int i = i_mount; i <= i_trop; i++)
+                    T[i] = m.t.x[i][j][k] * m.t_0;
 
                 // ATHAD: layer optical depth from COLUMN MASS with pressure broadening.
                 //
@@ -248,101 +244,116 @@ public:
                         m.albedo.y[j][k] = a0 + (alpha_cloud - a0) * refl;
                 }
 
-                // Transmitted (AA) / absorbed (CC diagonal) radiation, and the sum CA
-                // of all radiations transmitted through each layer.
-                AA[i_mount]          = m.radiation.x[i_mount][j][k];              // surface radiation
-                CC[i_mount][i_mount] = m.epsilon.x[i_mount][j][k] * m.radiation.x[i_mount][j][k];
+                // ============================================================
+                // ATHAD: two-stream (Schwarzschild) flux sweeps, replacing the
+                // tridiagonal Thomas solve.
+                //
+                // WHAT WAS HERE. The inherited scheme assembled a tridiagonal system whose
+                // rows were products of the layer emissivity — sub-diagonal
+                // eps_{i-1}*sigma*T_{i-1}^4, diagonal -2*eps_i*sigma*T_i^4, super-diagonal
+                // eps_{i+1}*sigma*T_{i+1}^4 — with a right-hand side built from differences
+                // of cumulative transmitted sums (AA[i]-AA[i-1], CA[i]-CA[i-1]), and solved
+                // it for a correction to sigma*T^4. Every one of those entries vanishes with
+                // eps, and eps goes as p^2 through the pressure-broadened optical depth, so
+                // in the upper atmosphere adjacent rows differ by orders of magnitude while
+                // the right-hand side is a difference of two nearly equal cumulative sums.
+                //
+                // It did not survive a domain that reaches the radiating level. Measured:
+                // shells of 260 km (top 0.017 bar) and 300 km (top 3.2e-4 bar) built a
+                // finite, sane initial state and then produced NaN across the ENTIRE field
+                // in the first call here — the field is finite in the diagnostic immediately
+                // before and NaN in the one immediately after, in both runs. That put a
+                // ceiling on the shell at 230 km, where the top layer is still optically
+                // thick (tau ~ 6), which in turn meant the model emitted sigma*T_lid^4 out
+                // of its own boundary and reported a PRESCRIBED temperature as its OLR.
+                //
+                // WHAT REPLACES IT. The plane-parallel grey transfer the tridiagonal system
+                // was standing in for, integrated directly:
+                //
+                //     up[i] = up[i-1]*(1 - eps_i) + eps_i*sigma*T_i^4        (surface -> top)
+                //     dn[i] = dn[i+1]*(1 - eps_i) + eps_i*sigma*T_i^4        (top -> surface)
+                //
+                // with up[i_mount] = sigma*T_surf^4 and dn above the top layer = 0 (no
+                // downward flux from space). Radiative equilibrium of layer i is then the
+                // statement that it absorbs what it emits, eps_i*(up[i-1] + dn[i+1]) =
+                // 2*eps_i*sigma*T_i^4, and the emissivity CANCELS:
+                //
+                //     sigma*T_i^4 = (up[i-1] + dn[i+1]) / 2
+                //
+                // No division by eps anywhere, and the eps -> 0 limit is exactly right
+                // rather than merely survivable: a transparent layer passes both streams
+                // unchanged and takes the mean of what goes by. At the top, where dn -> 0,
+                // it reduces to sigma*T^4 = up/2 — the classical skin temperature, which
+                // this model has until now been PRESCRIBING as t_skin.
+                //
+                // The temperature and the fluxes depend on each other, so the pair is
+                // iterated (Lambda iteration). Convergence is slow in optically thick
+                // layers, which is the known weakness of the method — but there it is also
+                // nearly a no-op, since up and dn both approach the local sigma*T^4 and the
+                // update becomes a three-point average. The fluxes themselves, and hence
+                // the OLR, are exact for the current temperature field at every iteration.
+                constexpr int n_lambda = 4;
+
+                for (int it = 0; it < n_lambda; it++) {
+
+                    // Upward sweep. The surface is layer i_mount and emits as a black body;
+                    // its temperature is set by the energy balance further down.
+                    up[i_mount] = m.sigma * pow(T[i_mount], 4.0);
+                    for (int i = i_mount + 1; i <= i_trop; i++) {
+                        const double eps = m.epsilon.x[i][j][k];
+                        up[i] = up[i-1] * (1.0 - eps) + eps * m.sigma * pow(T[i], 4.0);
+                    }
+
+                    // Downward sweep. Nothing comes down from space.
+                    dn[i_trop + 1] = 0.0;
+                    for (int i = i_trop; i >= i_mount + 1; i--) {
+                        const double eps = m.epsilon.x[i][j][k];
+                        dn[i] = dn[i+1] * (1.0 - eps) + eps * m.sigma * pow(T[i], 4.0);
+                    }
+
+                    // Radiative-equilibrium temperature of every atmospheric layer. The
+                    // surface is excluded: it has its own energy balance below, which
+                    // carries the shortwave, the geothermal flux and the turbulent flux.
+                    for (int i = i_mount + 1; i <= i_trop; i++) {
+                        const double emit = 0.5 * (up[i-1] + dn[i+1]);
+                        // emit is a sum of non-negative fluxes, so this is defensive only —
+                        // but a negative or NaN value here would propagate into every layer
+                        // above through the next sweep.
+                        // is_finite_safe, not std::isfinite: this file is compiled with
+                        // -ffast-math, under which the standard predicate may be folded away.
+                        T[i] = (emit > 0.0 && AtomUtils::is_finite_safe(emit))
+                             ? pow(emit / m.sigma, 0.25)
+                             : T[i];
+                    }
+                }
+
+                // Final sweeps on the converged temperatures, so the fluxes written out
+                // below are the ones this profile actually produces.
+                up[i_mount] = m.sigma * pow(T[i_mount], 4.0);
                 for (int i = i_mount + 1; i <= i_trop; i++) {
-                    AA[i]    = AA[i - 1] * (1.0 - m.epsilon.x[i][j][k]);          // transmitted from each layer
-                    CC[i][i] = m.epsilon.x[i][j][k] * m.radiation.x[i][j][k];     // absorbed in each layer
+                    const double eps = m.epsilon.x[i][j][k];
+                    up[i] = up[i-1] * (1.0 - eps) + eps * m.sigma * pow(T[i], 4.0);
                 }
-                for (int i = i_mount + 2; i <= i_trop; i++) {
-                    CA[i] = 0.0;
-                    for (int l = 1; l <= i - 1; l++) {
-                        CC[l][i] = CC[l][i - 1] * (1.0 - m.epsilon.x[i][j][k]);   // transmitted past layer i
-                        CA[i] += CC[l][i];                                        // sum over all l
-                    }
+                dn[i_trop + 1] = 0.0;
+                for (int i = i_trop; i >= i_mount + 1; i--) {
+                    const double eps = m.epsilon.x[i][j][k];
+                    dn[i] = dn[i+1] * (1.0 - eps) + eps * m.sigma * pow(T[i], 4.0);
                 }
 
-                // Thomas algorithm — forward elimination (alfa/beta recurrence).
-                // The sweep now INCLUDES the top row i = i_trop. The old code stopped at
-                // i_trop-1 and closed the system with an ad-hoc top formula that divided by
-                // (CA[i_trop]-CA[i_trop-1]) — a difference of two near-equal cumulative sums
-                // that collapses to ~0 and flips sign in the quasi-isothermal upper
-                // atmosphere, seeding a huge negative top radiation that back-substitution
-                // smeared into NaN temperatures aloft (see project_multilayer_radiation).
-                double aa, bb, cc, dd;
-                for (int i = i_mount; i <= i_trop; i++) {
-                    if (i == i_mount) {
-                        aa = 0.0;
-                        bb = -2.0 * m.radiation.x[i][j][k];
-                        cc = m.epsilon.x[i + 1][j][k] * m.radiation.x[i + 1][j][k];
-                        dd = -(1.0 - m.albedo.y[j][k]) * m.short_wave_radiation[j];
-                        alfa[i] = -cc / bb;
-                        beta[i] = +dd / bb;
-                    }
-                    if (i == i_mount + 1) {
-                        aa = m.radiation.x[i - 1][j][k];
-                        bb = -2.0 * m.epsilon.x[i][j][k] * m.radiation.x[i][j][k];
-                        cc = m.epsilon.x[i + 1][j][k] * m.radiation.x[i + 1][j][k];
-                        dd = AA[i];
-                        alfa[i] = -cc / (bb + aa * alfa[i - 1]);
-                        beta[i] = +(dd - aa * beta[i - 1]) / (bb + aa * alfa[i - 1]);
-                    }
-                    if (i == i_mount + 2) {
-                        aa = m.epsilon.x[i - 1][j][k] * m.radiation.x[i - 1][j][k];
-                        bb = -2.0 * m.epsilon.x[i][j][k] * m.radiation.x[i][j][k];
-                        cc = m.epsilon.x[i + 1][j][k] * m.radiation.x[i + 1][j][k];
-                        dd = -AA[i - 1] + AA[i] + CC[i - 1][i];
-                        alfa[i] = -cc / (bb + aa * alfa[i - 1]);
-                        beta[i] = +(dd - aa * beta[i - 1]) / (bb + aa * alfa[i - 1]);
-                    }
-                    if (i > i_mount + 2) {
-                        aa = m.epsilon.x[i - 1][j][k] * m.radiation.x[i - 1][j][k];
-                        bb = -2.0 * m.epsilon.x[i][j][k] * m.radiation.x[i][j][k];
-                        // Top row (i == i_trop) has no layer above -> cc = 0. Guarding this
-                        // also avoids the out-of-bounds read of radiation[i_trop+1] that the
-                        // extended sweep would otherwise make.
-                        cc = (i < i_trop) ? m.epsilon.x[i + 1][j][k] * m.radiation.x[i + 1][j][k]
-                                          : 0.0;
-                        dd = -AA[i - 1] + AA[i] - CA[i - 1] + CA[i];
-                        alfa[i] = -cc / (bb + aa * alfa[i - 1]);
-                        beta[i] = +(dd - aa * beta[i - 1]) / (bb + aa * alfa[i - 1]);   // FIX: aa (sub-diagonal), was alfa[i]
-                    }
-                }
-
-                // Back-substitution (Thomas). The top unknown is beta[i_trop] because the
-                // top row's alfa[i_trop] = 0 (cc = 0 — no layer above).
-                m.radiation.x[i_trop][j][k] = beta[i_trop];
-                for (int i = i_trop - 1; i >= 0; i--)
-                    m.radiation.x[i][j][k] = alfa[i] * m.radiation.x[i + 1][j][k] + beta[i];
-
-                // Radiation -> temperature (add back the reference emission, invert sigma T^4).
-                for (int i = 0; i <= i_trop; i++) {
-                    m.radiation.x[i][j][k] = radiation_original[i] + m.radiation.x[i][j][k];
-                    m.t.x[i][j][k] = pow(m.radiation.x[i][j][k] / m.sigma, 0.25) / m.t_0;
-                }
+                for (int i = i_mount + 1; i <= i_trop; i++)
+                    m.t.x[i][j][k] = T[i] / m.t_0;
 
                 // ---- Surface energy balance (radiative-CONVECTIVE) ----
-                // The tridiagonal inversion left the surface T ~insensitive to the longwave
-                // opacity, so CO2 did not warm the surface. Replace the surface value with an
-                // explicit balance:  (1-albedo)*SW + L_down = sigma*T_s^4 + c_H*(T_s - T_air1).
-                //  - L_down = downwelling longwave (back-radiation) = sum of atmospheric-layer
-                //    emissions transmitted down to the surface; it RISES with CO2/H2O emissivity,
-                //    so more greenhouse -> warmer surface (the physically-correct response).
-                //  - c_H*(T_s - T_air1): bulk turbulent (sensible+latent) flux to the lowest air
-                //    layer, which keeps the surface off the pure-radiative overheating —
-                //    radiative-convective, not pure radiative. sigma*T_s^4 is linearised about
-                //    the current surface T_s0 (one Newton step). See project_multilayer_radiation.
-                double L_down = 0.0, trans = 1.0;
-                for (int i = i_mount + 1; i <= i_trop; i++) {
-                    L_down += m.epsilon.x[i][j][k] * m.sigma
-                            * pow(m.t.x[i][j][k] * m.t_0, 4.0) * trans;     // layer i emission reaching surface
-                    trans  *= (1.0 - m.epsilon.x[i][j][k]);                // attenuation through layer i
-                }
+                // Unchanged in form. The downwelling long-wave is now dn[i_mount + 1] — the
+                // flux the sweep above actually delivers to the ground — instead of a
+                // separate hand-rolled loop that re-derived the same quantity.
+                //  - c_H*(T_s - T_air1): bulk turbulent (sensible+latent) flux to the lowest
+                //    air layer, which keeps the surface off pure-radiative overheating.
+                //  - sigma*T_s^4 is linearised about the current T_s0 (one Newton step).
+                const double L_down = dn[i_mount + 1];
                 const double SW_abs = (1.0 - m.albedo.y[j][k]) * m.short_wave_radiation[j];
-                const double T_air1 = m.t.x[i_mount + 1][j][k] * m.t_0;     // lowest air-layer T [K]
-                const double T_s0   = m.t.x[i_mount][j][k] * m.t_0;         // linearisation point [K]
+                const double T_air1 = T[i_mount + 1];                      // lowest air-layer T [K]
+                const double T_s0   = T[i_mount];                          // linearisation point [K]
                 const double c_H    = 15.0;                                // bulk turbulent transfer [W/m2/K]
                 const double dsigT4 = 4.0 * m.sigma * T_s0 * T_s0 * T_s0;
                 // ATHAD: the surface is molten, so it supplies heat from below as well as
@@ -353,27 +364,18 @@ public:
                 const double T_s    = (SW_abs + m.geothermal_flux + L_down
                                        - m.sigma * pow(T_s0, 4.0)
                                        + dsigT4 * T_s0 + c_H * T_air1) / (dsigT4 + c_H);
-                m.radiation.x[i_mount][j][k] = m.sigma * pow(T_s, 4.0);
-                m.t.x[i_mount][j][k]         = T_s / m.t_0;
+                m.t.x[i_mount][j][k] = T_s / m.t_0;
 
-                // De-kink the surface radiative step in the DIAGNOSTIC radiation profile only.
-                // The 1-point surface energy balance (sigma T_s^4 at i_mount) and the column
-                // Thomas solve above it are computed separately, leaving a sharp discontinuity
-                // at the surface. One light 1-2-1 pass over the lowest layers softens it for
-                // plotting. This touches ONLY radiation.x — t.x / the surface-balance T_s (and
-                // hence the CO2 surface sensitivity) are left exactly as computed above.
-                {
-                    const int i_top_sm = std::min(i_mount + 4, i_trop);
-                    double r_orig[5];                            // originals (i_mount .. i_top_sm)
-                    for (int i = i_mount; i <= i_top_sm; i++)
-                        r_orig[i - i_mount] = m.radiation.x[i][j][k];
-                    for (int i = i_mount + 1; i < i_top_sm; i++)  // interior 1-2-1
-                        m.radiation.x[i][j][k] = 0.25 * r_orig[i - 1 - i_mount]
-                                               + 0.5  * r_orig[i - i_mount]
-                                               + 0.25 * r_orig[i + 1 - i_mount];
-                    if (i_top_sm > i_mount)                       // surface: one-sided blend toward air
-                        m.radiation.x[i_mount][j][k] = 0.5 * r_orig[0] + 0.5 * r_orig[1];
-                }
+                // radiation.x is now the UPWARD LONG-WAVE FLUX at the top of each layer,
+                // not sigma*T^4 of that layer. It is a diagnostic field (nothing feeds it
+                // back into the dynamics), and as a flux it is the more useful one: it is
+                // continuous across the surface by construction, so the 1-2-1 smoothing pass
+                // that used to hide the surface kink is gone, and radiation.x[im-1] is the
+                // OLR — which is what the mode-5 cloud diagnostic already assumed it was.
+                m.radiation.x[i_mount][j][k] = m.sigma * pow(T_s, 4.0);
+                for (int i = i_mount + 1; i <= i_trop; i++)
+                    m.radiation.x[i][j][k] = up[i];
+
             }  // k
         }  // j
 
