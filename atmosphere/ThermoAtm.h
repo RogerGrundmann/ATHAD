@@ -828,6 +828,30 @@ public:
         const double q_mean = (w_den > 0.0) ? w_num / w_den : 0.0;
         if (m.m_q_h2o_ref <= 0.0) m.m_q_h2o_ref = q_mean;
 
+        // Per-level attribution: which levels the drift is actually appearing in. The
+        // global number says water is created; only this says where, and "where" decides
+        // whether the cause is the transport, a limiter, or the moist physics.
+        std::vector<double> lev(m.im, 0.0);
+        for (int i = 0; i < m.im; i++) {
+            double num = 0.0;
+            for (int j = 0; j < m.jm; j++) {
+                const double coslat = cos((j / (double)(m.jm - 1) - 0.5) * M_PI);
+                for (int k = 0; k < m.km; k++) {
+                    const double dp_Pa = (i < m.im - 1)
+                        ? (m.p_stat.x[i][j][k] - m.p_stat.x[i+1][j][k]) * 100.0
+                        :  m.p_stat.x[i][j][k] * 100.0;
+                    if (!(dp_Pa > 0.0)) continue;
+                    const double q_w = std::max(0.0, m.c.x[i][j][k])
+                                     + std::max(0.0, m.cloud.x[i][j][k])
+                                     + std::max(0.0, m.ice.x[i][j][k])
+                                     + std::max(0.0, m.gr.x[i][j][k]);
+                    num += coslat * q_w * dp_Pa / m.g;
+                }
+            }
+            lev[i] = (w_den > 0.0) ? num / w_den : 0.0;
+        }
+        if (m.m_q_h2o_levels.empty()) m.m_q_h2o_levels = lev;
+
         if (report) {
             const double drift = (m.m_q_h2o_ref > 0.0)
                                ? 100.0 * (q_mean / m.m_q_h2o_ref - 1.0) : 0.0;
@@ -837,6 +861,21 @@ public:
                  << ", drift " << showpos << setprecision(4) << drift << " %"
                  << noshowpos << ";  deleted by the c ceiling so far "
                  << setprecision(6) << m.m_q_h2o_clipped << " kg/kg)" << endl;
+
+            // Rank the levels by how much of the drift they carry.
+            std::vector<std::pair<double,int> > d;
+            for (int i = 0; i < m.im; i++)
+                d.push_back(std::make_pair(lev[i] - m.m_q_h2o_levels[i], i));
+            std::sort(d.begin(), d.end(),
+                      [](const std::pair<double,int>& a, const std::pair<double,int>& b){
+                          return std::fabs(a.first) > std::fabs(b.first); });
+            cout << "            drift by level (top 6):";
+            for (int n = 0; n < 6 && n < (int)d.size(); n++)
+                cout << "  i=" << d[n].second << " ("
+                     << setprecision(0) << m.get_layer_height(d[n].second) * 1e-3 << " km) "
+                     << showpos << scientific << setprecision(2) << d[n].first << noshowpos
+                     << fixed;
+            cout << endl;
         }
     }
 

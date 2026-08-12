@@ -97,6 +97,9 @@ public:
     // Water mass fraction deleted by the c <= 1 - co2 ceiling, accumulated over the run.
     double m_q_h2o_clipped = 0.0;
 
+    // Per-level water contribution at the reference time, for attributing the drift.
+    std::vector<double> m_q_h2o_levels;
+
     // ATHAD shortwave budget, cos(latitude)-weighted over the whole sphere. albedo.y is
     // the model's OWN albedo — MultiLayerRadiation builds it from the condensate the model
     // made — so this is what the t_skin fixed point and the planetary-balance diagnostic
