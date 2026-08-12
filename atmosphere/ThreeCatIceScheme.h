@@ -185,6 +185,19 @@ private:
 
                     for(int i = m.im - 2; i >= 0; i--){
 
+
+                        // ATHAD: no condensed phase can exist here — see
+                        // IceSchemeCommon::canCondense. Everything below the cloud deck
+                        // (ground to ~240 km) is supercritical or superheated, and the
+                        // microphysics below has no meaning there.
+                        {
+                            const double t_guard = m.t.x[i][j][k] * m.t_0;
+                            if (!IceSchemeCommon::canCondense(m, t_guard, i, j, k)) {
+                                IceSchemeCommon::evaporateWhereImpossible(m, t_guard, i, j, k);
+                                continue;
+                            }
+                        }
+
                         // Normalize precipitation by the surface flux. FLOORED denominator: a
                         // tiny-but-nonzero surface flux made Snow = P_snow[i]/P_snow_0 explode,
                         // and S_s_rim ∝ Snow then amplified P_snow geometrically down the column

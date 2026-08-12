@@ -218,8 +218,20 @@ public:
                     // Magnus saturation pressure evaluated far outside its validity range,
                     // wrote c = 20.8 — twenty times the total mass present — and every
                     // mixture property derived from it followed.
+                    //
+                    // ATHAD: the ceiling is 1 - co2, not 1. The three mass fractions sum to
+                    // one and the background is carried as the remainder 1 - c - co2, so
+                    // c > 1 - co2 is a NEGATIVE background mass. Clamping at 1 let the
+                    // equatorial column sit at exactly c = 1.0000 through the sub-cloud band,
+                    // a composition summing to 1.21; AtmMixture::split() renormalises
+                    // defensively, so the only visible symptom was a gas constant pinned at
+                    // 415.1 instead of moving with the composition. On Earth water is ~1 % of
+                    // the mass and CO2 is ppm, so 1 and 1 - co2 are the same number.
                     if (m.c.x[i][j][k] < 0.0)  m.c.x[i][j][k] = 0.0;
-                    if (m.c.x[i][j][k] > 1.0)  m.c.x[i][j][k] = 1.0;
+                    {
+                        const double c_ceiling = std::max(0.0, 1.0 - m.co2.x[i][j][k]);
+                        if (m.c.x[i][j][k] > c_ceiling)  m.c.x[i][j][k] = c_ceiling;
+                    }
                     if (m.co2.x[i][j][k] < 0.0)  m.co2.x[i][j][k] = 0.0;
                     if (m.co2.x[i][j][k] > 1.0)  m.co2.x[i][j][k] = 1.0;
                     if (m.cloud.x[i][j][k] >= 0.02)  m.cloud.x[i][j][k] = 0.02;

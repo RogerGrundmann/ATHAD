@@ -85,6 +85,86 @@ namespace IceSchemeCommon {
                    SaturationH2O::sublimationPressure(t_u), m.p_stat.x[i][j][k], M_other);
     }
 
+    // ------------------------------------------------------------------------
+    // ATHAD: can a condensed phase exist in this cell AT ALL?
+    //
+    // Two ways it cannot, and none of the four ice schemes checked for either — a grep
+    // for the critical temperature across all of them, and across MoistConvection,
+    // returned nothing:
+    //
+    //   SUPERCRITICAL (T >= 647.096 K). Liquid and vapour are one phase. There is no
+    //     droplet, no surface tension, nothing to nucleate on, nothing to fall.
+    //   SUPERHEATED (p_sat(T) > p). Subcritical, but the saturation pressure exceeds the
+    //     total local pressure, so the vapour cannot reach saturation however much of it
+    //     there is. qSatWater returns 1 in both cases, which is what "no saturation
+    //     limit" means.
+    //
+    // Latent on Earth: every terrestrial cell is far below 647 K and far above its own
+    // saturation pressure, so the question never arises. On ATHAD it is the state of the
+    // column from the ground to ~240 km — everything below the cloud deck. The schemes
+    // were running their full warm and cold microphysics there, and holding condensate
+    // that had sedimented down from the one level that can genuinely condense.
+    inline bool canCondense(cAtmosphereModel& m, double t_u, int i, int j, int k) {
+        if (t_u >= AtmMixture::T_CRIT_H2O) return false;
+        return qSatWater(m, t_u, i, j, k) < 1.0;
+    }
+
+    // Enforce it. Condensate that finds itself in such a cell — advected in, or fallen in
+    // from the deck above — evaporates completely and immediately, and the microphysical
+    // sources and precipitation fluxes have nothing to act on.
+    //
+    // Water is conserved: the condensate goes back into the vapour. Energy is conserved
+    // where the phase change is real, i.e. below the critical point, where evaporation
+    // absorbs L(T) and cools the cell. ABOVE the critical point there is no phase change
+    // and no latent heat — the "condensate" was never a separate phase, so the mass moves
+    // to c and the temperature is untouched. Watson's L(T) is not defined there anyway.
+    inline void evaporateWhereImpossible(cAtmosphereModel& m, double t_u, int i, int j, int k) {
+        const double q_cond = std::max(0.0, m.cloud.x[i][j][k])
+                            + std::max(0.0, m.ice.x[i][j][k])
+                            + std::max(0.0, m.gr.x[i][j][k]);
+
+        if (q_cond > 0.0) {
+            // The vapour has a physical ceiling: the mass fractions sum to 1 and the
+            // background is carried as the remainder 1 - c - co2, so c > 1 - co2 is a
+            // negative background mass. Nothing in the inherited code enforced it, and
+            // AtmMixture::split() renormalises defensively, so the violation showed only
+            // as a gas constant that had quietly saturated. Returning the condensate to
+            // the vapour must not create one: take it up to the ceiling and no further.
+            const double c_max  = std::max(0.0, 1.0 - m.co2.x[i][j][k]);
+            const double c_new  = std::min(c_max, m.c.x[i][j][k] + q_cond);
+            const double q_used = std::max(0.0, c_new - m.c.x[i][j][k]);
+
+            m.c.x[i][j][k]     = c_new;
+            m.cloud.x[i][j][k] = 0.0;
+            m.ice.x[i][j][k]   = 0.0;
+            m.gr.x[i][j][k]    = 0.0;
+
+            if (t_u < AtmMixture::T_CRIT_H2O) {
+                const double cp_loc = AtmMixture::cp_of(m.c.x[i][j][k], m.co2.x[i][j][k],
+                                                        t_u, m.m_comp.M_bg);
+                if (cp_loc > 0.0) {
+                    // q_used, not q_cond: only the mass that actually became vapour
+                    // absorbed its latent heat.
+                    double T_new = t_u - SaturationH2O::latentHeat(t_u) * q_used / cp_loc;
+                    if (T_new < 1.0) T_new = 1.0;                  // defensive only
+                    m.t.x[i][j][k] = T_new / m.t_0;
+                }
+            }
+        }
+
+        m.P_rain.x[i][j][k]        = 0.0;
+        m.P_snow.x[i][j][k]        = 0.0;
+        m.P_graupel.x[i][j][k]     = 0.0;
+        m.Precipitation.x[i][j][k] = 0.0;
+        m.S_v.x[i][j][k]   = 0.0;
+        m.S_c.x[i][j][k]   = 0.0;
+        m.S_i.x[i][j][k]   = 0.0;
+        m.S_r.x[i][j][k]   = 0.0;
+        m.S_s.x[i][j][k]   = 0.0;
+        m.S_g.x[i][j][k]   = 0.0;
+        m.S_c_c.x[i][j][k] = 0.0;
+    }
+
     // ---- Vapour -> ice -> snow throttle (Seifert-Beheng / COSMO; TwoCat's) ----
     // The stable way to make snow: grow it through the CLOUD-ICE reservoir, not
     // directly from vapour. Deposition onto ice is SUPERSATURATION-LIMITED

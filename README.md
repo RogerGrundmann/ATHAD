@@ -699,7 +699,57 @@ the measurements that did not work out — rather than what is intended.
     **Global antisymmetry error 11.38 % → 0.0152 %**, the residue being floating-point and
     OpenMP reduction noise rather than structure.
 
+14. **No condensed phase where none can exist (done) — and what enforcing it exposed.**
+
+    The cloud deck in the ParaView output sat at 166–230 km, and every level of it was
+    already flagged `CLOUD?!` by the model's own column diagnostic: condensate in cells
+    whose `q_sat` is 1.0000, which is what "no saturation limit" means. The genuine
+    condensation level is 242.8 km.
+
+    Cause: **none of the four ice schemes, nor MoistConvection, contained a single
+    critical-point check** — `grep T_CRIT` across all five files returned nothing.
+    `TwoCatIceScheme` ran its full warm and cold microphysics from the ground up, and the
+    precipitation maxima landed at i=50 (175.8 km) and i=54 (218.2 km), inside the band.
+    Condensate formed legitimately at 243 km, sedimented into air at 350–700 K where it
+    should flash to vapour instantly, and the scheme kept it and shuffled it between rain,
+    snow, cloud and ice. Latent on Earth, where no cell is near 647 K or above its own
+    saturation pressure, so the question never arises.
+
+    `IceSchemeCommon::canCondense()` now states the two conditions — supercritical
+    (T ≥ 647.096 K, where liquid and vapour are one phase) and superheated (p_sat(T) > p,
+    where the vapour cannot reach saturation whatever its abundance) — and
+    `evaporateWhereImpossible()` enforces them: condensate goes back to the vapour with its
+    latent heat (no latent heat above the critical point, where there was never a separate
+    phase), and the sources and precipitation fluxes are cleared. It is called from all
+    four ice schemes and from `SaturationAdjustment::clampAndFade`, whose "supercritical
+    cells carry no condensate and need no fade" `continue` was exactly the wrong response —
+    they carry none only if something removes it, and nothing did.
+
+    **Result: zero `CLOUD?!` levels anywhere in the run**, from every level between 166 and
+    230 km before.
+
+    **What it exposed.** With the condensate returned to the vapour, `q_H2O` in the
+    sub-cloud band went to **1.27** — a mass fraction above one. It turned out the field had
+    been unphysical all along, just less visibly: before the fix it sat at 0.9971 against
+    `co2` = 0.2053, a composition summing to 1.20. Nothing bounded it. The three mass
+    fractions must sum to one and the background is carried as the remainder `1 − c − co2`,
+    so `c > 1 − co2` is a **negative background mass** — and `AtmMixture::split()`
+    renormalises defensively, so the only symptom was a gas constant pinned at 415.1 instead
+    of moving with the composition. `UtilsAtm::valueLimitationAtm` carries such a bound at
+    the wrong ceiling of 1, and is commented out at both of its call sites.
+
+    The ceiling `c ≤ 1 − co2` is now enforced every iteration, outside the moist-physics
+    block (which runs only on moist iterations, while the RK4 transport of `c` runs on all
+    of them). The column is physical again: `c` = 0.7947 through the band, R = 405.6.
+
+    **But the ceiling bites in 282 302 cells, and that is an open problem, not a fix.**
+    Water is pumped downward out of the single condensing level by sedimentation and
+    evaporates into the superheated band with no return path, so `c` there grows until the
+    clamp stops it — which deletes water. The count is printed at every diagnostic step.
+    A run in which it stays large is not to be trusted, and this one does.
+
 ## Remaining work
+
 
 
 
@@ -710,6 +760,10 @@ the measurements that did not work out — rather than what is intended.
   radiation must *set* the profile rather than nudge it toward a prescribed one; the
   prescription still wins. The OLR is now a genuine integral **over a prescribed profile** —
   a real improvement, but not yet a prediction.
+- **Water is destroyed by the vapour ceiling** in ~282 000 cells per iteration (item 14).
+  Sedimentation pumps water out of the one condensing level into the superheated band
+  below and nothing returns it. Until that is closed, the water budget is not conserved
+  and the sub-cloud humidity is set by a clamp.
 - **The run is not converged**: 100 iterations leaves a −143 W/m² imbalance, still decaying
   ~9 % per 10 iterations. Of order 400 iterations are needed. Run it.
 - **The OLR is not grid-converged either**: 519 W/m² at a 260 km shell against 581 at

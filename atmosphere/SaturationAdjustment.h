@@ -3,6 +3,7 @@
 #include "MixtureAtm.h"
 #include "SaturationH2O.h"
 #include "cAtmosphereModel.h"
+#include "IceSchemeCommon.h"
 
 #include <algorithm>
 #include <cmath>
@@ -274,7 +275,9 @@ private:
         const double T_max         = m.t_max_phys;
         constexpr double cloud_cap = 0.05;     // kg/kg condensate ceiling
 
-        #pragma omp parallel for collapse(2) schedule(static)
+        long n_ceiling = 0;                    // cells hitting the water-vapour ceiling
+
+        #pragma omp parallel for collapse(2) schedule(static) reduction(+:n_ceiling)
         for (int i = 0; i < m.im; i++) {
             for (int j = 0; j < m.jm; j++) {
                 double *c_row     = m.c.x[i][j];
@@ -288,12 +291,55 @@ private:
                     if (cloud_row[k] < 0.0) cloud_row[k] = 0.0;
                     if (ice_row[k]   < 0.0) ice_row[k]   = 0.0;
 
+                    // ATHAD: water vapour has a physical CEILING and never had one.
+                    //
+                    // The mass fractions must sum to 1, and the background is carried as the
+                    // remainder 1 - c - co2, so c > 1 - co2 means a NEGATIVE background mass.
+                    // Nothing checked it. AtmMixture::split() renormalises defensively, so the
+                    // gas constant stayed finite and the violation was invisible — the
+                    // equatorial column was running c = 0.9971 against co2 = 0.2053, a
+                    // composition summing to 1.20, and the only symptom was an R that had
+                    // quietly saturated.
+                    //
+                    // The cause is not this clamp's business and is not fixed by it: water is
+                    // pumped downward out of the one condensing level by sedimentation, and
+                    // evaporates into the superheated band below with no return path, so c
+                    // there grows without bound. The clamp stops the composition being
+                    // impossible; the counter is what says how hard it is having to work.
+                    // A run where n_ceiling stays large is not to be trusted.
+                    const double c_max = std::max(0.0, 1.0 - m.co2.x[i][j][k]);
+                    if (c_row[k] > c_max) { c_row[k] = c_max; n_ceiling++; }
+
                     double T_dim = t_row_nd[k] * m.t_0;
                     // Upper physical bound, well above the prescribed surface temperature.
                     if (T_dim > T_max) { T_dim = T_max; t_row_nd[k] = T_max * inv_t_0; }
 
-                    // Supercritical cells carry no condensate and need no fade.
-                    if (T_dim >= AtmMixture::T_CRIT_H2O) continue;
+                    // ATHAD: cells that cannot hold a condensed phase must be EMPTIED of
+                    // one, not skipped.
+                    //
+                    // This used to read "Supercritical cells carry no condensate and need no
+                    // fade" and simply `continue`. They carry no condensate only if something
+                    // takes it away — and nothing did, so condensate advected or sedimented
+                    // into the whole supercritical column (ground to ~180 km) stayed there
+                    // and set the planetary albedo. The superheated band above it, 180 to
+                    // ~240 km, escaped too: there q_sat = 1 and the supersaturation test
+                    // below can never fire, since c < 1 always.
+                    //
+                    // IceSchemeCommon::evaporateWhereImpossible sends it back to the vapour
+                    // with its latent heat, and clears the sources and precipitation fluxes.
+                    // This is the net that catches whatever the ice schemes and the advection
+                    // put there; the schemes now carry the same guard so they do not create
+                    // it in the first place.
+                    {
+                        const double M_o = AtmMixture::M_nonwater(c_row[k], m.co2.x[i][j][k],
+                                                                  m.m_comp.M_bg);
+                        const double q_s = SaturationH2O::saturationMassFractionAt(
+                                               T_dim, p_row[k], M_o);
+                        if (T_dim >= AtmMixture::T_CRIT_H2O || q_s >= 1.0) {
+                            IceSchemeCommon::evaporateWhereImpossible(m, T_dim, i, j, k);
+                            continue;
+                        }
+                    }
 
                     // ---- Always-on supersaturation removal (ROOT FIX) ----
                     // adjustSaturation scales its condensation by alpha_entry, so in cold
@@ -364,6 +410,11 @@ private:
                 }
             }
         }
+
+        if (n_ceiling > 0)
+            std::cout << "      SaturationAdjustment: water-vapour ceiling c = 1 - co2 hit in "
+                      << n_ceiling << " cells (water deleted there — see the note above)"
+                      << std::endl;
     }
 
     void printReport() const {

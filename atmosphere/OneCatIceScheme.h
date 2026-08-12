@@ -141,6 +141,19 @@ private:
 
                     for(int i = m.im-2; i >= 0; i--){
 
+
+                        // ATHAD: no condensed phase can exist here — see
+                        // IceSchemeCommon::canCondense. Everything below the cloud deck
+                        // (ground to ~240 km) is supercritical or superheated, and the
+                        // microphysics below has no meaning there.
+                        {
+                            const double t_guard = m.t.x[i][j][k] * m.t_0;
+                            if (!IceSchemeCommon::canCondense(m, t_guard, i, j, k)) {
+                                IceSchemeCommon::evaporateWhereImpossible(m, t_guard, i, j, k);
+                                continue;
+                            }
+                        }
+
                         double Rain = m.P_rain.x[i][j][k];
                         double Snow = m.P_snow.x[i][j][k];
 

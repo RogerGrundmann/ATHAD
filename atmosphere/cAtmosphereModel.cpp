@@ -1283,6 +1283,20 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                                 if (cv  < 0.0) cv  = 0.0;
                                 if (cld < 0.0) cld = 0.0;
                                 if (ic  < 0.0) ic  = 0.0;
+                                // ATHAD: water vapour's physical CEILING, enforced here
+                                // because this is the last thing to touch c before
+                                // densities() and the diagnostics read it. The three mass
+                                // fractions sum to one and the background is the remainder
+                                // 1 - c - co2, so c > 1 - co2 is a negative background mass.
+                                // UtilsAtm::valueLimitationAtm carries the same bound but is
+                                // commented out at both of its call sites, and the sub-cloud
+                                // band was sitting at c = 1.0000 against co2 = 0.2053 — a
+                                // composition summing to 1.21, invisible because
+                                // AtmMixture::split() renormalises defensively and only the
+                                // gas constant, pinned at 415.1, showed it. On Earth water is
+                                // ~1 % of the mass, so 1 and 1 - co2 are the same number.
+                                const double cv_max = std::max(0.0, 1.0 - co2.x[i][j][k]);
+                                if (cv > cv_max) cv = cv_max;
                                 const double sum = cld + ic;
                                 if (sum > CLOUD_ICE_MAX) {
                                     const double scale = CLOUD_ICE_MAX / sum;
@@ -1297,6 +1311,42 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                     }
                 }
             }  // moist_phys_active
+
+            // ATHAD: water vapour's physical CEILING, enforced EVERY iteration.
+            //
+            // The three mass fractions sum to one and the background is carried as the
+            // remainder 1 - c - co2, so c > 1 - co2 is a negative background mass.
+            // AtmMixture::split() renormalises defensively, so the violation never showed
+            // as a crash — only as a gas constant pinned at 415.1 instead of moving with
+            // the composition, while the sub-cloud band sat at c = 1.0000 against
+            // co2 = 0.2053, a composition summing to 1.21.
+            //
+            // It lives here, outside the moist-physics block, because that block runs only
+            // on moist iterations while the RK4 transport of c runs on every one, and
+            // UtilsAtm::valueLimitationAtm — which carries the same bound, at the wrong
+            // ceiling of 1 — is commented out at both of its call sites. On Earth water is
+            // ~1 % of the mass and CO2 is ppm, so 1 and 1 - co2 are the same number.
+            {
+                long n_ceiling = 0;
+                #pragma omp parallel for collapse(2) schedule(static) reduction(+:n_ceiling)
+                for (int i = 0; i < im; i++)
+                    for (int j = 0; j < jm; j++)
+                        for (int k = 0; k < km; k++) {
+                            if (c.x[i][j][k] < 0.0) c.x[i][j][k] = 0.0;
+                            const double c_ceiling = std::max(0.0, 1.0 - co2.x[i][j][k]);
+                            if (c.x[i][j][k] > c_ceiling) {
+                                c.x[i][j][k] = c_ceiling;
+                                n_ceiling++;
+                            }
+                        }
+                // A ceiling that keeps biting is a signal, not a solution: water is pumped
+                // down out of the one condensing level by sedimentation and evaporates into
+                // the superheated band below with no return path, so c there grows until
+                // something stops it. Do not trust a run where this count stays large.
+                if (n_ceiling > 0 && iter_n % diagnosticStride() == 0)
+                    cout << "      AGCM: water-vapour ceiling c = 1 - co2 hit in "
+                         << n_ceiling << " cells" << endl;
+            }
 
             // ATHAD: CO2 is PROGNOSTIC and is no longer re-imposed here.
             //
