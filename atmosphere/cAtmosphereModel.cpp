@@ -1275,7 +1275,11 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 // CLOUD_ICE_MAX, applied EVERY moist iter before densities reads
                 // them.  See [[project-cloud-runaway-cook-inlet]].
                 {
-                    constexpr double CLOUD_ICE_MAX = 0.05;                  // [kg/kg] ~50 g/kg, 5× any real value
+                    // Same parameter as SaturationAdjustment's per-species cap, so the
+                    // two cannot drift apart. This one bounds the SUM and is the binding
+                    // one. See param.py (cloud_cap): on ATHAD it is not a backstop, it is
+                    // setting the condensate.
+                    const double CLOUD_ICE_MAX = cloud_cap;                 // [kg/kg]
                     #pragma omp parallel for collapse(2) schedule(static)
                     for (int i = 0; i < im; i++) {
                         for (int j = 0; j < jm; j++) {

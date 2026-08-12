@@ -296,10 +296,14 @@ private:
         // PHYSICAL constant (t_max_phys) rather than the 333.15 K literal: a bound
         // expressed as "no air parcel exceeds 60 °C" is an Earth fact, and on ATHAD it sat
         // a factor of 4.5 below the surface temperature it was supposed to be protecting.
-        // cloud_cap is ~50x the largest physical cloud/ice mixing ratio, so it never clips
-        // a real cloud — it only stops a runaway.
+        // cloud_cap is now the PARAMETER of the same name, not a literal. Its inherited
+        // justification — "~50x the largest physical cloud/ice mixing ratio, so it never
+        // clips a real cloud, it only stops a runaway" — is an Earth statement:
+        // terrestrial cloud water is ~1 g/kg. ATHAD's polar column pegs it exactly
+        // (49.999996 g/kg at 80N, 185.6 km), so here it SETS the condensate rather than
+        // bounding a pathology, and with it the optical depth and the albedo.
         const double T_max         = m.t_max_phys;
-        constexpr double cloud_cap = 0.05;     // kg/kg condensate ceiling
+        const double cloud_cap = m.cloud_cap;   // kg/kg condensate ceiling (parameter)
 
         long n_ceiling = 0;                    // cells hitting the water-vapour ceiling
 

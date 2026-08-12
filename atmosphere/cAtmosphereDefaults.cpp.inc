@@ -99,6 +99,7 @@ void cAtmosphereModel::SetDefaultConfig() {
   r_co2 = 0.0019767;
   gam = 0.0065;
   u_0 = 8.0;
+  cloud_cap = 0.05;
   t_max_phys = 2000.0;
   t_00 = 236.15;
   t_000 = 253.15;

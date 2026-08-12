@@ -93,6 +93,7 @@
         <r_co2>0.0019767</r_co2>  <!-- density of CO2 in kg/m³ at 25°C(double) -->
         <gam>0.0065</gam>  <!-- constant slope of temperature    gam = 6.5 K/1000 m(double) -->
         <u_0>8.0</u_0>  <!-- annual mean of surface wind velocity in m/s, 8 m/s compare to 28.8 km/h(double) -->
+        <cloud_cap>0.05</cloud_cap>  <!-- ATHAD: ceiling on the condensate mass fraction (cloud, ice, and their sum) in kg/kg(double) -->
         <t_max_phys>2000.0</t_max_phys>  <!-- ATHAD: upper physical bound on the prognostic temperature in K(double) -->
         <t_00>236.15</t_00>  <!-- temperature in K compare to -37°C(double) -->
         <t_000>253.15</t_000>  <!-- temperature in K compare to -20°C(double) -->

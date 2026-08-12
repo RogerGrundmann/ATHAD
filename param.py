@@ -430,6 +430,21 @@ def main():
             # but a factor of 4.5 BELOW ATHAD's 1500 K surface, and it was written back into
             # the prognostic field, collapsing 250 bar to 30 bar in one iteration.
             # 2000 K leaves headroom over the surface and stays inside the cp Shomate fits.
+            # ATHAD: ceiling on the condensate mass fraction, applied in two places that
+            # were both bare literals — SaturationAdjustment::clampAndFade caps cloud and
+            # ice SEPARATELY at this value, and the moist-physics block in RunTimeSlice caps
+            # their SUM at it before densities() reads them. Kept as one number so they
+            # cannot drift apart; the sum-cap is the binding one.
+            #
+            # The inherited comment called 0.05 "~50x the largest physical cloud/ice mixing
+            # ratio, so it never clips a real cloud — it only stops a runaway". That is an
+            # EARTH statement: terrestrial cloud water is ~1 g/kg. ATHAD's atmosphere is
+            # 67 % water by mass and its polar column pegs this cap exactly (49.999996 g/kg
+            # measured at 80N, 185.6 km), so here it is not a runaway backstop at all — it
+            # is setting the condensate, and with it the optical depth and the albedo.
+            # Raise it and re-measure before trusting a cloud field that sits on it.
+            ('cloud_cap', 'ATHAD: ceiling on the condensate mass fraction (cloud, ice, and their sum) in kg/kg', 'double', 0.05),
+
             ('t_max_phys', 'ATHAD: upper physical bound on the prognostic temperature in K', 'double', 2000.0),
 
             ('t_00', 'temperature in K compare to -37°C', 'double', 236.15),

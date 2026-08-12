@@ -98,6 +98,7 @@ double lamda;
 double r_co2;
 double gam;
 double u_0;
+double cloud_cap;
 double t_max_phys;
 double t_00;
 double t_000;

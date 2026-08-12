@@ -918,6 +918,15 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.u_0 = <double> value
     
+    property cloud_cap:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.cloud_cap
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.cloud_cap = <double> value
+    
     property t_max_phys:
         def __get__(Atmosphere self):
             self._check_alive()

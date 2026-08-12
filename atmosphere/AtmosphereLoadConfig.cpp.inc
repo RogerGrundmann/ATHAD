@@ -103,6 +103,7 @@
     Config::FillDoubleWithElement(elem_atmosphere, "r_co2", r_co2);
     Config::FillDoubleWithElement(elem_atmosphere, "gam", gam);
     Config::FillDoubleWithElement(elem_atmosphere, "u_0", u_0);
+    Config::FillDoubleWithElement(elem_atmosphere, "cloud_cap", cloud_cap);
     Config::FillDoubleWithElement(elem_atmosphere, "t_max_phys", t_max_phys);
     Config::FillDoubleWithElement(elem_atmosphere, "t_00", t_00);
     Config::FillDoubleWithElement(elem_atmosphere, "t_000", t_000);
