@@ -88,6 +88,15 @@ public:
     // later departure from it is transport error. Negative means "not yet captured".
     double m_q_co2_ref = -1.0;
 
+    // Initial global mass-weighted mean TOTAL water (vapour + cloud + ice + graupel),
+    // captured on the first ThermoAtm::waterBudget() call. There is no water source or
+    // sink either — no evaporation from a supercritical surface, no influx — so this too
+    // is conserved, and any drift is scheme error or a limiter deleting mass.
+    double m_q_h2o_ref = -1.0;
+
+    // Water mass fraction deleted by the c <= 1 - co2 ceiling, accumulated over the run.
+    double m_q_h2o_clipped = 0.0;
+
     // ATHAD shortwave budget, cos(latitude)-weighted over the whole sphere. albedo.y is
     // the model's OWN albedo — MultiLayerRadiation builds it from the condensate the model
     // made — so this is what the t_skin fixed point and the planetary-balance diagnostic

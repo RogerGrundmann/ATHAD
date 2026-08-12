@@ -600,6 +600,7 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     // harmless because co2 was in ppm and never touched the density.
     ThermoAtm(*this).co2Atmosphere();                                   // INITIAL well-mixed CO2 mass fraction
     ThermoAtm(*this).co2Column(true);                                   // column CO2 path + the conservation reference
+    ThermoAtm(*this).waterBudget(true);                                 // total-water conservation reference
     ThermoAtm(*this).densities();
     ThermoAtm(*this).forces();
     ThermoAtm(*this).standAtm_DewPoint_HumidRel();                      // International Standard Atmosphere temperature profile, dew point temperature, relative humidity profile
@@ -1179,6 +1180,11 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                                         || (total_iter_count > moist_phys_start_iter);
 
             if(moist_phys_active){
+                // Water budget either side of the moist physics, so the creation this
+                // reports can be ATTRIBUTED: everything before this point is RK4 transport,
+                // everything after it is condensation, the ice scheme and the limiters.
+                ThermoAtm(*this).waterBudget(iter_n % diagnosticStride() == 0, "post-RK4");
+
                 SaturationAdjustment(*this).run();                      // based on the initial distribution, recomputation of the cloud water and cloud ice formation in case of saturated water vapour detected
                 // Temperature 2Δt de-checkerboard. c/cloud/ice receive the same stride-2 moist
                 // forcing AND damp_wiggles and stay stable; t got the forcing but NO damping —
@@ -1327,18 +1333,28 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
             // ceiling of 1 — is commented out at both of its call sites. On Earth water is
             // ~1 % of the mass and CO2 is ppm, so 1 and 1 - co2 are the same number.
             {
-                long n_ceiling = 0;
-                #pragma omp parallel for collapse(2) schedule(static) reduction(+:n_ceiling)
+                long   n_ceiling = 0;
+                double q_clipped = 0.0;      // mass-weighted water deleted this iteration
+                double w_air     = 0.0;
+                #pragma omp parallel for collapse(2) schedule(static) \
+                        reduction(+:n_ceiling,q_clipped,w_air)
                 for (int i = 0; i < im; i++)
                     for (int j = 0; j < jm; j++)
                         for (int k = 0; k < km; k++) {
                             if (c.x[i][j][k] < 0.0) c.x[i][j][k] = 0.0;
+                            const double dp_Pa = (i < im - 1)
+                                ? (p_stat.x[i][j][k] - p_stat.x[i+1][j][k]) * 100.0
+                                :  p_stat.x[i][j][k] * 100.0;
+                            const double u_air = (dp_Pa > 0.0) ? dp_Pa / g : 0.0;
+                            w_air += u_air;
                             const double c_ceiling = std::max(0.0, 1.0 - co2.x[i][j][k]);
                             if (c.x[i][j][k] > c_ceiling) {
+                                q_clipped += (c.x[i][j][k] - c_ceiling) * u_air;
                                 c.x[i][j][k] = c_ceiling;
                                 n_ceiling++;
                             }
                         }
+                if (w_air > 0.0) m_q_h2o_clipped += q_clipped / w_air;
                 // A ceiling that keeps biting is a signal, not a solution: water is pumped
                 // down out of the one condensing level by sedimentation and evaporates into
                 // the superheated band below with no return path, so c there grows until
@@ -1364,6 +1380,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
             // global mass-weighted mean q_CO2 — a conserved quantity here, since the model
             // has no CO2 source or sink, so any drift is transport error.
             ThermoAtm(*this).co2Column(iter_n % diagnosticStride() == 0);
+            ThermoAtm(*this).waterBudget(iter_n % diagnosticStride() == 0, "post-moist");
             ThermoAtm(*this).densities();
             ThermoAtm(*this).forces();
             ThermoAtm(*this).standAtm_DewPoint_HumidRel();              // International Standard Atmosphere temperature profile, dew point temperature, relative humidity profile

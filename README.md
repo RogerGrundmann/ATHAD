@@ -748,7 +748,65 @@ the measurements that did not work out — rather than what is intended.
     clamp stops it — which deletes water. The count is printed at every diagnostic step.
     A run in which it stays large is not to be trusted, and this one does.
 
+15. **The water is not lost, it is created — and the moist physics was not running (done:
+    diagnosis and instrumentation; the fix is open).**
+
+    Item 14 left the `c ≤ 1 − co2` ceiling deleting water in 282 302 cells per iteration,
+    with the working hypothesis that sedimentation pumps water out of the condensing level
+    and nothing returns it. That hypothesis is wrong.
+
+    `ThermoAtm::waterBudget()` now reports the global mass-weighted mean of
+    vapour + cloud + ice + graupel, against its initial value. ATHAD has no water source
+    and no water sink — the surface is supercritical, so `waterVapourEvaporation()` returns
+    at once — so that mean is conserved exactly, and any drift is scheme error. Nothing had
+    ever measured it. Measured over 20 iterations:
+
+    ```
+    iter  0:  q = 0.672751   drift +0.0000 %   deleted by the ceiling 0.000000
+    iter 10:  q = 0.673903   drift +0.1712 %   deleted by the ceiling 0.007173
+    iter 20:  q = 0.673893   drift +0.1698 %   deleted by the ceiling 0.014293
+    ```
+
+    Water is **created** at ~0.0007 kg/kg per iteration — about 0.11 % of the total per
+    iteration — and the ceiling removes almost exactly as much as appears. The clamp is not
+    starving the band; it is bailing out a leak.
+
+    Two experiments locate it:
+
+    - **`CategoryIceScheme = -1`** (no ice scheme at all): identical, +0.1718 % against
+      +0.1712 %. Not the microphysics.
+    - **`moist_phys_start_iter = 300`.** The moist physics — SaturationAdjustment, the ice
+      schemes, MoistConvection — **does not run at all until iteration 300.** Every
+      20-iteration diagnostic in this README was therefore a *dry* run, and the water is
+      created with no moist physics executing. What remains is the RK4 tracer transport.
+
+    **And the CO₂ conservation of item 12 does not contradict this — it is worthless as a
+    test.** CO₂ drifts +0.0000 % because it is *uniform*, and a uniform tracer is conserved
+    by any consistent advection scheme, however non-conservative, since `u·∇q = 0`. Water
+    carries structure (put there by the one-off moist physics in the initialisation), and
+    only a field with structure can expose the error. The earlier claim that the CO₂ result
+    validated the transport was wrong.
+
+    **The cause is the advective form of the tracer equation.** `RHS_Atm_Turb` integrates
+    `∂q/∂t = −u·∇q + …`, which conserves `∫ρq dV` only when `∇·(ρu) = 0`. The pressure
+    projection enforces `∇·u = 0`, not `∇·(ρu) = 0`, and ATHAD's density spans five orders
+    of magnitude across the column. The consistent form is
+
+    ```
+    ∂q/∂t = −u·∇q − (q/ρ)·∇·(ρu) + …
+    ```
+
+    This is the **Boussinesq risk in CLAUDE.md arriving in concrete form**, and it is the
+    open item: it touches the transport of every tracer and changes every result, so it has
+    not been applied.
+
+    Two further consequences worth knowing: the cloud deck discussed in items 9 and 14 is
+    an *initialisation-time* state that the first 300 iterations only advect, and the
+    ParaView output of a 400-iteration run has active moist physics only over its last 100
+    iterations.
+
 ## Remaining work
+
 
 
 
@@ -760,10 +818,13 @@ the measurements that did not work out — rather than what is intended.
   radiation must *set* the profile rather than nudge it toward a prescribed one; the
   prescription still wins. The OLR is now a genuine integral **over a prescribed profile** —
   a real improvement, but not yet a prediction.
-- **Water is destroyed by the vapour ceiling** in ~282 000 cells per iteration (item 14).
-  Sedimentation pumps water out of the one condensing level into the superheated band
-  below and nothing returns it. Until that is closed, the water budget is not conserved
-  and the sub-cloud humidity is set by a clamp.
+- **The tracer transport is not conservative** (item 15): water is created at ~0.11 % per
+  iteration and the vapour ceiling deletes the surplus. Fix by moving the tracer equations
+  to flux form, `∂q/∂t = −u·∇q − (q/ρ)∇·(ρu)`. This is the Boussinesq problem in concrete
+  form and it is the next real task.
+- **`moist_phys_start_iter = 300`** means a 400-iteration run is dry for three quarters of
+  its length. Deliberate (it lets the circulation form before the stiff microphysics
+  starts), but it must be stated whenever a run is quoted.
 - **The run is not converged**: 100 iterations leaves a −143 W/m² imbalance, still decaying
   ~9 % per 10 iterations. Of order 400 iterations are needed. Run it.
 - **The OLR is not grid-converged either**: 519 W/m² at a 260 km shell against 581 at

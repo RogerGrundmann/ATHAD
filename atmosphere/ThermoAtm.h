@@ -784,6 +784,63 @@ public:
     }
 
     // ------------------------------------------------------------------
+    // Global TOTAL-water conservation check.
+    //
+    // ATHAD has no water source and no water sink: the surface is supercritical so
+    // waterVapourEvaporation() returns at once, and nothing else adds or removes water.
+    // The mass-weighted mean of (vapour + cloud + ice + graupel) is therefore conserved
+    // exactly, and any drift is scheme error or a limiter deleting mass. Nothing measured
+    // it, which is why the sub-cloud band could sit at an impossible composition for as
+    // long as it did.
+    //
+    // Reported alongside the mass deleted by the c <= 1 - co2 ceiling, so the two can be
+    // compared: if the drift is accounted for by the clipping, the transport is conserving
+    // and the problem is upstream of it; if it is not, something is creating water.
+    void waterBudget(bool report, const char* stage = "")
+    {
+        using namespace std;
+
+        double w_num = 0.0, w_den = 0.0;
+
+        #pragma omp parallel for collapse(2) reduction(+:w_num,w_den) schedule(static)
+        for (int j = 0; j < m.jm; j++) {
+            for (int k = 0; k < m.km; k++) {
+                const double coslat = cos((j / (double)(m.jm - 1) - 0.5) * M_PI);
+
+                for (int i = 0; i < m.im; i++) {
+                    const double dp_Pa = (i < m.im - 1)
+                        ? (m.p_stat.x[i][j][k] - m.p_stat.x[i+1][j][k]) * 100.0
+                        :  m.p_stat.x[i][j][k] * 100.0;
+                    if (!(dp_Pa > 0.0)) continue;
+
+                    const double u_air = dp_Pa / m.g;                       // [kg/m2]
+                    const double q_w   = std::max(0.0, m.c.x[i][j][k])
+                                       + std::max(0.0, m.cloud.x[i][j][k])
+                                       + std::max(0.0, m.ice.x[i][j][k])
+                                       + std::max(0.0, m.gr.x[i][j][k]);
+
+                    w_den += coslat * u_air;
+                    w_num += coslat * q_w * u_air;
+                }
+            }
+        }
+
+        const double q_mean = (w_den > 0.0) ? w_num / w_den : 0.0;
+        if (m.m_q_h2o_ref <= 0.0) m.m_q_h2o_ref = q_mean;
+
+        if (report) {
+            const double drift = (m.m_q_h2o_ref > 0.0)
+                               ? 100.0 * (q_mean / m.m_q_h2o_ref - 1.0) : 0.0;
+            cout << "      AGCM: H2O" << (stage[0] ? " [" : "") << stage << (stage[0] ? "]" : "")
+                 << " mass-weighted mean q = " << fixed << setprecision(6)
+                 << q_mean << " kg/kg   (initial " << m.m_q_h2o_ref
+                 << ", drift " << showpos << setprecision(4) << drift << " %"
+                 << noshowpos << ";  deleted by the c ceiling so far "
+                 << setprecision(6) << m.m_q_h2o_clipped << " kg/kg)" << endl;
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Column CO2 mass path [kg/m2] and the global CO2 mass-conservation check.
     //
     // This replaces the in-loop call to co2Atmosphere(). CO2 has a full transport
