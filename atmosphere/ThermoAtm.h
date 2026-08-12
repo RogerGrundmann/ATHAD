@@ -348,7 +348,16 @@ public:
                 double TempStand_surface   = m.t.x[0][j][k] * m.t_0 - m.t_0;
                 m.TempStand.x[0][j][k]    = TempStand_surface;
 
-                for (int i = 0; i <= i_trop; i++) {
+                // ATHAD: compute over the WHOLE column, not just up to the tropopause.
+                //
+                // The loop ran to i_trop and the block below copied the tropopause value to
+                // every level above it. On Earth that is reasonable — the stratosphere is
+                // dry and dull. Here the tropopause index sits near 200 km and the ONLY
+                // levels where water can condense are above it, so the humidity and dew
+                // point in the one region of interest were not computed at all: they were
+                // the copied value from below, which is why the condensation level read a
+                // few per cent RH while being genuinely supersaturated.
+                for (int i = 0; i < m.im; i++) {
 
                     double t_u = m.t.x[i][j][k] * m.t_0;
 
@@ -356,8 +365,16 @@ public:
                         ? SaturationH2O::saturationPressure(t_u)
                         : SaturationH2O::sublimationPressure(t_u);
 
-                    double e           = m.c.x[i][j][k] * m.p_stat.x[i][j][k] * inv_ep;
-                    bool   zero_vapour = (e == 0.0);
+                    // ATHAD: the EXACT water partial pressure, e = x_H2O * p.
+                    //
+                    // Was e = c * p / ep, the dilute approximation. At 67 % water by mass
+                    // it returns 243 600 hPa against a true 200 000 — and against a TOTAL
+                    // pressure of 250 000, so the "partial" pressure was approaching the
+                    // whole column. x_H2O_of does the mass-to-mole conversion properly.
+                    const double x_v = AtmMixture::x_H2O_of(m.c.x[i][j][k],
+                                                            m.co2.x[i][j][k], m.m_comp.M_bg);
+                    double e           = x_v * m.p_stat.x[i][j][k];
+                    bool   zero_vapour = (e <= 0.0);
                     if (zero_vapour) e = 1e-3;
 
                     m.TempStand.x[i][j][k]    = TempStand_surface - lapse_rate * height_table[i];
@@ -368,22 +385,33 @@ public:
                     // convention (subtract t_0) so the ParaView output is unchanged.
                     m.TempDewPoint.x[i][j][k] = SaturationH2O::dewPoint(e) - m.t_0;
 
-                    m.HumidityRel.x[i][j][k]  = zero_vapour
-                        ? 0.0
-                        : std::min(e / E * 100.0, 100.0);
+                    // ATHAD: report the RELATIVE HUMIDITY, not a clamp.
+                    //
+                    // Two defects. E is SaturationH2O::NO_SATURATION = -1 above the
+                    // critical point, so e/E*100 came out around -2.4e7 through the whole
+                    // supercritical column — the enormous values visible in ParaView. And
+                    // the std::min(..., 100.0) hid genuine supersaturation, which on this
+                    // column reaches ~900 % at the condensation level: the one number that
+                    // would have shown the saturation adjustment was failing (README
+                    // item 16) was capped at 100 the entire time.
+                    //
+                    // Now: the true ratio, uncapped, and NO_SATURATION where no saturation
+                    // state exists at all — the same -1 sentinel the saturation module
+                    // uses, so a supercritical cell is visibly distinct in ParaView from a
+                    // dry one (0) rather than being a huge negative number.
+                    m.HumidityRel.x[i][j][k]  = (E <= 0.0)
+                        ? SaturationH2O::NO_SATURATION
+                        : (zero_vapour ? 0.0 : e / E * 100.0);
 
                 }  // i
 
-                // Above tropopause: copy tropopause values
+                // TempStand is the International Standard Atmosphere profile — a
+                // troposphere-only construction — so it alone keeps the copy above the
+                // tropopause. The dew point and the relative humidity are now computed at
+                // every level and are no longer overwritten here.
                 double ts_trop = m.TempStand.x[i_trop][j][k];
-                double td_trop = m.TempDewPoint.x[i_trop][j][k];
-                double hr_trop = m.HumidityRel.x[i_trop][j][k];
-
-                for (int i = i_trop + 1; i < m.im; i++) {
-                    m.TempStand.x[i][j][k]    = ts_trop;
-                    m.TempDewPoint.x[i][j][k] = td_trop;
-                    m.HumidityRel.x[i][j][k]  = hr_trop;
-                }
+                for (int i = i_trop + 1; i < m.im; i++)
+                    m.TempStand.x[i][j][k] = ts_trop;
 
                 // Below-terrain fill: copy from topography surface downward
                 int    i_mount   = m.i_topography[j][k];

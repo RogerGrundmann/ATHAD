@@ -479,7 +479,7 @@ void cAtmosphereModel::paraview_vtk_radial(string &Name_Bathymetry_File,
 
     dump_radial_2d("Tropopause", Tropopause, 1.0, Atmosphere_vtk_radial_File);
 
-    dump_radial_2d("Pressure_Landscape", p_stat_landscape, 1.0, Atmosphere_vtk_radial_File);
+    dump_radial_2d("Pressure_Landscape_bar", p_stat_landscape, 1.0e-3, Atmosphere_vtk_radial_File);
 
     dump_radial_2d("Evaporation", Evaporation, 1.0, Atmosphere_vtk_radial_File);
 
@@ -507,7 +507,7 @@ void cAtmosphereModel::paraview_vtk_radial(string &Name_Bathymetry_File,
     dump_radial_2d("PrecipitableWater", precipitable_water, 1.0, Atmosphere_vtk_radial_File);
     dump_radial_2d("Precipitation_NASA", precipitation_NASA, 1.0, Atmosphere_vtk_radial_File);
 
-    dump_radial("PressureStatic", p_stat, 1.0, i_radial, Atmosphere_vtk_radial_File);
+    dump_radial("Pressure_bar", p_stat, 1.0e-3, i_radial, Atmosphere_vtk_radial_File);
     dump_radial("PressureDynamic", p_dyn, p_0, i_radial, Atmosphere_vtk_radial_File);
 
 //    dump_radial("r_dry", r_dry, 1.0, i_radial, Atmosphere_vtk_radial_File);
@@ -711,7 +711,7 @@ void cAtmosphereModel::paraview_vtk_zonal(string &Name_Bathymetry_File,
 //    dump_zonal("TempDewPoint", TempDewPoint, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
 
     dump_zonal("PressureDynamic", p_dyn, p_0, k_zonal, Atmosphere_vtk_zonal_File);
-    dump_zonal("PressureStatic", p_stat, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
+    dump_zonal("Pressure_bar", p_stat, 1.0e-3, k_zonal, Atmosphere_vtk_zonal_File);
 
 //    dump_zonal("r_dry", r_dry, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
     dump_zonal("r_humid", r_humid, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
@@ -909,7 +909,7 @@ void cAtmosphereModel::paraview_vtk_longal(string &Name_Bathymetry_File,
     dump_longal("PrecipitationSnow", P_snow, 8.64e4, j_longal, Atmosphere_vtk_longal_File);
     dump_longal("PrecipitationGraupel", P_graupel, 8.64e4, j_longal, Atmosphere_vtk_longal_File);
 
-    dump_longal("PressureStatic", p_stat, 1.0, j_longal, Atmosphere_vtk_longal_File);
+    dump_longal("Pressure_bar", p_stat, 1.0e-3, j_longal, Atmosphere_vtk_longal_File);
     dump_longal("PressureDynamic", p_dyn, p_0, j_longal, Atmosphere_vtk_longal_File);
 
 //    dump_longal("r_dry", r_dry, 1.0, j_longal, Atmosphere_vtk_longal_File);

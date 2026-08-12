@@ -58,10 +58,16 @@ void cAtmosphereModel::print_min_max_atm(){
 
 
     cout << endl << " pressures: " << endl;
+    // ATHAD reports pressure in BAR, not hPa. A 250 bar atmosphere printed in hPa is
+    // 250000 with the interesting range spanning eight orders of magnitude down to 4e-4;
+    // bar is the unit the column profile and the level summary already use, so all four
+    // diagnostics now agree. The ParaView fields are renamed Pressure_bar /
+    // Pressure_Landscape_bar rather than silently rescaled, so an old saved colour scale
+    // fails loudly instead of being wrong by a factor of 1000.
     searchMinMax_3D(" max pressure static ", " min pressure static ", 
-        "hPa", p_stat, 1.0);
+        "bar", p_stat, 1.0e-3);
     searchMinMax_3D(" max pressure dynamic ", " min pressure dynamic ", 
-        "hPa", p_dyn, p_0);
+        "bar", p_dyn, p_0 * 1.0e-3);
 
 
 
