@@ -41,3 +41,6 @@ Reaction_Papers/
 
 # Claude Code session data
 .claude/
+
+# vim/editor swap files
+.*.swp
