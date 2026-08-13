@@ -1366,13 +1366,62 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                             }
                         }
                 if (w_air > 0.0) m_q_h2o_clipped += q_clipped / w_air;
-                // A ceiling that keeps biting is a signal, not a solution: water is pumped
-                // down out of the one condensing level by sedimentation and evaporates into
-                // the superheated band below with no return path, so c there grows until
-                // something stops it. Do not trust a run where this count stays large.
-                if (n_ceiling > 0 && iter_n % diagnosticStride() == 0)
+                // A ceiling that keeps biting is a signal, not a solution. Do not trust a run
+                // where this count stays large.
+                //
+                // THE MECHANISM THIS COMMENT USED TO ASSERT IS WRONG, and the per-level
+                // report below is what showed it. It said: "water is pumped down out of the
+                // one condensing level by sedimentation and evaporates into the superheated
+                // band below with no return path, so c there grows until something stops
+                // it." Measured at 20 iterations with moist_phys_start_iter = 300 — so
+                // SaturationAdjustment, the ice schemes and ALL sedimentation are switched
+                // off and never run — the ceiling still bites 16 606 cells:
+                //
+                //     by level:  i=51 (185 km) 5054    i=52 (195 km) 11552
+                //
+                // Two levels, and the count is IDENTICAL at iterations 10 and 20. There is
+                // no sedimentation running, so sedimentation cannot be the cause; and a
+                // count that does not grow is not an accumulation. What it looks like
+                // instead is a standing excess left at i=51-52 by the ONE saturation
+                // adjustment that does run, at initialisation, which is then re-clipped to
+                // the same value every iteration by something that nudges c back above the
+                // ceiling — or nudges the ceiling below c, since 1 - co2 moves when the
+                // transported CO2 does.
+                //
+                // That is a different defect from the one described, and it is not yet
+                // established which of the two it is. What is established: the ceiling is
+                // NOT to be made conservative until it is. A ceiling that redistributes
+                // instead of deleting would turn a bounded 0.35 %-per-400-iteration loss
+                // into an unbounded pile-up somewhere else, and the deletion is currently
+                // the only thing holding the band at a possible composition.
+                if (n_ceiling > 0 && iter_n % diagnosticStride() == 0) {
                     cout << "      AGCM: water-vapour ceiling c = 1 - co2 hit in "
                          << n_ceiling << " cells" << endl;
+
+                    // WHERE it bites, not just how often. The comment above asserts a
+                    // mechanism — sedimentation pumping water down into a superheated band
+                    // with no return path — and an assertion about a mechanism is worth
+                    // exactly as much as the measurement behind it. If the clipping is
+                    // concentrated in a narrow band just below the condensing level, the
+                    // claim holds and the fix belongs in the sedimentation. If it is spread
+                    // through the column, it does not and the fix is elsewhere.
+                    std::vector<long> lev_cnt(im, 0);
+                    for (int i = 0; i < im; i++) {
+                        long n = 0;
+                        for (int j = 0; j < jm; j++)
+                            for (int k = 0; k < km; k++) {
+                                const double ceil_ijk = std::max(0.0, 1.0 - co2.x[i][j][k]);
+                                if (c.x[i][j][k] >= ceil_ijk && ceil_ijk > 0.0) n++;
+                            }
+                        lev_cnt[i] = n;
+                    }
+                    cout << "            by level (cells at the ceiling):";
+                    for (int i = 0; i < im; i++)
+                        if (lev_cnt[i] > 0)
+                            cout << "  i=" << i << " (" << (int)(get_layer_height(i)/1000.0)
+                                 << " km) " << lev_cnt[i];
+                    cout << endl;
+                }
             }
 
             // ATHAD: CO2 is PROGNOSTIC and is no longer re-imposed here.
