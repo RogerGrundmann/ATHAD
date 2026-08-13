@@ -525,6 +525,28 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
 
 //    BC_Atm(*this).coastalCurrents();
 
+    // ATHAD: THE COMPOSITION IS LAID DOWN BEFORE THE COLUMN THAT DEPENDS ON IT.
+    //
+    // initTemperatureData reads c and co2 at every level — R_of(q_v, q_c, R_bg) for the
+    // hydrostatic step and cp_of(q_v, q_c, T, M_bg) for the adiabat — but both fields were
+    // still zero when it ran, because initWaterWapour and co2Atmosphere came after it. With
+    // q_v = q_c = 0 the gas constant collapses to the BACKGROUND value, R_bg = 317.3 instead
+    // of R_mix = 387.9 (18 % low, so an 18 % short scale height), and cp is the
+    // background-only value, so the adiabat g/cp is too steep. The whole initial column was
+    // built for an atmosphere this model does not have.
+    //
+    // It was survivable only because densities() rebuilds the column immediately afterwards
+    // on the real composition — which is exactly why it went unnoticed. What did NOT get
+    // rebuilt is the lid snapshot t_top_init taken just below, which bcRadius then pins the
+    // top of the atmosphere to for the whole run; item 10 refreshed that snapshot rather
+    // than fixing its source. This is the source.
+    //
+    // Both fills are unconditional uniform assignments in ATHAD — c = c_0, co2 = co2_0 —
+    // with no dependence on t or p_stat, so moving them earlier is safe. initCloudIce stays
+    // where it is: it reads the temperature profile and genuinely needs it.
+    initWaterWapour();
+    ThermoAtm(*this).co2Atmosphere();
+
     initTemperatureData(Ma);                                            // initialization of temperature, hydrostatic pressure and density of dry air, reconstruction of potential surface values
     AtomUtils::damp_wiggles(t, &i_topography, true, true, true);
 
@@ -536,8 +558,7 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
         for(int k = 0; k < km; k++)
             t_top_init[j][k] = t.x[im-1][j][k];
 
-    initWaterWapour();                                                  // initWaterWapour() and initCloudIce() belong together, init_vapour_cloud() stands alone
-    initCloudIce();
+    initCloudIce();                                                     // needs the temperature profile, so it stays after initTemperatureData
 //    init_vapour_cloud();                                                // initialisation of water vapour and cloud/ice formation based on the temperature profile
 
 //    goto Printout;
@@ -599,7 +620,6 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     // density built before it is set uses R_of(c, 0) = 414.2 instead of 387.9 —
     // a 7 % density error through the whole column. On Earth the ordering was
     // harmless because co2 was in ppm and never touched the density.
-    ThermoAtm(*this).co2Atmosphere();                                   // INITIAL well-mixed CO2 mass fraction
     ThermoAtm(*this).co2Column(true);                                   // column CO2 path + the conservation reference
     ThermoAtm(*this).densities();
     // The conservation references are captured AFTER densities(), not before. Both are
