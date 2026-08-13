@@ -1338,12 +1338,18 @@ public:
         // does: pure background is 317 J/(kg K), pure steam 462, the reference mixture 388.
         //
         // Two distinct gas constants appear below and must not be confused:
-        //   R_mix  — the COLUMN reference, which sets the surface pressure and scale height.
-        //            p_sl uses it because r_air was calibrated as p/(R_mix*T); using R_Air
-        //            here instead yields 204 bar rather than the intended 250.
+        //   R_mix  — the COLUMN reference, which sets the scale height.
         //   R_of() — the LOCAL value at each cell, used for the densities.
+        //
+        // p_sl_factor = 1e-2*r_air*R_mix used to live here and set the surface pressure from
+        // the surface density. It is gone: the column is anchored to p_0, a mass. See the
+        // note at the surface anchor below.
         const double R_mix            = m.m_comp.R_mix;
-        const double p_sl_factor      = 1e-2 * m.r_air * R_mix;
+
+        // See the note at the T_i assignment. Default 0 = the profile stays prescribed and
+        // the model is bit-identical.
+        static const bool prognostic_t = [](){ const char* e = getenv("ATM_PROGNOSTIC_T");
+                                               return e ? (atof(e) != 0.0) : false; }();
         const double M_bg             = m.m_comp.M_bg;
         const double R_bg             = m.m_comp.R_bg;
 
@@ -1378,7 +1384,29 @@ public:
                 // Surface anchor. The floor guards against a transient cold surface making
                 // the integration meaningless; 180 K is far below anything physical here.
                 double T_prev = std::max(180.0, m.t.x[0][j][k] * m.t_0);
-                double p_prev = p_sl_factor * T_prev;                   // [hPa]
+
+                // ATHAD: THE COLUMN IS ANCHORED TO A MASS, NOT TO A SURFACE DENSITY.
+                //
+                // This was `p_sl_factor * T_prev`, i.e. p_surf = r_air*R_mix*T_surf. It
+                // holds the surface DENSITY fixed and lets the surface pressure follow the
+                // surface temperature — so every time the prognostic T_surf drifted off its
+                // prescribed 1500 K, the whole 250 bar column was re-integrated from a
+                // different anchor and the atmosphere gained or lost mass. Measured at
+                // -0.34 % over 400 iterations, and this is what waterBudget() spent items
+                // 15-17 reporting as water creation: water mass over air mass, with the
+                // denominator moving.
+                //
+                // The surface pressure of an atmosphere is the weight of the air above it.
+                // If no mass enters or leaves, it is a CONSTANT — p_0 — and the surface
+                // density is what follows from it via rho = p/(R T). That is the direction
+                // the causality actually runs, and it makes the 250 bar a conserved
+                // quantity rather than a coincidence of the prescribed temperature.
+                //
+                // r_air keeps its other jobs (the velocity/pressure non-dimensionalisation);
+                // it stops being the column anchor. At the design point the two agree to
+                // 0.02 % — 1e-2*42.97*387.9*1500 = 250047 hPa against p_0 = 250000 — so this
+                // does not move the initial state, only its drift.
+                double p_prev = m.p_0;                                  // [hPa]
 
                 for (int i = 0; i < m.im; i++) {
                     const double q_v = m.c.x[i][j][k];
@@ -1397,7 +1425,25 @@ public:
                         const double T_ad   = T_prev - (m.g / cp_loc) * dz;
 
                         // Isothermal once the adiabat drops below the radiative skin value.
-                        T_i = std::max(m.t_skin, T_ad);
+                        //
+                        // ATM_PROGNOSTIC_T (default 0): keep the temperature the dynamics
+                        // and the radiation computed instead of overwriting it with this
+                        // adiabat. Invariant 3 says radiation must SET the profile, and this
+                        // line is why it does not; the knob exists to measure what the
+                        // prescription is worth rather than to argue about it.
+                        //
+                        // READ THIS BEFORE TURNING IT ON. The adiabat here is not only a
+                        // profile, it is the model's ONLY convective adjustment. ATHAD has
+                        // no ConvectiveAdjustment at all, and MoistConvection's triggers are
+                        // absolute Earth pressures that never fire at 250 bar, so nothing
+                        // else keeps the lapse rate stable. Switching this off does not give
+                        // a radiative-convective profile; it gives a radiative one, which in
+                        // an optically thick atmosphere is strongly super-adiabatic. The
+                        // honest sequence is: port a convective adjustment first, then flip
+                        // this. The knob is here so the intermediate state can be measured.
+                        T_i = prognostic_t
+                            ? std::max(180.0, m.t.x[i][j][k] * m.t_0)
+                            : std::max(m.t_skin, T_ad);
 
                         // Hydrostatic, integrated on the layer-mean temperature.
                         const double T_mean = 0.5 * (T_prev + T_i);

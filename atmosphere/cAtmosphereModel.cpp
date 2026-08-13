@@ -600,8 +600,14 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     // harmless because co2 was in ppm and never touched the density.
     ThermoAtm(*this).co2Atmosphere();                                   // INITIAL well-mixed CO2 mass fraction
     ThermoAtm(*this).co2Column(true);                                   // column CO2 path + the conservation reference
-    ThermoAtm(*this).waterBudget(true);                                 // total-water conservation reference
     ThermoAtm(*this).densities();
+    // The conservation references are captured AFTER densities(), not before. Both are
+    // mass-weighted by p_stat, and until densities() has run, p_stat is still
+    // initTemperatureData's provisional column — so the reference recorded a state the model
+    // never actually integrates from. Harmless while the anchor moved with the surface
+    // temperature (the offset was buried in the drift it caused); visible the moment the
+    // anchor became a constant, as a fixed +0.62 % that was reported as drift and was not.
+    ThermoAtm(*this).waterBudget(true);                                 // total-water conservation reference
     ThermoAtm(*this).forces();
     ThermoAtm(*this).standAtm_DewPoint_HumidRel();                      // International Standard Atmosphere temperature profile, dew point temperature, relative humidity profile
     ThermoAtm(*this).waterVapourEvaporation();                          // correction of surface water vapour by evaporation
