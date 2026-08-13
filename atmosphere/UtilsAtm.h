@@ -74,6 +74,11 @@ public:
 
         auto begin = std::chrono::high_resolution_clock::now();
 
+        // The PREVIOUS call's residuum, captured before anything overwrites it. That is
+        // what "old" is supposed to mean, and what `declining` below needs; see the race
+        // note at the local_max update.
+        const double residuum_prev = m.residuum_old;
+
         struct ErrorState { double val; int i, j, k; };
         ErrorState global_max = {0.0, 0, 0, 0};
         double global_sum = 0.0;
@@ -124,17 +129,42 @@ public:
                         local_sum += res;
                         local_cnt++;
 
-                        if(res > local_max.val) {
-                            local_max = {res, i, j, k};
-                            m.residuum_old = res;
-                        }
+                        // `m.residuum_old = res;` used to sit here. It is a SHARED model
+                        // member written from inside every thread's loop, with no
+                        // synchronisation — a data race, and the only one left in this file
+                        // once the pressure solver's was cured. Each thread wrote its own
+                        // running maximum and whichever wrote last survived, so the value
+                        // was not the previous iteration's residuum at all. Measured at 20
+                        // iterations: 0.75315196 at 1 thread against 0.28779950 at 4, with
+                        // residuum_atm itself already identical.
+                        //
+                        // It is read three times below — the "declining" vs "too high"
+                        // message and both reported errors — so a raced value drove the line
+                        // a human reads to decide whether the run is converging. Now set
+                        // once, after the reduction, from the previous call's value.
+                        if(res > local_max.val) local_max = {res, i, j, k};
                    }
                 }
             }
 
             #pragma omp critical
             {
-                if (local_max.val > global_max.val)
+                // Deterministic tie-break. A plain `>` lets the FIRST thread into the
+                // critical section win an equal maximum, so the reported error LOCATION
+                // depended on thread arrival order even though its value did not — lon 19
+                // at one thread against lon 181 at four, both at lat 0, both the same
+                // residual. Ties are not rare here: the model is hemispherically symmetric
+                // by construction, so equal maxima are the expected case, not an accident.
+                // Preferring the lexicographically smallest (i,j,k) makes the choice a
+                // property of the field rather than of the schedule.
+                const bool better = (local_max.val > global_max.val)
+                                 || (local_max.val == global_max.val
+                                     && (local_max.i < global_max.i
+                                         || (local_max.i == global_max.i
+                                             && (local_max.j < global_max.j
+                                                 || (local_max.j == global_max.j
+                                                     && local_max.k < global_max.k)))));
+                if (better)
                     global_max = local_max;
                 global_sum += local_sum;
                 global_cnt += local_cnt;
@@ -149,19 +179,19 @@ public:
         const double avg_rel = (global_max.val > 0.0) ? avg_abs / global_max.val : 0.0;
 
         cout.precision(8);
-        const bool declining = (m.residuum_old - global_max.val) > 0.0;
+        const bool declining = (residuum_prev - global_max.val) > 0.0;
         cout << endl
              << (declining
                  ? "      AGCM: find_residuum_atm, absolute error declining .......................\n"
                  : "      AGCM: find_residuum_atm, absolute error is too high .....................\n")
              << "      residuum_atm = " << global_max.val
-             << "      residuum_old = " << m.residuum_old
+             << "      residuum_old = " << residuum_prev
              << "      eps_residuum = " << m.eps_residuum << endl << endl
              << "      i_error = " << global_max.i
              << "   j_error = "    << global_max.j
              << "   k_error = "    << global_max.k << endl << endl
-             << "      absolute error = " << fabs(m.residuum_old - global_max.val) << endl
-             << "      relative error = " << fabs(global_max.val / m.residuum_old - 1.0) << endl << endl
+             << "      absolute error = " << fabs(residuum_prev - global_max.val) << endl
+             << "      relative error = " << fabs(global_max.val / residuum_prev - 1.0) << endl << endl
              << "      error location: lat = " << (90 - global_max.j) << " deg N"
              << "   lon = " << global_max.k << " deg E"
              << "   height = " << global_max.i * 400 << " m" << endl
@@ -173,6 +203,10 @@ public:
              << "   (" << global_cnt << " cells)" << endl
              << "      grid average relative error = " << avg_rel
              << "   (avg/max)" << endl << endl;
+
+        // Hand this call's residuum to the next one. Written ONCE, outside every parallel
+        // region, which is the whole of the fix.
+        m.residuum_old = global_max.val;
 
         if(global_nan_cnt > 0){
             cout << "      AGCM: find_residuum_atm WARNING — " << global_nan_cnt

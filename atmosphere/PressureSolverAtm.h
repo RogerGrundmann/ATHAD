@@ -89,8 +89,23 @@ public:
         // already builds t_ref_level[i] as the sin(colatitude)-weighted horizontal mean of
         // t at each level, which is the same average, of the same prescribed profile, that
         // rho_bar is. The two base states agree by construction.
+        // ATHAD: ON by default since the 400-iteration run measured it. The anelastic
+        // residual falls 22 % (rms 3.359e-02 -> 2.607e-02), the spurious radial wind in the
+        // initial projection halves (0.1937 -> 0.0972 m/s), the p_dyn_cap source clamp binds
+        // in 0 of 3 791 399 cells, and over 400 iterations the bulk state tracks the
+        // Boussinesq baseline to 0.03 K in mean T, 0.002 % in mean KE and 0.6 % in Psi_max.
+        // No instability, no clipping, no divergence: it is the right continuity for a
+        // column whose density spans five orders of magnitude, and it costs nothing visible.
+        //
+        // The 400-iteration run is a STABILITY check and not a convergence check — neither
+        // formulation is converged at 400, and both grow Psi linearly because the meridional
+        // wind is still in free acceleration under an unopposed Coriolis torque (README
+        // item 18). That is a separate defect and it is common to both, which is precisely
+        // why it does not bear on this default.
+        //
+        // The env var still forces it off for A/B (ATM_ANELASTIC=0).
         static const bool anelastic_knob = [](){ const char* e = getenv("ATM_ANELASTIC");
-                                                 return e ? (atof(e) != 0.0) : false; }();
+                                                 return e ? (atof(e) != 0.0) : true; }();
         const bool anelastic = anelastic_knob
                             && (int)m.m_dlnrho_dr.size() == m.im;
         const double* const dlnrho = anelastic ? m.m_dlnrho_dr.data() : nullptr;
@@ -182,8 +197,83 @@ public:
         // they do, rather than leaving it to be assumed either way.
         long n_src_clamped = 0, n_src_cells = 0;
 
+        // ==================================================================
+        // ONE GAUSS-SEIDEL SWEEP PER CALL IS NOT AN ELLIPTIC SOLVE.
+        //
+        // run() is called once per physics iteration and did exactly ONE relaxation sweep.
+        // One sweep moves information one cell, so the elliptic problem is never solved:
+        // p_dyn is a local smoothing of the divergence, not the global pressure response of
+        // the flow. A pressure gradient that balances a Coriolis torque is global — it has
+        // to span the Hadley cell — and one sweep per step cannot construct it.
+        //
+        // This is item 18's open question made testable. The meridional wind is in free
+        // acceleration, dv/dt equal to the Coriolis term to three figures for 400
+        // iterations, with the pressure gradient at 1.8 % of it and rising linearly. That
+        // is the signature of an UNCONVERGED elliptic solve rather than of missing physics,
+        // and raising the sweep count is the honest way to ask which it is: if pgf/cor
+        // climbs with n_sweeps, the balance was always reachable and the solver was the
+        // bottleneck; if it does not, the defect is elsewhere and this rules the solver out.
+        // Cost is linear in the count.
+        //
+        // Default 1, so the model is bit-identical unless the knob is set. The diagnosis
+        // and the knob are both ATURAN's shared PressureSolver.h (<TAG>_PRESS_SWEEPS),
+        // which has carried this note for its whole history; ATHAD never had either.
+        // ==================================================================
+        static const int n_sweeps = [](){ const char* e = getenv("ATM_PRESS_SWEEPS");
+                                          const int v = e ? atoi(e) : 1;
+                                          return v > 0 ? v : 1; }();
+
+        for (int sweep = 0; sweep < n_sweeps; sweep++) {
+
+        // The clamp counters describe the LAST sweep only, so the reported fraction stays
+        // comparable with the single-sweep runs rather than being multiplied by the count.
+        if (sweep == n_sweeps - 1) { n_src_clamped = 0; n_src_cells = 0; }
+
+        // ==================================================================
+        // THE RELAXATION IS RED-BLACK, AND WAS NOT ALWAYS.
+        //
+        // Each solve is two passes over a checkerboard colouring of (i+j+k): every cell of
+        // one colour has all six of its stencil neighbours in the other, so within a pass
+        // nothing is read while it is being written.
+        //
+        // This replaced `#pragma omp parallel for collapse(2) schedule(dynamic, 4)` over
+        // (i,j) writing p_dyn IN PLACE while reading p_dyn[i±1][j±1] — over the very two
+        // indices the stencil reads across. Cell (i,j,k) was read by the thread owning
+        // (i+1,j) or (i,j+1) while its owner was writing it, and schedule(dynamic) made it
+        // worse than a thread-count dependence: which thread got which chunk varied with
+        // timing, so the SAME binary at the SAME thread count gave different answers run to
+        // run. Measured here at 20 iterations before the fix:
+        //
+        //     1 thread                  residuum_atm = 0.75451284
+        //     4 threads, run A                       = 0.75455454
+        //     4 threads, run B                       = 0.75458447
+        //
+        // — and the anelastic path behaved identically, which is what exonerated it. The
+        // divergence appears in the FIRST project_initial_velocity, before any of the
+        // anelastic code runs.
+        //
+        // Red-black rather than Jacobi because of what the old loop was reaching for: k runs
+        // serially inside a thread, so k-1 is current and k+1 one sweep old, i.e.
+        // lexicographic Gauss-Seidel — correct in serial, broken only by the (i,j)
+        // parallelism. Jacobi would have been the easier fix and would have cost the
+        // convergence rate. The colour is selected with a `continue` rather than by striding
+        // k, because the k loop carries a sliding window over the land mask that assumes
+        // consecutive k.
+        //
+        // Ported from the family's shared PressureSolver.h (ATURAN `ffd0e0e` diagnosed the
+        // same defect in its own solver and cured it by serialising, which was right there —
+        // its computePressure is 0.003 s of a 5.3 s step. Here the projection is 26.7 s at
+        // one thread, so the parallelism has to be kept.)
+        //
+        // NOTE this does NOT reproduce the old 1-thread answer: red-black is a different
+        // sweep order from lexicographic Gauss-Seidel, so it converges to the same solution
+        // by a different path. Every measurement in the README taken before this commit
+        // moves in its last digits.
+        // ==================================================================
+        for (int colour = 0; colour < 2; colour++) {
+
         // Main compute loop — land mask lookups + hoisted j-invariants + k sliding window
-        #pragma omp parallel for collapse(2) schedule(dynamic, 4) \
+        #pragma omp parallel for collapse(2) schedule(static) \
                 reduction(+:n_src_clamped,n_src_cells)
         for (int i = 1; i < m.im-1; i++) {
             for (int j = 1; j < m.jm-1; j++) {
@@ -249,6 +339,10 @@ public:
 
                     lnd_k0 = lnd_k1;
                     lnd_k1 = lnd_kp1;
+
+                    // Cells of the other colour are skipped AFTER the window bookkeeping
+                    // above — lnd_k0/lnd_k1 slide with k and assume every k is visited.
+                    if (((i + j + k) & 1) != colour) continue;
 
                     double du_dr, dv_dthe, dw_dphi;
                     bool r_flag   = false;
@@ -436,6 +530,9 @@ public:
                 } // k
             } // j
         } // i
+
+        } // colour
+        } // sweep
 
         #undef LAND
 

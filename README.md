@@ -1048,6 +1048,177 @@ each left the water drift identical, and *that* is what finally identified the d
 rather than any one of them. A repair that changes nothing measurable is evidence about
 the measurement.
 
+18. **The 400-iteration run, the anelastic default, and a threading defect the family had
+    already solved twice (done).**
+
+    Item 17 left `ATM_ANELASTIC` off with one condition: flip it after a 400-iteration run,
+    the way the metric fix was flipped. Both runs were made at `29ca2f9` with identical
+    configuration, 24 threads, the only difference the knob.
+
+    | at iteration 400 | Boussinesq | anelastic |
+    |---|---|---|
+    | mean T | 800.631 K | 800.630 K |
+    | mean KE | 34.1103 m²/s² | 34.1147 m²/s² |
+    | KE drift per window | 4.358 % | 4.360 % |
+    | Ψ_max | 1 251 136 | 1 259 044 (1e9 kg/s) |
+    | OLR | 679.78 W/m² | 678.79 W/m² |
+    | imbalance | −408.96 W/m² | −407.97 W/m² |
+    | water drift, frozen weights | +0.0502 % | +0.0502 % |
+    | column air mass drift | −0.3421 % | −0.3421 % |
+    | deleted by the `c` ceiling | 0.002364 kg/kg | 0.002364 kg/kg |
+    | `p_dyn_cap` clamp | — | 0 of 3 791 399 cells |
+
+    **No instability, no clipping, nothing to argue with.** The two formulations track each
+    other to 0.03 K in mean temperature, 0.002 % in kinetic energy and 0.6 % in Ψ_max over
+    400 iterations, and the three water numbers are identical to four digits — which is
+    item 17's conclusion restated from a different direction, since a budget that does not
+    move when the velocity field's continuity constraint changes is not a transport budget.
+    `ATM_ANELASTIC` is now **on by default**; the env var still forces it off for A/B.
+
+    **What the run also showed is that nothing is converged, and why.** Ψ_max grows
+    linearly in both formulations — 658k, 851k, 1053k, 1251k at iterations 100/200/300/400
+    — with no sign of turning over, and after iteration 200 its maximum sits at the surface.
+    The `[vbudget]` series says why in one line:
+
+    ```
+    iter  20   vbar=-1.133   pgf=-0.00000   cor=+0.00615
+    iter 200   vbar=+0.012   pgf=-0.00005   cor=+0.00622
+    iter 400   vbar=+1.259   pgf=-0.00011   cor=+0.00618
+    ```
+
+    The meridional wind is in **free acceleration**: `dv/dt` equals the Coriolis term to
+    three figures, straight through zero, for 400 iterations. Advection, diffusion and the
+    Rayleigh surface drag are each below 1e-5 — the drag is ~300× too weak to matter, and
+    the only force that can balance a Coriolis torque is the pressure gradient, which is at
+    **1.8 % of it** and growing linearly. Extrapolating that rate puts geostrophic
+    adjustment of order 10⁴ iterations away, not 400. So this README's "of order 400
+    iterations are needed" was wrong by a factor of ~25, and 400 iterations is a stability
+    check, not a convergence check. **This is common to both formulations and therefore
+    says nothing about the anelastic default** — but it is the largest open question about
+    the dynamics.
+
+    **And the determinism check that was never re-run had stopped passing.** At 20
+    iterations:
+
+    ```
+    ATM_ANELASTIC=1, 1 thread    residuum_atm = 0.75321620
+    ATM_ANELASTIC=1, 4 threads                = 0.75328193
+    ATM_ANELASTIC=0, 1 thread                 = 0.75451284
+    ATM_ANELASTIC=0, 4 threads, run A         = 0.75455454
+    ATM_ANELASTIC=0, 4 threads, run B         = 0.75458447
+    ```
+
+    Both paths diverge, at the same place — the first `project_initial_velocity`, before any
+    anelastic code runs — so the anelastic work is exonerated. And the last two lines are
+    the sharp ones: **the same binary at the same thread count gives different answers run
+    to run.**
+
+    The site is this file's own Poisson loop:
+
+    ```
+    p_dyn[i][j][k] = (p_dyn[i±1][j][k]*num1 + p_dyn[i][j±1][k]*num2
+                    + p_dyn[i][j][k±1]*num3 + ... - div_src) * inv_denom
+    ```
+
+    written **in place** under `#pragma omp parallel for collapse(2) schedule(dynamic, 4)`
+    — over the very two indices the stencil reads across. Cell (i,j,k) was read by the
+    thread owning (i+1,j) or (i,j+1) while its owner was writing it, and `schedule(dynamic)`
+    meant which thread got which chunk varied with timing.
+
+    **This defect has now been found three times in this family.** ATOM's shared
+    `PressureSolver.h` records fixing it by red-black colouring; ATURAN `ffd0e0e` found it
+    again in its own solver and cured it by serialising; and CLAUDE.md has carried
+    "in-place Gauss–Seidel as a threading defect (ATURAN `ffd0e0e`)" in its list of *traps
+    already solved elsewhere — check before re-deriving* the whole time. It was listed and
+    not checked. A cross-reference is not a check.
+
+    The fix here is **red-black colouring**, not ATURAN's serialisation: ATURAN could
+    serialise because its `computePressure` is 0.003 s of a 5.3 s step, while here
+    `project_initial_velocity` alone is 26.7 s at one thread. Each solve is two passes over
+    a checkerboard of `(i+j+k)`; every cell of one colour has all six stencil neighbours in
+    the other, so within a pass nothing is read while it is written. Red-black rather than
+    Jacobi because `k` runs serially inside a thread, so the loop was reaching for
+    lexicographic Gauss–Seidel — correct in serial, broken only by the (i,j) parallelism —
+    and Jacobi would have cost the convergence rate. The colour is selected with a
+    `continue` rather than by striding `k`, because the `k` loop carries a sliding window
+    over the land mask that assumes consecutive `k`.
+
+    **Every number measured before this commit moves in its last digits**, including the
+    400-iteration table above: red-black is a different sweep order from lexicographic
+    Gauss–Seidel, so it reaches the same solution by a different path. Unlike ATURAN's
+    serialisation, this fix does *not* reproduce the old single-thread answer, and the
+    honest statement is that the comparison table is a comparison of two runs that were each
+    individually irreproducible.
+
+    **A second race was hiding under the first**, and only became visible once the pressure
+    solver stopped drowning it out. With red-black in place `residuum_atm` came back
+    identical at 1, 4 and 8 threads — but 50 log lines still differed, all of them
+    downstream of one statement in `UtilsAtm::findResiduumAtm`:
+
+    ```cpp
+    if(res > local_max.val) {
+        local_max = {res, i, j, k};
+        m.residuum_old = res;        // shared model member, written from every thread
+    }
+    ```
+
+    Each thread wrote its own running maximum into a shared member with no synchronisation,
+    and whichever finished last survived — 0.75315196 at one thread against 0.28779950 at
+    four. It is read three times in the printout, including the test that decides whether
+    the log says *"absolute error declining"* or *"absolute error is too high"*, so **a raced
+    value drove the line a human reads to judge convergence** — and it was never the previous
+    iteration's residuum that the name promises and that test needs. Now captured once at
+    entry and written once at exit.
+
+    The same block also chose its reported error *location* by thread arrival order: a plain
+    `>` inside `omp critical` lets the first thread win an equal maximum, giving lon 18 at
+    one thread against lon 20 at four, same latitude, same residual. Ties are not an accident
+    here — invariant 1 makes the model hemispherically symmetric, so **equal maxima are the
+    expected case**. Tie-broken on the smallest `(i,j,k)`.
+
+    **What is fixed, and what is not.** Measured at 20 iterations after both repairs:
+
+    | comparison | before | after |
+    |---|---|---|
+    | 4 threads, run A vs run B | differ (0.75455454 / 0.75458447) | **identical** |
+    | 1 vs 4 threads | differ, 334 lines | differ, 54 lines |
+    | 1 vs 8 threads | differ | differ |
+
+    The **races are gone** — that is what the run-to-run comparison proves, and it was the
+    serious defect. What remains is ~1 ulp and a different animal: `residuum_atm` comes out
+    0.74743479 / 0.74743479 / 0.74743481 at 1/4/8 threads while the printed wind extrema are
+    identical between 1 and 4. That is floating-point summation order, not a race — OpenMP
+    combines partial sums in a thread-count-dependent order and `+` is not associative — and
+    it re-enters the physics through a global mean, `t_skin` being the prime suspect since
+    `densities()` rebuilds the whole column from it. **So the accurate claim is: run-to-run
+    bit-identical at a fixed thread count, thread-count dependent at ~1e-8.** Ordered
+    reductions are a separate item.
+
+    **And the elliptic solve was under-converged, but that is not why nothing balances.**
+    `run()` did exactly one Gauss–Seidel sweep per physics iteration, which moves information
+    one cell — ATURAN's shared solver has carried the note *"one sweep per call is not an
+    elliptic solve"* for its whole history, and ATHAD never had the knob. `ATM_PRESS_SWEEPS`
+    adds it, default 1 and bit-identical. The scan, at iteration 20:
+
+    | | 1 sweep | 10 | 50 |
+    |---|---|---|---|
+    | `pgf` | −0.00000 | −0.00003 | −0.00006 |
+    | `cor` | 0.00615 | 0.00614 | 0.00614 |
+    | pgf/cor | ~0 % | 0.5 % | **1.0 %** |
+    | `vbar` | −1.13245 | −0.98020 | −0.83438 |
+    | `∇·(ρ̄u)/ρ̄` rms | 2.653e-02 | 2.335e-02 | 2.319e-02 |
+    | wall clock | 9:07 | 6:39 | 11:32 |
+
+    More sweeps do build more pressure-gradient force, and the meridional wind accelerates
+    measurably less — so the solve **was** under-converged. But it saturates: the residual
+    improves 12 % from 1 to 10 sweeps and 1 % more from 10 to 50, while the initial
+    projection goes 18 s → 73 s → 357 s, and at 50 sweeps `pgf` is **still 1 % of the
+    Coriolis term**. A projection's pressure removes divergence instantaneously; the balanced
+    field is a slow mode the flow must build over many steps. Fifty sweeps buys a factor of
+    about two in how fast, not the factor of fifty that would close the gap. **The ~10⁴
+    iteration estimate stands, and the solver is ruled out as its cause** — which is the
+    result worth having, since it was the obvious suspect.
+
 ## Remaining work
 
 
@@ -1074,8 +1245,12 @@ the measurement.
 - **`moist_phys_start_iter = 300`** means a 400-iteration run is dry for three quarters of
   its length. Deliberate (it lets the circulation form before the stiff microphysics
   starts), but it must be stated whenever a run is quoted.
-- **The run is not converged**: 100 iterations leaves a −143 W/m² imbalance, still decaying
-  ~9 % per 10 iterations. Of order 400 iterations are needed. Run it.
+- **The run is not converged, and 400 iterations is not close** (item 18). The meridional
+  wind is in free acceleration under an unopposed Coriolis torque — the pressure gradient
+  that should balance it is at 1.8 % of it after 400 iterations and growing linearly, which
+  puts geostrophic adjustment of order 10⁴ iterations away. Ψ_max grows linearly throughout
+  and the imbalance sits at −408 W/m². **This is the largest open question about the
+  dynamics** and it is common to both continuity formulations.
 - **The OLR is not grid-converged either**: 519 W/m² at a 260 km shell against 581 at
   300 km, with `im` fixed at 61. Refine vertically and check.
 - **The opacity is too low to hold the surface.** OLR 581 W/m² against 271 absorbed. Since

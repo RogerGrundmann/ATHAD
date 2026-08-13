@@ -133,14 +133,16 @@ README items 9-11.
   divides by eps, so an optically thin top is exact rather than fatal. This removed the
   ceiling on the shell.
 - **Shell 300 km**, 61 levels; top 3.8e-4 bar with lid eps = 0.0000, isothermal skin
-  resolved from 256 km, condensation from 242.8 km. **OLR = 581 W/m2 against
-  sigma*T_lid^4 = 271 — decoupled, i.e. a real column integral.** At the old 230 km the
-  two were equal and the OLR was an input.
-- **The model's first genuine statement: its opacity is too low.** OLR 581 W/m2 against
-  271 absorbed + geothermal, so the atmosphere radiates away more than twice what it takes
-  in and cannot hold the prescribed 1500 K surface. That is a claim about
-  `kappa_H2O` = 0.01 m2/kg, not about the boundary.
-- **Not grid-converged**: 519 W/m2 at 260 km against 581 at 300 km with `im` fixed at 61.
+  resolved from 256 km. **OLR decoupled from sigma*T_lid^4 — a real column integral.** At
+  the old 230 km the two were equal and the OLR was an input.
+- **The model's first genuine statement: its opacity is too low.** At 400 iterations,
+  **OLR = 679.8 W/m2 against 270.8 absorbed + geothermal** (sigma*T_lid^4 = 271.1), so the
+  atmosphere radiates away 2.5x what it takes in and cannot hold the prescribed 1500 K
+  surface. That is a claim about `kappa_H2O` = 0.01 m2/kg, not about the boundary. **The
+  581 W/m2 quoted here through items 11-17 was a 100-iteration figure and is superseded**;
+  the imbalance at 400 iterations is -409 W/m2 and still not converged (item 18).
+- **Not grid-converged**: 519 W/m2 at 260 km against 581 at 300 km with `im` fixed at 61
+  (both at 100 iterations — the check has not been repeated at 400).
 - Mean planetary albedo 0.4999 = `albedo_cloud`; the reflectivity saturates the moment any
   condensate exists, so the model reports that parameter.
 - Insolation is now TOA (mean 241.56 W/m2); `t_skin` is a fixed point against the model's
@@ -150,8 +152,34 @@ README items 9-11.
 - The **geothermal >= 195 W/m2** claim of Phase 7 is retracted: it rested on an OLR that
   was `sigma*t_skin^4` plus a stale lid pin (README item 10).
 
-Bit-identical at 1, 4 and 8 OpenMP threads. Text diagnostics print every 10 iterations for
+**Reproducibility, stated precisely (README item 18).** Run-to-run **bit-identical at a
+fixed thread count**; **thread-count dependent at ~1e-8**. The old claim of "bit-identical at
+1, 4 and 8 threads" had silently stopped being true and is not fully restored:
+
+- **Fixed — the data races.** The Poisson loop wrote `p_dyn` in place under
+  `collapse(2) schedule(dynamic,4)` over the two indices its stencil reads across, and
+  `UtilsAtm::findResiduumAtm` wrote the shared `m.residuum_old` from inside every thread.
+  The same binary at the same thread count gave different answers run to run; it no longer
+  does. Red-black colouring and a single post-reduction write.
+- **Not fixed — floating-point reduction order.** OpenMP combines partial sums in a
+  thread-count-dependent order and `+` is not associative, so 1, 4 and 8 threads still
+  differ in the last digit (`residuum_atm` 0.74743479 / 0.74743479 / 0.74743481) while the
+  printed wind extrema agree exactly. The feedback path is a global mean that re-enters the
+  physics; `t_skin` is the prime suspect, being a reduction the whole column is then rebuilt
+  from. Curing it needs ordered reductions.
+
+The pressure-solver race is the third time the family has found that defect and the first
+time here, despite it being listed below under *traps already solved elsewhere*. **A
+cross-reference is not a check.**
+
+Text diagnostics print every 10 iterations for
 short runs (`nm ≤ 100`), every 100 for longer ones; `diagnostic_stride` overrides.
+
+**`atom_log.txt` is reserved by the model — never redirect a run into it.**
+`lib/Utils.cpp:45` opens `atom_log.txt` in the run directory with `std::ofstream::out`,
+which truncates it. A shell redirect to the same name loses the whole console output when
+the model's handle closes; a 100-iteration run's printouts were destroyed this way. Use any
+other filename.
 
 ## Relationship to the family
 
@@ -206,10 +234,13 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   compressible formulation. The family's partial answer is the ATJUP hydrostatic split
   (ported in ATURAN `302a51e`) — and it did not cure the giants' problem. **Now testable
   here**: an anelastic projection (`∇·(ρ̄u) = 0`, base state, matching Poisson stencil,
-  zero mass flux at the walls) is implemented behind `ATM_ANELASTIC`, default off. It cuts
-  the anelastic residual 22 % and halves the spurious radial wind in the initial
-  projection; it does *not* change the tracer mass budget, because that was never a
-  transport error (README item 17). Flip the default after a 400-iteration stability run.
+  zero mass flux at the walls) is implemented behind `ATM_ANELASTIC` and is **on by
+  default** since README item 18. It cuts the anelastic residual 22 % and halves the
+  spurious radial wind in the initial projection; it does *not* change the tracer mass
+  budget, because that was never a transport error (item 17); and over 400 iterations it
+  tracks the Boussinesq baseline to 0.03 K in mean T, 0.002 % in KE and 0.6 % in Ψ_max,
+  with the `p_dyn_cap` clamp binding in 0 of 3 791 399 cells. `ATM_ANELASTIC=0` forces the
+  Boussinesq path for A/B.
 - **The column air mass is not conserved.** `p_stat.x[0]` is re-anchored every iteration to
   `r_air·R_mix·T_surf`, so the 250 bar column loses ~0.01 % of its mass per iteration as
   the surface temperature drifts. This is what `waterBudget()` had been reporting as water
