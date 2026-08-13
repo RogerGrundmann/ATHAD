@@ -22,6 +22,7 @@
 #include "TwoCatIceScheme.h"
 #include "ThreeCatIceScheme.h"
 #include "SaturationAdjustment.h"
+#include "ConvectiveAdjustment.h"
 #include "VelocityInitializer.h"
 #include "PressureSolverAtm.h"
 #include "ThermoAtm.h"
@@ -1391,6 +1392,12 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
             // has no CO2 source or sink, so any drift is transport error.
             ThermoAtm(*this).co2Column(iter_n % diagnosticStride() == 0);
             ThermoAtm(*this).waterBudget(iter_n % diagnosticStride() == 0, "post-moist");
+            // Dry convective adjustment, immediately BEFORE densities(). With the profile
+            // still prescribed (ATM_PROGNOSTIC_T=0) densities() overwrites t on the next
+            // line, so this is a no-op that costs one pass and reports 0 columns — which is
+            // itself the check that the prescription is what is holding the column stable.
+            // With ATM_PROGNOSTIC_T=1 it is the only thing that does.
+            ConvectiveAdjustment(*this).run();
             ThermoAtm(*this).densities();
             ThermoAtm(*this).forces();
             ThermoAtm(*this).standAtm_DewPoint_HumidRel();              // International Standard Atmosphere temperature profile, dew point temperature, relative humidity profile
