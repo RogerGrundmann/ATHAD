@@ -883,25 +883,55 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
         + 2.0 * dudphi * inv_rm2sinthe
         + dvdphi * 2.0 * costhe * inv_rm2sinthe2) * diffusion_vel_re;
 
+    // ATM_TRACER_DIFF_FLUX (default 0 = bit-identical) — the DIFFUSIVE half of the tracer
+    // mass budget, which is a different question from the advective half and is not
+    // answered by it.
+    //
+    // For a mass fraction the conservative diffusive flux is d(rho q)/dt = div(rho K grad q),
+    // i.e. dq/dt = K lap(q) + K grad(ln rho) . grad(q). The second term is missing here: the
+    // operators below are the plain Laplacian, which conserves the integral of q dV and NOT
+    // of rho q dV. That is the same failure the advective form has — but with a crucial
+    // difference. The advective one is repaired by continuity, so it belongs in the flow
+    // (README item 15). This one is not repaired by anything: it is a term the tracer
+    // equation is simply missing, and it survives however good the velocity field is.
+    //
+    // It is also safe in the way the advective flux-form correction was not. It is
+    // proportional to grad(q), so a uniform tracer stays uniform and CO2 stays well mixed —
+    // the test that ruled the other correction out.
+    //
+    // rho_bar depends on r only, so this is one term on the radial derivative, and both
+    // radial factors are exp_rm (dln(rho)/dr_phys and dq/dr_phys) — hence exp_2_rm, the
+    // same factor the radial Laplacian term carries. The centred dcdr is used, not the
+    // minmod-limited dcdr_adv: this is a diffusive flux, not advection.
+    static const bool tracer_diff_flux = [](){ const char* e = getenv("ATM_TRACER_DIFF_FLUX");
+                                               return e ? (atof(e) != 0.0) : false; }();
+    const double dlnrho_dr_i = (tracer_diff_flux && (int)m_dlnrho_dr.size() == im)
+                             ? m_dlnrho_dr[i] * exp_2_rm : 0.0;
+
     double diffusion_c = (d2cdr2 * exp_2_rm + dcdr * two_over_rm_exp
         + d2cdthe2 * inv_rm2 + dcdthe * cos_rm2sin
-        + d2cdphi2 * inv_rm2sinthe2) * diff_prec_re_inv;
+        + d2cdphi2 * inv_rm2sinthe2
+        + dcdr * dlnrho_dr_i) * diff_prec_re_inv;
 
     double diffusion_cloud = (d2clouddr2 * exp_2_rm + dclouddr * two_over_rm_exp
         + d2clouddthe2 * inv_rm2 + dclouddthe * cos_rm2sin
-        + d2clouddphi2 * inv_rm2sinthe2) * diff_prec_re_inv;
+        + d2clouddphi2 * inv_rm2sinthe2
+        + dclouddr * dlnrho_dr_i) * diff_prec_re_inv;
 
     double diffusion_ice = (d2icedr2 * exp_2_rm + dicedr * two_over_rm_exp
         + d2icedthe2 * inv_rm2 + dicedthe * cos_rm2sin
-        + d2icedphi2 * inv_rm2sinthe2) * diff_prec_re_inv;
+        + d2icedphi2 * inv_rm2sinthe2
+        + dicedr * dlnrho_dr_i) * diff_prec_re_inv;
 
     double diffusion_g = (d2gdr2 * exp_2_rm + dgdr * two_over_rm_exp
         + d2gdthe2 * inv_rm2 + dgdthe * cos_rm2sin
-        + d2gdphi2 * inv_rm2sinthe2) * diff_prec_re_inv;
+        + d2gdphi2 * inv_rm2sinthe2
+        + dgdr * dlnrho_dr_i) * diff_prec_re_inv;
 
     double diffusion_co2 = (d2codr2 * exp_2_rm + dcodr * two_over_rm_exp
         + d2codthe2 * inv_rm2 + dcodthe * cos_rm2sin
-        + d2codphi2 * inv_rm2sinthe2) * diff_co2_re_inv;
+        + d2codphi2 * inv_rm2sinthe2
+        + dcodr * dlnrho_dr_i) * diff_co2_re_inv;
 
     double diffusion_tke = (d2tkedr2 * exp_2_rm + dtkedr * two_over_rm_exp
         + d2tkedthe2 * inv_rm2 + dtkedthe * cos_rm2sin

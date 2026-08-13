@@ -749,7 +749,14 @@ the measurements that did not work out — rather than what is intended.
     A run in which it stays large is not to be trusted, and this one does.
 
 15. **The water is not lost, it is created — and the moist physics was not running (done:
-    diagnosis and instrumentation; the fix is open).**
+    diagnosis and instrumentation).**
+
+    ⚠️ **The headline of this item is wrong, and item 17 corrects it.** The water was not
+    being created: the mass-weighted mean divides by an air mass that `densities()` rebuilds
+    every iteration, and it was the air mass that moved. Measured against frozen weights the
+    water field drifts +0.0011 % where this item reports +0.17 %. The instrumentation and
+    the two experiments below stand; the attribution to the transport does not. Read this
+    item for how the measurement was built and item 17 for what it turned out to measure.
 
     Item 14 left the `c ≤ 1 − co2` ceiling deleting water in 282 302 cells per iteration,
     with the working hypothesis that sedimentation pumps water out of the condensing level
@@ -787,18 +794,32 @@ the measurements that did not work out — rather than what is intended.
     only a field with structure can expose the error. The earlier claim that the CO₂ result
     validated the transport was wrong.
 
-    **The cause is the advective form of the tracer equation.** `RHS_Atm_Turb` integrates
-    `∂q/∂t = −u·∇q + …`, which conserves `∫ρq dV` only when `∇·(ρu) = 0`. The pressure
-    projection enforces `∇·u = 0`, not `∇·(ρu) = 0`, and ATHAD's density spans five orders
-    of magnitude across the column. The consistent form is
+    **Where the drift is.** Per-level attribution in `waterBudget()` puts it at levels
+    42–47, **113 to 149 km** — deep in the supercritical column, far below both the cloud
+    deck at 243 km and the band the `c` ceiling clamps at 185–230 km. It is static between
+    iterations 10 and 20 (+2.83e-3 against +2.82e-3), so the redistribution happens early
+    and then settles into a steady state in which creation balances the ceiling's deletion.
+    Water moved *downward* out of the low-density band into air one to two orders of
+    magnitude denser, and the mass-weighted total rose accordingly.
 
-    ```
-    ∂q/∂t = −u·∇q − (q/ρ)·∇·(ρu) + …
-    ```
+    **The cause is that the flow does not satisfy the continuity the tracer equation
+    assumes.** `RHS_Atm_Turb` integrates `∂q/∂t = −u·∇q + …`, which conserves `∫ρq dV` only
+    when `∇·(ρu) = 0`. The pressure projection enforces `∇·u = 0`, and ATHAD's density spans
+    five orders of magnitude across the column.
 
-    This is the **Boussinesq risk in CLAUDE.md arriving in concrete form**, and it is the
-    open item: it touches the transport of every tracer and changes every result, so it has
-    not been applied.
+    **The flux-form correction proposed here first is the wrong fix, and was not applied.**
+    Expanding `∂(ρq)/∂t + ∇·(ρuq) = 0` gives `q[∂ρ/∂t + ∇·(ρu)] + ρ[∂q/∂t + u·∇q] = 0`, and
+    the first bracket *is* continuity — so for a **mass fraction** the advective form is
+    already exactly right, conditional on continuity. Adding `−(q/ρ)·∇·(ρu)` against a fixed
+    `ρ` and a velocity field with `∇·(ρu) ≠ 0` would restore the global integral by making a
+    *uniform* tracer develop structure: CO₂ would stop being well mixed, which is precisely
+    the failure the uniformity test in the scope below exists to catch. It would trade a
+    measured 0.17 % global error for an unphysical local one.
+
+    So the defect is upstream, in the flow, and the fix belongs in `PressureSolverAtm`:
+    anelastic continuity, `∇·(ρu) = 0`. This is the **Boussinesq risk in CLAUDE.md arriving
+    in concrete form**. It changes the dynamical core and every result in this README, which
+    is why it is scoped below rather than applied.
 
     Two further consequences worth knowing: the cloud deck discussed in items 9 and 14 is
     an *initialisation-time* state that the first 300 iterations only advect, and the
@@ -865,7 +886,96 @@ the measurements that did not work out — rather than what is intended.
     behind, which is consistent with the anelastic diagnosis and makes steps 2–7 the
     remaining candidate.
 
+17. **The anelastic projection, built and measured — and the water was never being created
+    (done).**
+
+    Steps 2–7 of the scope below are implemented behind `ATM_ANELASTIC` (default 0,
+    bit-identical when unset): a one-dimensional base state `ρ̄(z)` rebuilt by
+    `ThermoAtm::densities()` alongside the profile it averages; the divergence source
+    `D = ∇·u* + u*_r·dlnρ̄/dr`; the same `dlnρ̄/dr` as a first-derivative term in the Poisson
+    stencil, so source and operator stay adjoint — the lesson of step 1; and `ρ̄u_r = 0` at
+    the surface and the lid in place of the `c43/c13` extrapolation, which permitted a
+    through-wall mass flux. Step 7 needed no change: `t_ref_level[i]` is already the same
+    horizontal mean, of the same prescribed profile, that `ρ̄` is.
+
+    **It works, and it does not fix the water.** A/B at 20 iterations, metric fix on in
+    both, `ATM_ANELASTIC` the only difference:
+
+    | | off | on |
+    |---|---|---|
+    | `∇·u` rms | 2.153e-02 | 2.670e-02 |
+    | `∇·(ρ̄u)/ρ̄` rms | 3.359e-02 | **2.607e-02** |
+    | max radial wind after the initial projection | 0.1937 m/s | **0.0972 m/s** |
+    | max meridional wind, iter 20 | 3.562967 m/s | 3.652312 m/s |
+    | water drift, 20 iters | +0.0630 % | **+0.0630 %** |
+    | drift by level, top 6 | i=44 +2.82e-03, i=45 +2.80e-03, … | **identical to 3 s.f.** |
+    | CO₂ drift; min vs max | 0.0000 %; equal | 0.0000 %; equal |
+
+    The anelastic residual falls 22 %, the Boussinesq one rises — it is no longer the
+    enforced quantity — and half the spurious radial wind the old projection left in the
+    initial field is gone. **Step 6 turns out to be unnecessary**: the `p_dyn_cap` source
+    clamp, which the scope suspected of clipping the projection before it could act, binds
+    in **0 of 3 791 399 fluid cells**. That is now printed every solve rather than assumed.
+
+    And the water drift does not move — the third repair in a row to leave it identical.
+    A tracer error indifferent to a velocity field that changed by a factor of two in `u`
+    is not an advection error, which rules out the flow exactly as the algebra of item 15
+    ruled out the tracer equation.
+
+    **The drift is in the diagnostic's denominator.** `waterBudget()` reports water mass
+    over air mass, and *both* come from `p_stat`, which `densities()` re-integrates
+    hydrostatically every iteration on the local `R` and `cp` — which follow the
+    composition and the surface temperature. Nothing separated the two. Measured against
+    weights frozen at the reference time, with the column air mass those weights carry
+    reported beside it:
+
+    ```
+    iter 10:  q_mean drift +0.0621 %   q against FROZEN weights +0.0011 %   column air mass -0.1258 %
+    iter 20:  q_mean drift +0.0630 %   q against FROZEN weights +0.0025 %   column air mass -0.2128 %
+    ```
+
+    The water field moved by **+0.0025 % over 20 iterations**, twenty-five times less than
+    the number this README has been quoting. What moved is the air: the column is losing
+    about 0.01 % of its mass per iteration, steadily and without sign of stopping, so
+    water-over-air rises. The per-level attribution at 113–149 km is the same artefact —
+    those are the levels where `dp` changed most, not where water arrived.
+
+    So **item 15's headline is wrong and is corrected here**: water was not being created
+    at 0.11 % per iteration. The transport error is ~0.0001 % per iteration, and what the
+    budget was measuring is the hydrostatic column being re-weighed. Two consequences:
+
+    - The **column air mass is not conserved**, because nothing in this model makes it a
+      conserved quantity. `p_stat.x[0]` is re-anchored every iteration to
+      `r_air·R_mix·T_surf`, so the mass of a "250 bar atmosphere" follows the surface
+      temperature — which the model evolves (1496.6 K against the prescribed 1500) — and
+      the whole column is then re-integrated on the new anchor. It is a prescription
+      defect, not a transport defect, and it is the open one.
+    - The `c ≤ 1 − co2` ceiling is still deleting water (0.000164 kg/kg over 20 iterations),
+      and that deletion is real. It is now the larger of the two mass errors.
+
+    **A fourth repair, correct and not the cause.** `ATM_TRACER_DIFF_FLUX` (default 0) adds
+    the missing term of the diffusive flux: for a mass fraction the conservative form is
+    `∂(ρq)/∂t = ∇·(ρK∇q)`, i.e. `∂q/∂t = K∇²q + K∇lnρ̄·∇q`, and the second term was absent —
+    the tracer diffusion was conserving `∫q dV` rather than `∫ρq dV`, in the same way the
+    advective form does but *without* continuity to repair it. Unlike the advective
+    flux-form correction of item 15 this one is proportional to `∇q`, so a uniform tracer
+    stays uniform and CO₂ stays well mixed. Worth having and kept; measured effect at 20
+    iterations is the fifth decimal of `residuum_atm` and nothing else. Note also that
+    `diff_prec_re_inv` is **not** multiplied by `diffusion_ramp`, so moisture diffusion runs
+    at full strength through a spin-up in which heat and momentum diffusion are ramped from
+    zero. That asymmetry is undocumented and probably unintended.
+
+    **`ATM_ANELASTIC` is left off by default.** It is the right continuity for this column
+    and it measurably improves the projection, but 20 iterations is not evidence of
+    stability, and the scope's own warning — every result in this README moves with it —
+    stands. Flip it after a 400-iteration run, the way the metric fix was flipped.
+
 ## Scope: the anelastic continuity fix
+
+**Status: steps 1–7 are implemented and measured (items 16 and 17). The premise below —
+that the tracer mass error comes from the velocity field — is false; the error was in the
+budget's denominator, not in the flow. The scope is kept because the anelastic projection
+is right on its own terms and the reasoning is what the measurements were made against.**
 
 The tracer mass error of item 15 comes from a velocity field that does not satisfy
 continuity for the prescribed density. `PressureSolverAtm` projects onto `∇·u = 0`; a
@@ -909,22 +1019,34 @@ against that inconsistency.
 
 **Verification — the point of the diagnostics already in place.**
 
-| test | now | required |
+| test | required | result (item 17, `ATM_ANELASTIC=1`, 20 iters) |
 |---|---|---|
-| `waterBudget()` drift, 20 iters | +0.17 % | ≈ 0 |
-| water-vapour ceiling hits | ~460 000 cells | ≈ 0 |
-| CO₂ max − min (uniformity) | 0 exactly | still 0 |
-| Ψ_max over 400 iters | 676k → 1259k, growing | bounded |
-| `∇·u` after projection | not measured | measured, and small |
-| bit-identical at 1/4/8 threads | passes | still passes |
+| `waterBudget()` drift, 20 iters | ≈ 0 | +0.0630 %, **unchanged** — and the wrong test: see item 17 |
+| water drift against frozen weights | ≈ 0 | +0.0025 %, the number that was wanted all along |
+| water-vapour ceiling hits | ≈ 0 | still deleting 0.000164 kg/kg / 20 iters |
+| CO₂ max − min (uniformity) | still 0 | 0 exactly |
+| `∇·(ρ̄u)/ρ̄` after projection | measured, and small | 3.359e-02 → **2.607e-02** |
+| `∇·u` after projection | measured | 2.153e-02 → 2.670e-02 (no longer the enforced one) |
+| source clamped at `p_dyn_cap` | not clipping the projection | **0 of 3 791 399 cells** |
+| Ψ_max over 400 iters | bounded | not yet run at 400 |
+| bit-identical at 1/4/8 threads | still passes | not re-checked |
 
 The CO₂ uniformity test is the one that catches an over-correction: any scheme that makes a
-well-mixed tracer develop structure is wrong, whatever it does for the mass budget.
+well-mixed tracer develop structure is wrong, whatever it does for the mass budget. It is
+what ruled out the advective flux-form correction, and it passes here because the anelastic
+change is in the flow rather than in the tracer equations.
 
 **Effort and risk.** The code is modest — a few dozen lines across `PressureSolverAtm` and
 the divergence source. The verification is the work, and every number in this README
 changes. Step 1 is separable, independently valuable, and should be measured before
 steps 2–7 are started.
+
+That estimate held: about forty lines, and the verification took four 20-iteration runs.
+What it did not anticipate is that all of it would be measured against a diagnostic whose
+denominator was moving. Three repairs — step 1, steps 2–7, and the diffusive flux term —
+each left the water drift identical, and *that* is what finally identified the diagnostic
+rather than any one of them. A repair that changes nothing measurable is evidence about
+the measurement.
 
 ## Remaining work
 
@@ -940,10 +1062,15 @@ steps 2–7 are started.
   radiation must *set* the profile rather than nudge it toward a prescribed one; the
   prescription still wins. The OLR is now a genuine integral **over a prescribed profile** —
   a real improvement, but not yet a prediction.
-- **The tracer transport is not conservative** (item 15): water is created at ~0.11 % per
-  iteration and the vapour ceiling deletes the surplus. Fix by moving the tracer equations
-  to flux form, `∂q/∂t = −u·∇q − (q/ρ)∇·(ρu)`. This is the Boussinesq problem in concrete
-  form and it is the next real task.
+- **The column air mass is not conserved** (item 17). `p_stat.x[0]` is re-anchored every
+  iteration to `r_air·R_mix·T_surf`, so a "250 bar atmosphere" loses mass whenever the
+  surface temperature moves — 0.126 % over 20 iterations, which is what the water budget
+  was reading as water creation. The tracer transport itself drifts ~0.0001 % per
+  iteration. Fixing this means anchoring the column to a mass rather than to a prescribed
+  surface density, and it is entangled with the prescribed profile below.
+- **The `c ≤ 1 − co2` ceiling still deletes water**, 0.000164 kg/kg over 20 iterations.
+  With the transport exonerated this is now the larger of the two mass errors, and unlike
+  the other one it is a straightforward deletion with no compensating source.
 - **`moist_phys_start_iter = 300`** means a 400-iteration run is dry for three quarters of
   its length. Deliberate (it lets the circulation form before the stiff microphysics
   starts), but it must be stated whenever a run is quoted.

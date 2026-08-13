@@ -204,7 +204,16 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 - **Boussinesq.** The solver rests on the Boussinesq buoyancy approximation, but density
   varies by ~2 orders of magnitude across the column. This may force an anelastic or
   compressible formulation. The family's partial answer is the ATJUP hydrostatic split
-  (ported in ATURAN `302a51e`) — and it did not cure the giants' problem. **Untested here.**
+  (ported in ATURAN `302a51e`) — and it did not cure the giants' problem. **Now testable
+  here**: an anelastic projection (`∇·(ρ̄u) = 0`, base state, matching Poisson stencil,
+  zero mass flux at the walls) is implemented behind `ATM_ANELASTIC`, default off. It cuts
+  the anelastic residual 22 % and halves the spurious radial wind in the initial
+  projection; it does *not* change the tracer mass budget, because that was never a
+  transport error (README item 17). Flip the default after a 400-iteration stability run.
+- **The column air mass is not conserved.** `p_stat.x[0]` is re-anchored every iteration to
+  `r_air·R_mix·T_surf`, so the 250 bar column loses ~0.01 % of its mass per iteration as
+  the surface temperature drifts. This is what `waterBudget()` had been reporting as water
+  creation. Anchoring the column to a mass instead is the open task — README item 17.
 - **Deep convection is inactive.** Its trigger thresholds (1000/970/900/800 hPa) are
   absolute Earth surface pressures and never fire at 250 bar. They need to become
   fractions of surface pressure.

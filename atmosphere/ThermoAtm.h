@@ -856,6 +856,57 @@ public:
         const double q_mean = (w_den > 0.0) ? w_num / w_den : 0.0;
         if (m.m_q_h2o_ref <= 0.0) m.m_q_h2o_ref = q_mean;
 
+        // ------------------------------------------------------------------
+        // The same mean against FROZEN weights, and the air mass those weights carry.
+        //
+        // q_mean above is water mass over air mass, and BOTH are read from p_stat, which
+        // densities() re-integrates hydrostatically every iteration on the local R and cp —
+        // which depend on the composition. So the weights move when the water moves, and a
+        // drift in q_mean is not by itself evidence that any water was created: it can be
+        // the column being re-weighed. Nothing separated the two, and three separate
+        // repairs to the transport (the metric fix, the anelastic projection, the diffusive
+        // flux term) each left the drift identical to three significant figures, which is
+        // not how a transport error behaves.
+        //
+        // q_fixed applies the reference weights to the current field: the horizontal mean
+        // of q at each level, weighted by the air mass that level had at the reference
+        // time. If q_fixed is flat while q_mean drifts, the water did not move — the
+        // weighing did. air_mean is the column air mass itself, the same test at one
+        // remove: it is a fixed 250 bar column and must not drift at all.
+        std::vector<double> qbar(m.im, 0.0), abar(m.im, 0.0);
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < m.im; i++) {
+            double qn = 0.0, qd = 0.0, an = 0.0;
+            for (int j = 0; j < m.jm; j++) {
+                const double coslat = cos((j / (double)(m.jm - 1) - 0.5) * M_PI);
+                for (int k = 0; k < m.km; k++) {
+                    const double dp_Pa = (i < m.im - 1)
+                        ? (m.p_stat.x[i][j][k] - m.p_stat.x[i+1][j][k]) * 100.0
+                        :  m.p_stat.x[i][j][k] * 100.0;
+                    const double q_w = std::max(0.0, m.c.x[i][j][k])
+                                     + std::max(0.0, m.cloud.x[i][j][k])
+                                     + std::max(0.0, m.ice.x[i][j][k])
+                                     + std::max(0.0, m.gr.x[i][j][k]);
+                    qn += coslat * q_w;
+                    qd += coslat;
+                    if (dp_Pa > 0.0) an += coslat * dp_Pa / m.g;
+                }
+            }
+            qbar[i] = (qd > 0.0) ? qn / qd : 0.0;                  // plain horizontal mean of q
+            abar[i] = an;                                          // air mass carried by the level
+        }
+        if (m.m_air_levels.empty()) m.m_air_levels = abar;
+
+        double qf_num = 0.0, qf_den = 0.0, air_now = 0.0, air_ref = 0.0;
+        for (int i = 0; i < m.im; i++) {
+            qf_num  += m.m_air_levels[i] * qbar[i];
+            qf_den  += m.m_air_levels[i];
+            air_now += abar[i];
+            air_ref += m.m_air_levels[i];
+        }
+        const double q_fixed = (qf_den > 0.0) ? qf_num / qf_den : 0.0;
+        if (m.m_q_h2o_fixed_ref <= 0.0) m.m_q_h2o_fixed_ref = q_fixed;
+
         // Per-level attribution: which levels the drift is actually appearing in. The
         // global number says water is created; only this says where, and "where" decides
         // whether the cause is the transport, a limiter, or the moist physics.
@@ -889,6 +940,15 @@ public:
                  << ", drift " << showpos << setprecision(4) << drift << " %"
                  << noshowpos << ";  deleted by the c ceiling so far "
                  << setprecision(6) << m.m_q_h2o_clipped << " kg/kg)" << endl;
+
+            const double drift_fixed = (m.m_q_h2o_fixed_ref > 0.0)
+                                     ? 100.0 * (q_fixed / m.m_q_h2o_fixed_ref - 1.0) : 0.0;
+            const double drift_air   = (air_ref > 0.0)
+                                     ? 100.0 * (air_now / air_ref - 1.0) : 0.0;
+            cout << "            against FROZEN weights q = " << fixed << setprecision(6)
+                 << q_fixed << " kg/kg (drift " << showpos << setprecision(4) << drift_fixed
+                 << " %)" << noshowpos << ";   column air mass drift "
+                 << showpos << setprecision(4) << drift_air << " %" << noshowpos << endl;
 
             // Rank the levels by how much of the drift they carry.
             std::vector<std::pair<double,int> > d;
@@ -1377,6 +1437,51 @@ public:
                     m.r_dry.x[0][j][k]   = m.r_dry.x[i_m][j][k];
                     m.r_humid.x[0][j][k] = m.r_humid.x[i_m][j][k];
                 }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Anelastic base state rho_bar(z) — step 2 of the anelastic scope.
+        //
+        // Rebuilt here because this is where the profile is rebuilt: the base state the
+        // pressure projection uses must be the same density field the rest of the model
+        // sees, or the projection removes the divergence of a column that does not exist.
+        // cos(latitude)-weighted, matching waterBudget() and planetaryShortWave().
+        //
+        // Only the horizontal MEAN enters. r_humid varies horizontally by a few per cent
+        // (the surface temperature is a shallow parabola and there is no topography),
+        // against five orders of magnitude vertically, so a one-dimensional base state
+        // loses almost nothing and keeps the elliptic operator constant in time.
+        m.m_rho_base.assign(m.im, 0.0);
+        m.m_dlnrho_dr.assign(m.im, 0.0);
+        {
+            std::vector<double> lnrho(m.im, 0.0);
+            for (int i = 0; i < m.im; i++) {
+                double num = 0.0, den = 0.0;
+                for (int j = 0; j < m.jm; j++) {
+                    const double coslat = cos((j / (double)(m.jm - 1) - 0.5) * M_PI);
+                    for (int k = 0; k < m.km; k++) {
+                        const double rho = m.r_humid.x[i][j][k];
+                        if (!(rho > 0.0)) continue;
+                        num += coslat * rho;
+                        den += coslat;
+                    }
+                }
+                m.m_rho_base[i] = (den > 0.0) ? num / den : 0.0;
+                lnrho[i] = (m.m_rho_base[i] > 0.0) ? log(m.m_rho_base[i]) : 0.0;
+            }
+
+            // d ln(rho_bar)/d(rad.z). rad.z is uniform (r0 + i*dr, dr = 1/(im-1)), so the
+            // centred difference is the same stencil the solver uses on every other field;
+            // the ends get the one-sided form so the first and last interior cells, which
+            // are exactly where the projection's wall BC acts, are not fed a half-step.
+            const double inv_2dr = 1.0 / (2.0 * m.dr);
+            const double inv_dr  = 1.0 / m.dr;
+            for (int i = 1; i < m.im - 1; i++)
+                m.m_dlnrho_dr[i] = (lnrho[i+1] - lnrho[i-1]) * inv_2dr;
+            if (m.im > 1) {
+                m.m_dlnrho_dr[0]        = (lnrho[1] - lnrho[0]) * inv_dr;
+                m.m_dlnrho_dr[m.im - 1] = (lnrho[m.im-1] - lnrho[m.im-2]) * inv_dr;
             }
         }
 

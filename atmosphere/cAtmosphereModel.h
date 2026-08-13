@@ -100,6 +100,31 @@ public:
     // Per-level water contribution at the reference time, for attributing the drift.
     std::vector<double> m_q_h2o_levels;
 
+    // Per-level air mass [kg/m2, cos-lat weighted] at the reference time, and the water
+    // mean computed against it. Together these separate "water was created" from "the
+    // column was re-weighed": q_mean divides by an air mass that densities() rebuilds
+    // every iteration, so a drift in it is not by itself a transport error. See
+    // ThermoAtm::waterBudget().
+    std::vector<double> m_air_levels;
+    double m_q_h2o_fixed_ref = -1.0;
+
+    // ---- Anelastic base state (step 2 of the anelastic scope in the README) ----
+    //
+    // rho_bar(z): the cos(latitude)-weighted horizontal mean of r_humid, rebuilt by
+    // ThermoAtm::densities() every time it rebuilds the profile. It is a function of
+    // HEIGHT ONLY on purpose — a fully three-dimensional rho makes the pressure Poisson
+    // operator time-varying and costs solvability, so the anelastic projection is built
+    // on the horizontal mean and the departures from it stay in the buoyancy term.
+    //
+    // m_dlnrho_dr is d ln(rho_bar) / d(rad.z), i.e. differentiated in the GRID radial
+    // coordinate, not in height. That is what PressureSolverAtm needs: every radial
+    // derivative there is an index difference times inv_2dr and then times exp_rm, so a
+    // dln(rho)/dr in the same coordinate composes with the existing metric unchanged.
+    // Both are empty until the first densities() call; PressureSolverAtm treats an empty
+    // vector as "no base state" and falls back to the Boussinesq operator.
+    std::vector<double> m_rho_base;
+    std::vector<double> m_dlnrho_dr;
+
     // ATHAD shortwave budget, cos(latitude)-weighted over the whole sphere. albedo.y is
     // the model's OWN albedo — MultiLayerRadiation builds it from the condensate the model
     // made — so this is what the t_skin fixed point and the planetary-balance diagnostic

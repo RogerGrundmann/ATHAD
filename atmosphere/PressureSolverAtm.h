@@ -61,12 +61,58 @@ public:
 
         #define LAND(i,j,k) land[(i)*m.jm*m.km + (j)*m.km + (k)]
 
+        // ==================================================================
+        // ANELASTIC CONTINUITY (ATM_ANELASTIC, default 0 = bit-identical).
+        //
+        // Steps 2-7 of the anelastic scope in the README. The projection below enforces
+        // div(u) = 0; a column whose density spans five orders of magnitude needs
+        // div(rho_bar u) = 0. Written as one knob because the pieces are not separable:
+        // a divergence source without the matching Poisson operator, or either without the
+        // wall BC, is a projection onto the wrong subspace and measures nothing.
+        //
+        //   source     D = (1/rho_bar) div(rho_bar u*) = div(u*) + u*_r dln(rho_bar)/dr
+        //   operator   (1/rho_bar) div(rho_bar grad p) = lap(p) + dln(rho_bar)/dr dp/dr
+        //   BC         rho_bar u_r = 0 at surface and lid, i.e. aux_u = 0 there
+        //
+        // Both extra terms carry the SAME dln(rho_bar)/dr array, which is what keeps the
+        // discrete divergence and gradient adjoint to each other — the lesson of step 1
+        // (ATM_POISSON_METRIC_FIX), where an inconsistent pair meant the projection could
+        // not remove what it had measured. The operator gains a first-derivative term and
+        // no new solver: the 7-point stencil keeps its shape, the radial off-diagonals
+        // become num1 +/- A. Diagonal dominance survives because A/num1 = |dln rho|*dr/2
+        // and rho_bar changes by ~0.19 in the log per level here, so the ratio is ~0.1.
+        //
+        // rho_bar is 1-D and rebuilt by ThermoAtm::densities(); before the first call the
+        // vectors are empty and this falls back to Boussinesq automatically.
+        //
+        // Step 7 (the buoyancy reference) needed no change: computeLevelMeanTemperature()
+        // already builds t_ref_level[i] as the sin(colatitude)-weighted horizontal mean of
+        // t at each level, which is the same average, of the same prescribed profile, that
+        // rho_bar is. The two base states agree by construction.
+        static const bool anelastic_knob = [](){ const char* e = getenv("ATM_ANELASTIC");
+                                                 return e ? (atof(e) != 0.0) : false; }();
+        const bool anelastic = anelastic_knob
+                            && (int)m.m_dlnrho_dr.size() == m.im;
+        const double* const dlnrho = anelastic ? m.m_dlnrho_dr.data() : nullptr;
+
         // Fuse the three boundary loops into one pass
+        //
+        // aux_u at the two radial walls: c43/c13 extrapolation is zero-GRADIENT, which
+        // permits a through-wall mass flux and leaves the Poisson problem's compatibility
+        // condition to be satisfied by whatever the extrapolation happens to produce. Under
+        // ATM_ANELASTIC it becomes zero normal mass flux (step 5) — rho_bar > 0 everywhere,
+        // so rho_bar u_r = 0 is u_r = 0. Note this is the PROVISIONAL velocity only; the
+        // prognostic u keeps bcRadius's zero-gradient wall, which is a separate question.
         #pragma omp parallel for collapse(2)
         for (int j = 1; j < m.jm-1; j++) {
             for (int k = 1; k < m.km-1; k++) {
-                m.aux_u.x[0][j][k]      = m.c43 * m.aux_u.x[1][j][k]      - m.c13 * m.aux_u.x[2][j][k];
-                m.aux_u.x[m.im-1][j][k] = m.c43 * m.aux_u.x[m.im-2][j][k] - m.c13 * m.aux_u.x[m.im-3][j][k];
+                if (anelastic) {
+                    m.aux_u.x[0][j][k]      = 0.0;
+                    m.aux_u.x[m.im-1][j][k] = 0.0;
+                } else {
+                    m.aux_u.x[0][j][k]      = m.c43 * m.aux_u.x[1][j][k]      - m.c13 * m.aux_u.x[2][j][k];
+                    m.aux_u.x[m.im-1][j][k] = m.c43 * m.aux_u.x[m.im-2][j][k] - m.c13 * m.aux_u.x[m.im-3][j][k];
+                }
                 m.aux_v.x[0][j][k]      = m.c43 * m.aux_v.x[1][j][k]      - m.c13 * m.aux_v.x[2][j][k];
                 m.aux_v.x[m.im-1][j][k] = m.c43 * m.aux_v.x[m.im-2][j][k] - m.c13 * m.aux_v.x[m.im-3][j][k];
                 m.aux_w.x[0][j][k]      = m.c43 * m.aux_w.x[1][j][k]      - m.c13 * m.aux_w.x[2][j][k];
@@ -130,8 +176,15 @@ public:
         // ATOM_METRIC_DIVERGENCE — hoisted out of the cell loop; see lib/Utils.h.
         const bool metric_div = AtomUtils::metric_divergence();
 
+        // How often the p_dyn_cap source clamp actually binds. Step 6 of the anelastic
+        // scope says the stabilisers were calibrated against the old operator and may clip
+        // the anelastic projection before it acts; this is the number that says whether
+        // they do, rather than leaving it to be assumed either way.
+        long n_src_clamped = 0, n_src_cells = 0;
+
         // Main compute loop — land mask lookups + hoisted j-invariants + k sliding window
-        #pragma omp parallel for collapse(2) schedule(dynamic, 4)
+        #pragma omp parallel for collapse(2) schedule(dynamic, 4) \
+                reduction(+:n_src_clamped,n_src_cells)
         for (int i = 1; i < m.im-1; i++) {
             for (int j = 1; j < m.jm-1; j++) {
 
@@ -172,6 +225,14 @@ public:
                 const double num1 = geo.exp_2_rm * inv_dr2;
                 const double num2 = m_the * inv_dthe2;
                 const double num3 = m_phi * inv_dphi2;
+
+                // Anelastic first-derivative term of the operator (step 4). Both radial
+                // factors are exp_rm — dln(rho_bar)/dr_physical = exp_rm * dln(rho_bar)/d(rad.z)
+                // and dp/dr_physical = exp_rm * dp/d(rad.z) — hence exp_2_rm, matching the
+                // Laplacian's radial term. Zero when the knob is off, so denom, num1..num3
+                // and the update below are untouched.
+                const double num_a = anelastic
+                                   ? geo.exp_2_rm * dlnrho[i] * inv_2dr : 0.0;
 
                 const bool i_in_range = (i < m.im-2);
                 const bool j_inner    = (j > 2) && (j < m.jm-2);
@@ -340,6 +401,15 @@ public:
                                        + dv_dthe * geo.inv_rm
                                        + dw_dphi * geo.inv_rmsinthe;
 
+                        // Anelastic divergence source (step 3). Because rho_bar depends on
+                        // r only, (1/rho_bar) div(rho_bar u*) - div(u*) is this one extra
+                        // term on the radial component. Added to du_dr's own metric factor,
+                        // not to the whole source, and formed on aux_u for the same reason
+                        // the rest of the source is: it is the divergence of the PROVISIONAL
+                        // velocity the projection has to remove.
+                        if (anelastic)
+                            div_src += m.aux_u.x[i][j][k] * dlnrho[i] * geo.exp_rm;
+
                         // ATOM_METRIC_DIVERGENCE (lib/Utils.h) — the spherical divergence also
                         // carries +2u/r and +v*cot(theta)/r. Formed from aux_*, because the source
                         // is the divergence of the PROVISIONAL velocity that the projection has to
@@ -351,14 +421,16 @@ public:
                         }
                         const double src_max = denom * p_dyn_cap;
 
+                        n_src_cells++;
                         if (!is_finite_safe(div_src))   div_src = 0.0;
-                        else if (div_src >  src_max)    div_src =  src_max;
-                        else if (div_src < -src_max)    div_src = -src_max;
+                        else if (div_src >  src_max)  { div_src =  src_max; n_src_clamped++; }
+                        else if (div_src < -src_max)  { div_src = -src_max; n_src_clamped++; }
 
                         m.p_dyn.x[i][j][k] =
                             ((m.p_dyn.x[i+1][j][k] + m.p_dyn.x[i-1][j][k]) * num1
                            + (m.p_dyn.x[i][j+1][k] + m.p_dyn.x[i][j-1][k]) * num2
                            + (m.p_dyn.x[i][j][k+1] + m.p_dyn.x[i][j][k-1]) * num3
+                           + (m.p_dyn.x[i+1][j][k] - m.p_dyn.x[i-1][j][k]) * num_a
                            - div_src) * inv_denom;
                     }
                 } // k
@@ -485,11 +557,17 @@ public:
         //
         // Formed on the ACTUAL velocity u/v/w with the same expression as div_src above,
         // so the two are directly comparable.
+        // Both forms are reported, always, and that is the point: div(u) is the Boussinesq
+        // residual and div(rho_bar u)/rho_bar the anelastic one, and a projection that
+        // drives one to zero drives the other to the size of the term between them. Which
+        // number is "the" residual depends on which continuity the model claims, so
+        // printing only the enforced one would make either scheme look good.
         if (verbose) {
-            double d2 = 0.0, dmax = 0.0;
+            double d2 = 0.0, dmax = 0.0, a2 = 0.0, amax = 0.0;
             long   n  = 0;
-            #pragma omp parallel for collapse(2) schedule(static) reduction(+:d2,n) \
-                    reduction(max:dmax)
+            const bool have_rho = ((int)m.m_dlnrho_dr.size() == m.im);
+            #pragma omp parallel for collapse(2) schedule(static) reduction(+:d2,a2,n) \
+                    reduction(max:dmax,amax)
             for (int i = 1; i < m.im-1; i++) {
                 for (int j = 1; j < m.jm-1; j++) {
                     const double rm      = m.rad.z[i];
@@ -499,6 +577,7 @@ public:
                     const double inv_rm  = 1.0 / rmet;
                     const double inv_rms = 1.0 / (rmet * sinthe);
                     const double cotanthe = cos(m.the.z[j]) / sinthe;
+                    const double dlr     = have_rho ? m.m_dlnrho_dr[i] : 0.0;
 
                     for (int k = 1; k < m.km-1; k++) {
                         if (land[i*m.jm*m.km + j*m.km + k]) continue;
@@ -508,8 +587,11 @@ public:
                         if (metric_div)
                             d += (2.0 * m.u.x[i][j][k] + m.v.x[i][j][k] * cotanthe) * inv_rm;
                         if (!is_finite_safe(d)) continue;
+                        const double a = d + m.u.x[i][j][k] * dlr * exp_rm;
                         d2 += d * d;
+                        a2 += a * a;
                         if (std::fabs(d) > dmax) dmax = std::fabs(d);
+                        if (std::fabs(a) > amax) amax = std::fabs(a);
                         n++;
                     }
                 }
@@ -517,7 +599,17 @@ public:
             cout << "      ATOM: div(u) after projection  rms = "
                  << std::scientific << std::setprecision(3) << ((n > 0) ? sqrt(d2 / n) : 0.0)
                  << "   max = " << dmax << std::fixed
-                 << "   (metric_fix = " << (poisson_metric_fix ? "on" : "off") << ")" << endl;
+                 << "   (metric_fix = " << (poisson_metric_fix ? "on" : "off")
+                 << ", anelastic = " << (anelastic ? "on" : "off") << ")" << endl;
+            if (have_rho)
+                cout << "      ATOM: div(rho u)/rho           rms = "
+                     << std::scientific << std::setprecision(3) << ((n > 0) ? sqrt(a2 / n) : 0.0)
+                     << "   max = " << amax << std::fixed << endl;
+            cout << "      ATOM: divergence source clamped at p_dyn_cap in "
+                 << n_src_clamped << " of " << n_src_cells << " fluid cells ("
+                 << std::fixed << std::setprecision(2)
+                 << ((n_src_cells > 0) ? 100.0 * (double)n_src_clamped / (double)n_src_cells : 0.0)
+                 << " %)" << endl;
         }
 
         auto end = std::chrono::high_resolution_clock::now();
