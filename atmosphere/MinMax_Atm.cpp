@@ -163,30 +163,51 @@ void cAtmosphereModel::searchMinMax_2D(const string &name_maxValue, const string
 * zonal mean is taken over FLUID cells only (longitudes where the cell sits above the
 * local terrain, i >= i_topography[j][k]).
 *
-*   Ψ(i,j) = 2π·a·cosφ·ρ0·∫_z^{z_top} [v]_phys dz'      [kg/s]
+*   Ψ(i,j) = 2π·a·cosφ·∫_z^{z_top} [ρ·v]_phys dz'        [kg/s]
 *
 * integrated DOWNWARD from the model lid (Ψ = 0 at i = im-1). With v > 0 southward, the
 * cell STRENGTH is max|Ψ|; a tropical Ψ extremum is the Hadley cell. Writes a long-format
 * CSV (lat × height) per checkpoint and logs the strongest cells so collapse can be read
 * straight from the run log without ParaView. See [[project_vw_drag_cut_hadley]].
+*
+* ATHAD: THE DENSITY IS INSIDE THE INTEGRAL AND INSIDE THE ZONAL MEAN. What was here was
+*
+*     const double rho = r_air;               // Boussinesq reference density
+*     coeff = two_pi * a * cosphi * rho;      // ... applied at EVERY level
+*
+* i.e. one constant, the SURFACE density, used from the ground to the lid. That is a volume
+* flux with a kg/s label. On Earth's 16 km shell rho spans about 6x and the error is a
+* stretch factor; here it spans FOUR ORDERS OF MAGNITUDE (43 kg/m3 at the sea, 1e-3 at
+* 300 km), so a cell at the lid was weighted ~40 000x too heavily and the thick upper
+* layers -- 23 km each at im = 41 -- dominated an integral that should be dominated by the
+* bottom few kilometres. The diagnostic could not have shown a Hadley cell here at any
+* strength. Same defect class as the rest: an Earth constant in a kernel, latent at 1 bar.
+*
+* Averaging rho*v zonally rather than multiplying the two zonal means also keeps the
+* correlation term <rho'v'>, which is the part a warm rising branch carries.
 */
 void cAtmosphereModel::write_meridional_streamfunction(int iter){
     const double a      = r_Earth * 1000.0;   // Earth radius [m] (r_Earth is in km)
-    const double rho    = r_air;              // Boussinesq reference density [kg/m³]
     const double two_pi = 2.0 * M_PI;
 
-    // zonal-mean meridional wind [m/s] over fluid cells
+    // zonal-mean meridional wind [m/s] and zonal-mean meridional MASS flux [kg/(m²·s)],
+    // both over fluid cells. r_humid is dimensional [kg/m³] (ThermoAtm builds it as
+    // 1e2*p/(R_loc*T*water_factor)), so rho*v*u_0 is already a mass flux.
     vector<vector<double> > vbar(im, vector<double>(jm, 0.0));
+    vector<vector<double> > rvbar(im, vector<double>(jm, 0.0));
     for(int i = 0; i < im; i++){
         for(int j = 0; j < jm; j++){
-            double sum = 0.0; int n = 0;
+            double sum = 0.0, rsum = 0.0; int n = 0;
             for(int k = 0; k < km; k++){
                 if(i < i_topography[j][k]) continue;            // inside terrain
-                double vv = v.x[i][j][k];
+                double vv  = v.x[i][j][k];
+                double rho = r_humid.x[i][j][k];
                 if(!AtomUtils::is_finite_safe(vv)) continue;
-                sum += vv; n++;
+                if(!AtomUtils::is_finite_safe(rho) || rho <= 0.0) rho = r_air;  // pre-densities()
+                sum += vv; rsum += rho * vv; n++;
             }
-            vbar[i][j] = (n > 0) ? (sum / n) * u_0 : 0.0;
+            vbar[i][j]  = (n > 0) ? (sum  / n) * u_0 : 0.0;
+            rvbar[i][j] = (n > 0) ? (rsum / n) * u_0 : 0.0;
         }
     }
 
@@ -194,11 +215,11 @@ void cAtmosphereModel::write_meridional_streamfunction(int iter){
     vector<vector<double> > psi(im, vector<double>(jm, 0.0));
     for(int j = 0; j < jm; j++){
         const double cosphi = sin(the.z[j]);                    // cos(latitude) = sin(colatitude)
-        const double coeff  = two_pi * a * cosphi * rho;
+        const double coeff  = two_pi * a * cosphi;
         for(int i = im - 2; i >= 0; i--){
             const double dz   = get_layer_height(i + 1) - get_layer_height(i);   // [m] > 0
-            const double vmid = 0.5 * (vbar[i][j] + vbar[i + 1][j]);             // [m/s]
-            psi[i][j] = psi[i + 1][j] + coeff * vmid * dz;                       // [kg/s]
+            const double rvm  = 0.5 * (rvbar[i][j] + rvbar[i + 1][j]);           // [kg/(m²·s)]
+            psi[i][j] = psi[i + 1][j] + coeff * rvm * dz;                        // [kg/s]
         }
     }
 
@@ -209,12 +230,12 @@ void cAtmosphereModel::write_meridional_streamfunction(int iter){
     fname << output_path << "meridional_streamfunction_" << iter << ".csv";
     ofstream f(fname.str().c_str());
     if(f.is_open()){
-        f << "lat_deg,height_m,vbar_mps,psi_kg_per_s\n";
+        f << "lat_deg,height_m,vbar_mps,rho_vbar_kg_per_m2_s,psi_kg_per_s\n";
         for(int j = 0; j < jm; j++){
             const double lat = lat_of(j);
             for(int i = 0; i < im; i++){
                 f << lat << "," << get_layer_height(i) << ","
-                  << vbar[i][j] << "," << psi[i][j] << "\n";
+                  << vbar[i][j] << "," << rvbar[i][j] << "," << psi[i][j] << "\n";
             }
         }
         f.close();
