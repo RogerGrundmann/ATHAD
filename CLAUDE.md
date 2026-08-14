@@ -243,6 +243,16 @@ that runs in between.**
 `m_node_weights` OpenMP race in `GetMean_2D/3D`; the UB in `get_temperatures_from_curve`;
 and `-MMD -MP` header dependencies in the Makefile.
 
+**The constant-density meridional streamfunction (`MinMax_Atm.cpp:175`,
+`const double rho = r_air`) is live in ATOM_Precipitation and ATHAD_COND** — checked, not
+assumed; ATJUP/ATSAT/ATURAN/ATNEPT/ASTIM have no such diagnostic at all. It labels a volume
+flux as kg/s. **ATHAD_COND is the urgent one** (same 250 bar class, 15 km scale height over
+a 120 km shell), where it can hide a cell outright, as it did here. On Earth's 16 km shell
+ρ spans ~6× rather than 10⁴, so it distorts rather than inverts — but ATOM_Precipitation
+uses that diagnostic to judge exactly this question (`24ff23a` "revive Hadley/Ferrel
+cells", `1e59daa` jet spin-down), and an instrument used to measure cell strength should
+not be ~2× overweight at the cell core. Fixed here in `dabbc94`.
+
 Traps already solved elsewhere in the family — check before re-deriving:
 Coriolis/centrifugal signs (ATURAN `8b284cb`, `4201957`; ATNEPT `024c37f`, `e412b1b` —
 ATHAD's dynamics already agree, its *diagnostics* did not); mass- not mole-weighted mixture
