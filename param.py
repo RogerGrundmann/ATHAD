@@ -263,11 +263,26 @@ def main():
             # spacing, the explicit diffusion CFL limit at the surface tightens to
             # dt ~ dr^2/(2D) ~ 1e-4. dt_visc=5e-4 was ~5x over it and blew up the
             # near-surface cells at iter 174. 1e-4 is CFL-safe (validated: passes 174).
-            # ATHAD: im 41 -> 61 shrinks the radial step dr from 1/40 to 1/60, and the
-            # explicit diffusion CFL limit goes as dr^2 — a factor (40/60)^2 = 0.44. The
-            # inherited 1e-4 was validated at im=41 and would be ~2.2x over the limit here,
-            # so it is scaled to 4e-5. Verify against a long run before trusting it.
-            ('dt_visc', 'non-dimensional time step used in the viscous (production) phase', 'double', 0.00004),
+            # ATHAD: im 41 -> 61 shrank the radial step dr from 1/40 to 1/60, and the explicit
+            # diffusion CFL limit goes as dr^2 — a factor (40/60)^2 = 0.44 — so this was cut
+            # to 4e-5 for the 61-level grid.
+            #
+            # BACK TO 1e-4 (README items 24, 27), because im = 41 is the default again and
+            # the limit scales with the PHYSICAL surface spacing, 1.22 km here against 0.81 km
+            # at 61 levels. Not restored on that argument alone: two 200-iteration runs at
+            # im = 41, one at each step, both completed and both cleared iteration 174 — where
+            # 5e-4 is documented above to have blown up the near-surface cells. Compared at
+            # MATCHED PHYSICAL TIME (1e-4 at iteration 80 against 4e-5 at iteration 200, both
+            # t = 8.0e-3) the OLR agrees to 1.0 %, 283.55 against 280.75 W/m2, for 2.5x fewer
+            # iterations. With im = 41's 1.44x per iteration that is ~3.6x less wall clock to
+            # a given physical state, which is what matters against item 18's ~1e4-iteration
+            # estimate for geostrophic adjustment.
+            #
+            # IT IS TIED TO THE GRID. At im = 61 this same value is ~2.2x over the limit; if
+            # im goes back up, this must come back down. It was also confirmed with the moist
+            # physics running from iteration 0 (item 27, 200 iterations, no NaN), which the
+            # dry item-24 scan had not covered.
+            ('dt_visc', 'non-dimensional time step used in the viscous (production) phase', 'double', 0.0001),
             ('dt_inviscid', 'non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)', 'double', 0.000008),
 #            ('dt_inviscid', 'non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)', 'double', 0.0005),
 #            ('dt_inviscid', 'non-dimensional time step used during the inviscid spin-up phase (smaller to absorb the missing diffusive damping)', 'double', 0.0003),
