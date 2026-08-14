@@ -1724,6 +1724,70 @@ the measurement.
     with the sign of the imbalance unchanged. What it costs is at the top, so an absolute OLR
     still wants re-measuring at 61.
 
+27. **The balanced initial state, measured over 200 moist iterations and made the default —
+    and the radiation does not notice (done).**
+
+    Item 26 cured the spin-down over 20 dry iterations. That is not enough to move a default,
+    so the A/B was repeated at κ_H2O = 0.010 with the moist physics running from iteration 0,
+    `im = 41`, `dt_visc = 1e-4`, 200 iterations, identical but for the balance. **It survives
+    the microphysics**: no NaN, 34 m 50 s, despite `p_dyn` running at ~455 against an
+    inherited ceiling of 10.
+
+    | | unbalanced (control) | balanced |
+    |---|---|---|
+    | Ψ_max at iter 20 | 153 301 @ 15° | 157 584 @ 15° |
+    | Ψ_max at iter 100 | 134 483 @ 15° | 157 054 @ 15° |
+    | Ψ_max at iter 200 | **255 670 @ 45°** | 157 555 @ 15° |
+    | return branch @45°, iter 200 | **none** | 30 770 |
+    | Ψ₀ @45°, iter 200 | **+255 670** | −504 |
+
+    **The control loses the circulation and grows an artefact in its place.** Its tropical cell
+    decays 27 %, and by iteration 120 the global Ψ_max has moved to 45° — to the one-signed
+    drift, which then doubles to become twice the strength of the cell it replaced. The
+    balanced run instead **dips 0.34 % by iteration 100 and returns to its starting value by
+    200**: an oscillation about the prescribed state, not a decay, which is how ASTIM described
+    its cured jet. The mid-latitude return branch, which never exists in the control, gains
+    9.4 % over the run.
+
+    **And the radiation is completely indifferent to all of it:**
+
+    | at iteration | OLR unbalanced | OLR balanced | imbalance unbal. | bal. |
+    |---|---|---|---|---|
+    | 20 | 329.23 | 329.22 | −58.16 | −58.15 |
+    | 100 | 283.97 | 284.27 | −12.89 | −13.20 |
+    | 200 | 273.34 | 273.43 | −2.26 | −2.36 |
+
+    σT_lid⁴ = 271.31 in both. **Two circulations differing by 500× in their column-integrated
+    drift and 27 % in cell strength give the same OLR to 0.03 %.** This is item 25's suspicion
+    confirmed from a direction it did not use: the κ scan showed the outgoing flux does not
+    move with the opacity, and this shows it does not move with the dynamics either. It
+    relaxes onto `t_skin` regardless of what the atmosphere underneath is doing.
+
+    **What this does not fix.** The *tropical* return branch erodes in both runs — −11 969 →
+    −8 689 balanced against −11 787 → −9 670 unbalanced, so marginally **worse** with the
+    balance. The 15° counter-flow aloft is weakening for some other reason, and that is now
+    the open question about the cell rather than the drift that was masking it.
+
+    **Defaults flipped, on the strength of the above.** `ATM_BALANCED_INIT` is **on** (=0
+    restores the old path), and `p_dyn_ceiling` goes from the inherited phase-dependent
+    10.0 / 3.0 to a flat **2000**. Both inherited values are keyed to terrain this model does
+    not have — 10.0 against "the accumulated steep-orography value (~7.7)", 3.0 against a
+    Tian Shan/Pamir pegging past moist onset — and at 455 the balance was 45× over the first
+    and 94.7 % of columns were clipped. **The phase step is removed deliberately**: at
+    iteration 301 it would have dropped to 3.0 and clipped the balance away mid-run.
+
+    Two caveats, stated because flipping a stabiliser deserves them. **2000 is untested beyond
+    200 iterations** — the Earth values existed because unbounded `p_dyn` blew this solver up,
+    that failure was orography-driven and should not exist over a featureless surface, but
+    "should not" is not a measurement. And nothing is bit-identical any more; every run from
+    here differs from every run before it.
+
+    A smaller thing caught in the act: the ceiling briefly lived in two places, and the
+    balance diagnostic went on warning about a clip that no longer happened. It is now one
+    accessor, `cAtmosphereModel::pDynCeiling()`, read by both the solver that enforces it and
+    the diagnostic that reports against it — the same defect class as a solver disagreeing
+    with the RHS about the metric, which is what cost item 26 a factor of 20.
+
 ## Remaining work
 
 
@@ -1760,11 +1824,14 @@ the measurement.
   mass sink remains**. The untested case is a run past `moist_phys_start_iter = 300`, where
   sedimentation runs for the first time; if the count comes back, measure *where* before
   proposing *why*, which is the one thing the two refuted mechanisms have in common.
-- **The balanced initial state is off by default, and its two knobs are coupled** (item 26).
-  `ATM_BALANCED_INIT=1` needs `ATM_P_DYN_CEILING` raised with it or 94.7 % of the field is
-  clipped. It cures the cell spin-down over 20 iterations; flipping either default wants a
-  200-iteration run first, and the `p_dyn_ceiling` question is separate and larger — an
-  Earth-sized clamp currently forbids the balanced state this model's own equation demands.
+- **The balanced initial state is now on by default and the `p_dyn` ceiling is 2000**
+  (item 27), and **the ceiling is untested beyond 200 iterations**. It replaces a backstop
+  that existed because unbounded `p_dyn` blew this solver up on Earth; that failure was
+  orography-driven and should not arise over a featureless surface, but that is an argument,
+  not a measurement. A long run is the check.
+- **The tropical return branch still erodes** — −11 969 → −8 689 over 200 iterations, and
+  marginally faster with the balance on than without it. The drift that used to mask this is
+  gone, so this is now the open question about the cell itself.
 - **`dt_visc` no longer matches the committed grid.** The config ships 4e-5, validated for
   `im = 61`; item 24 validated 1e-4 at the `im = 41` that is now the default, worth 2.5×.
 - **The run is not converged, and 400 iterations is not close** (item 18). The meridional

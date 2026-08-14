@@ -436,6 +436,16 @@ private:
     void init_steps();
     void init_tropopause_layers();
 
+    // SINGLE SOURCE OF TRUTH for the p_dyn backstop. PressureSolverAtm enforces it and
+    // initBalancedState reports against it, and those two must not be able to disagree —
+    // they briefly did, and the balance diagnostic went on warning about a clip that no
+    // longer happened. See PressureSolverAtm::run for the value's history and README item 27.
+    static double pDynCeiling(){
+        static const double override_v = [](){
+            const char* e = getenv("ATM_P_DYN_CEILING"); return e ? atof(e) : 0.0; }();
+        return (override_v > 0.0) ? override_v : 2000.0;
+    }
+
     // Balance the prescribed initial circulation against this model's own theta-momentum
     // equation, so the imposed cells do not spin down from an unbalanced start.
     // Ported from ASTIM cf43bfd; behind ATM_BALANCED_INIT, default 0.0 = off.

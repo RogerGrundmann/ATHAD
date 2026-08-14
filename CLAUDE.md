@@ -285,6 +285,23 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   surface density is what follows. Drift −0.2128 % → −0.0011 % over 20 iterations, and the
   water "creation" `waterBudget()` was reporting went with it. Do not re-anchor the column to
   `r_air·R_mix·T_surf`.
+- **The initial circulation is balanced against the model's own θ-momentum equation**
+  (`initBalancedState`, README items 26-27, on by default since item 27). Without it the
+  prescribed cells are buried within ~5 iterations by a linearly accelerating drift, and at
+  200 iterations that drift is twice the strength of the cell it replaced. Two things go with
+  it: the balance must be written to **`p_dyn`**, because `p_stat` appears nowhere in the
+  momentum equations — the entire meridional pressure-gradient force is `p_dyn`, and the
+  50 K equator-to-pole contrast exerts none of it directly; and the radius in it is
+  **`metricRadius(rm)`, not `rad.z[i]`**, which is worth a factor of ~21 and was got wrong
+  the first time.
+- **`p_dyn_ceiling` is 2000, not the inherited 10/3**, and is **untested beyond 200
+  iterations**. The Earth values were keyed to steep orography this model does not have and
+  forbade the balanced state outright (94.7 % of columns clipped). One accessor,
+  `cAtmosphereModel::pDynCeiling()`, so the solver and the diagnostic cannot disagree.
+- **The OLR does not respond to anything.** An 8× change in `kappa_H2O` moves it 0.9 %
+  (item 25) and a 500× change in the circulation moves it 0.03 % (item 27). It relaxes onto
+  σT_skin⁴ either way. Treat any OLR number as a statement about `t_skin` until that is
+  broken.
 - **Deep convection is inactive.** Its trigger thresholds (1000/970/900/800 hPa) are
   absolute Earth surface pressures and never fire at 250 bar. They need to become
   fractions of surface pressure.

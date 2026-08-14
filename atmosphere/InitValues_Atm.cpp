@@ -1139,8 +1139,14 @@ void cAtmosphereModel::initCloudIce() {
 * strongly nonlinear (98.3 % retention at 0.0 against 92.7 % at 1.0 for its filter knob).
 */
 void cAtmosphereModel::initBalancedState(){
+    // DEFAULT 1.0 = ON since README item 27. It was committed at 0.0 (bit-identical) and
+    // flipped on a 200-iteration moist run at kappa_H2O = 0.010: Psi_max dips 0.34 % by
+    // iteration 100 and returns to its starting value by 200, an oscillation instead of a
+    // decay, while the unbalanced control lost 27 % of its tropical cell and grew a
+    // mid-latitude drift to twice the cell's strength. ATM_BALANCED_INIT=0 forces the old
+    // path for A/B. Intermediate values scale the perturbation.
     static const double strength = [](){
-        const char* e = getenv("ATM_BALANCED_INIT"); return e ? atof(e) : 0.0; }();
+        const char* e = getenv("ATM_BALANCED_INIT"); return e ? atof(e) : 1.0; }();
     if(strength == 0.0) return;
 
     std::cout << std::endl << "      AGCM: initBalancedState begin ......................." << std::endl;
@@ -1149,13 +1155,13 @@ void cAtmosphereModel::initBalancedState(){
     const int j_eq = (jm - 1) / 2;
     const double force_nd = omega * metricShellLength() / u_0;
 
-    // The solver clamps p_dyn to +-p_dyn_ceiling (10.0 during the dry spin-up, 3.0 after
-    // iter 300), a backstop sized on Earth against "the accumulated steep-orography value
-    // (~7.7)". Count what that clamp will truncate here, because a balance the model then
-    // clips is not a balance -- and unlike a uniform scaling, clipping distorts the SHAPE.
+    // Count what the solver's clamp would truncate, read from the same accessor the solver
+    // enforces so the two cannot drift apart. A balance the model then clips is not a
+    // balance, and unlike a uniform scaling, clipping distorts the SHAPE. With the inherited
+    // Earth ceiling of 10 this reported 94.7 % of columns over; item 27 raised it to 2000.
     double max_add = 0.0;
     long n_over = 0, n_tot = 0;
-    const double ceiling_probe = (total_iter_count > 300) ? 3.0 : 10.0;
+    const double ceiling_probe = pDynCeiling();
 
     #pragma omp parallel for schedule(static) reduction(max: max_add) reduction(+: n_over, n_tot)
     for(int i = 0; i < im; i++){
@@ -1221,7 +1227,7 @@ void cAtmosphereModel::initBalancedState(){
     std::cout << "      above the p_dyn ceiling (" << ceiling_probe << "): " << n_over
               << " of " << n_tot << " (i,j) columns ("
               << (n_tot > 0 ? 100.0 * (double)n_over / (double)n_tot : 0.0)
-              << " %) -- the solver will clip these on its first call" << std::endl;
+              << " %) -- these would be clipped on the solver's first call" << std::endl;
 
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);

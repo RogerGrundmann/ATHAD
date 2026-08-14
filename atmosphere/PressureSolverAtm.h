@@ -629,16 +629,27 @@ public:
         // (near-surface) to i=26/42°N/68°E (Pamir, ~4 km, the documented secular-growth
         // band). Symptom-only / whack-a-mole; the crash time is p_dyn-clip-independent.
         // Reverted to the hard clamp. See [[project_upper_velocity_secular_growth]].
-        // ATHAD A/B KNOB: both values above are Earth-sized -- 10.0 against accumulated
-        // steep-orography p_dyn, 3.0 against a Tian Shan/Pamir pegging. ATHAD has no
-        // orography at all, and initBalancedState finds that the balance its own
-        // theta-momentum equation demands peaks at ~40, i.e. FOUR TIMES the dry-spin-up
-        // ceiling, so this backstop currently forbids the balanced state. ATM_P_DYN_CEILING
-        // overrides it absolutely; unset keeps the inherited behaviour exactly.
-        static const double ceiling_override = [](){
-            const char* e = getenv("ATM_P_DYN_CEILING"); return e ? atof(e) : 0.0; }();
-        const double p_dyn_ceiling = (ceiling_override > 0.0) ? ceiling_override
-                                   : ((m.total_iter_count > 300) ? 3.0 : 10.0);
+        // ATHAD RAISES THIS TO 2000 AND DROPS THE PHASE DEPENDENCE (README item 27). Both
+        // inherited values are Earth-sized and both are keyed to terrain this model does not
+        // have: 10.0 against "the accumulated steep-orography value (~7.7)", 3.0 against a
+        // Tian Shan/Pamir pegging past moist onset. initBalancedState finds that the balance
+        // ATHAD's own theta-momentum equation demands peaks at 455 -- 45x the dry-spin-up
+        // ceiling, with 94.7 % of columns over it -- so the inherited backstop did not merely
+        // trim the balanced state, it forbade it.
+        //
+        // 2000 is 4.4x the required amplitude and was run for 200 moist iterations without a
+        // NaN. It remains a real backstop: the is_finite guard below still catches Inf/NaN,
+        // and a genuine runaway still has a bound. THE PHASE STEP IS REMOVED because at
+        // iteration 301 it would have dropped to 3.0 and clipped the balance away in the
+        // middle of a run -- a discontinuity with no counterpart here, since the pegging it
+        // was written for was orographic.
+        //
+        // UNTESTED BEYOND 200 ITERATIONS. The Earth values existed because unbounded p_dyn
+        // blew this solver up; that failure mode was orography-driven and should not exist at
+        // 250 bar over a featureless surface, but "should not" is not a measurement.
+        // ATM_P_DYN_CEILING overrides absolutely, and 10.0 restores the inherited spin-up
+        // value for A/B.
+        const double p_dyn_ceiling = cAtmosphereModel::pDynCeiling();
         #pragma omp parallel for collapse(3)
         for (int i = 0; i < m.im; i++) {
             for (int j = 0; j < m.jm; j++) {
