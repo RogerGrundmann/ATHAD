@@ -113,16 +113,17 @@ asserted.
 
 ## Assumptions vs. results — read this before quoting any number
 
-The model reproduces its design targets exactly and its energy balance closes. That does
-**not** make its outputs predictions. These are inputs, in rough order of how much they
-move the answer:
+The model reproduces its design targets exactly, and run long enough its energy balance
+closes to -1.26 W/m2 — **which is the least trustworthy number in this file, not the most**,
+because closing is what the `t_skin` fixed point guarantees (item 25). None of this makes
+the outputs predictions. These are inputs, in rough order of how much they move the answer:
 
 | Parameter | Value | Status |
 |---|---|---|
-| `kappa_H2O` / `kappa_CO2` / `kappa_bg` | 0.01 / 0.001 / 1e-6 m²/kg | **Biggest lever on OLR**, factor-of-2 uncertain |
-| `geothermal_flux` | 150 W/m² | See below — the model now argues against this value |
+| `kappa_H2O` / `kappa_CO2` / `kappa_bg` | 0.01 / 0.001 / 1e-6 m²/kg | Factor-of-2 uncertain. **Whether they are a lever on the *converged* OLR at all is untested** — README item 25 |
+| `geothermal_flux` | 150 W/m² | Open. The ≥195 W/m² argument is retracted, and item 25 makes it worse: it enters the `t_skin` fixed point, so it helps set the very flux it was being compared against |
 | `t_surf_equator` / `t_surf_pole` | 1500 / 1450 K | **Prescribed, not solved** |
-| `t_skin` | 254.0 K | From energy balance, but clear-sky albedo — not a fixed point |
+| `t_skin` | 254.0 K start, relaxes to 262.96 | **Now the prime suspect** (item 25): it is a fixed point of σT⁴ = absorbed, the prescribed profile's top is isothermal at it, and the converged OLR falls onto it |
 | insolation | 0.71 S₀ | Faint young Sun at 4.4 Ga |
 | `omega` | 3.17e-4 (5.5 h day) | Estimates range 4–6 h |
 | `cosmo_lapse_fraction` | 1.0 (dry adiabat) | Justified: nothing condenses in the deep column |
@@ -142,16 +143,18 @@ README items 9-11.
 - **Shell 300 km**, 61 levels; top 3.8e-4 bar with lid eps = 0.0000, isothermal skin
   resolved from 256 km. **OLR decoupled from sigma*T_lid^4 — a real column integral.** At
   the old 230 km the two were equal and the OLR was an input.
-- **The model's first genuine statement: its opacity is too low — but by a third of what
-  was claimed.** At 20 iterations, **OLR = 337.4 W/m2 against 271.3 absorbed + geothermal**,
-  imbalance -66.1 W/m2 (README item 22). The atmosphere still radiates away more than it
-  takes in and cannot hold the prescribed 1500 K surface, and that is a claim about
-  `kappa_H2O` = 0.01 m2/kg rather than about the boundary — but at this margin the answer is
-  no longer obviously "raise the opacities". **Every larger figure this file has carried —
-  581 W/m2 through items 11-17, 679.8 and -409 at 400 iterations in item 18 — is superseded
-  by item 22**, which found the initial cloud deck had been built on a column the model does
-  not have. **Nothing has been run to 400 iterations since**; the only current numbers are
-  at 20.
+- **THE OPACITY CLAIM IS WITHDRAWN, and what replaces it is a question about the boundary.**
+  Every "the atmosphere radiates away more than it takes in" figure this file has carried —
+  581 W/m2 through items 11-17, 679.8 and -409 at 400 iterations in item 18, -66.1 at 20
+  iterations after item 22 — was measured before the transient had decayed. Run to 200
+  iterations the imbalance falls monotonically to **-1.26 W/m2** (README item 25). **But it
+  closes by the OLR dropping onto a sigma*T_lid^4 that never moves**: t_skin goes 262.91 ->
+  262.96 K across the whole run, and t_skin is itself the fixed point of sigma*T_skin^4 =
+  absorbed. Once the effective radiating level migrates into the isothermal skin, OLR =
+  absorbed is arithmetic, not a result. **Do not claim anything about `kappa_H2O` = 0.01
+  m2/kg, in either direction, until a kappa scan has been run to 200 iterations** and shown
+  whether the converged OLR moves with it. If it does not, item 10's "the OLR is an input"
+  survived item 11's rewrite and merely hid until iteration 20 had passed.
 - **Not grid-converged**: 519 W/m2 at 260 km against 581 at 300 km with `im` fixed at 61
   (both at 100 iterations, both pre-item-22 — the check has to be redone, not just extended).
 - Mean planetary albedo 0.4981 ≈ `albedo_cloud`; the reflectivity saturates the moment any

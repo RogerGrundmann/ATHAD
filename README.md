@@ -1450,13 +1450,160 @@ the measurement.
     thick atmosphere, but the latitudinal sign of it has not been checked and belongs in the
     κ scan.
 
+24. **41 levels against 61: the conclusion survives, the radiation detail does not (done).**
+
+    The question was whether the shell could go back to `ATOM_Precipitation`'s `im = 41`.
+    **It is worth separating two things that look like one.** The 300 km shell is not a
+    resolution choice: the vertical extent of an atmosphere is `H = R·T/g`, which is 59.3 km
+    here against Earth's 8.4 — a factor of 7.1, of which the composition supplies 1.35 (M is
+    21.43 g/mol against 28.96, so R is *larger*) and the surface temperature supplies 5.2.
+    At 15.9 km, where ATOM's lid sits, this column is still at **189.8 bar**, with 76 % of
+    the atmosphere's mass above the boundary. Nor can the lapse rate compensate: bringing
+    1500 K down to a ~263 K radiating temperature within 16 km needs 77 K/km, hence
+    `cp = g/Γ = 127 J/(kg·K)`, against this mixture's 2040 and pure xenon's 158. Earth's own
+    6.5 K/km applied to a 1500 K surface still needs 190 km. The measured 4.2 K/km reaches
+    `t_skin` at ~295 km, which is where the 300 km shell came from.
+
+    So the shell stays and `im` alone moves. Two 20-iteration runs, same configuration, same
+    `dt_visc = 4e-5`, machine idle for each:
+
+    | at iteration 20 | `im = 41` | `im = 61` |
+    |---|---|---|
+    | wall clock | **2:01.2** | 2:54.6 |
+    | RK4 per call | 3.79 s | 5.75 s |
+    | peak RSS | 2.58 GB | 3.82 GB |
+    | surface / top layer | 1.22 / 22.8 km | 0.81 / 15.4 km |
+    | OLR | 349.73 W/m² | 337.39 W/m² |
+    | imbalance | −78.67 W/m² | −66.13 W/m² |
+    | **lid emissivity** | **0.0068** | **0.0000** |
+    | σT_lid⁴ / lid T | 270.90 W/m² / 262.91 K | 271.10 W/m² / 262.95 K |
+    | top of domain | 0.00032 bar | 0.00028 bar |
+    | planetary albedo | 0.4988 | 0.4981 |
+    | Ψ_max | 492 263 @ 44.9 km | 543 769 @ 48.0 km |
+    | condensation begins | i = 37, 236.4 km | i = 55, 230.2 km |
+    | equatorial column OLR | **403.3 W/m²** | 271.1 W/m² |
+    | `c` ceiling | 0 cells | 0 cells |
+    | column air mass drift | −0.0037 % | −0.0000 % |
+    | `residuum_atm` | 0.64277089 | 0.74743459 |
+
+    **The cost saving is real and unremarkable: 1.44× in wall clock, 0.68× in memory**, both
+    close to the 61/41 cell ratio. No superlinear gain, and none expected.
+
+    **The physical conclusion is robust to the vertical resolution.** The OLR moves 3.7 % and
+    the imbalance 19 %, in the same direction, and "this atmosphere radiates away more than
+    it absorbs" holds at both resolutions. 12 W/m² is far inside the factor-of-two κ
+    uncertainty, so nothing in item 22's argument depends on the grid.
+
+    **Two things degrade, and one of them is the thing item 11 bought.** The lid emissivity
+    goes 0.0000 → 0.0068: with 22.8 km top layers the top cell is ~2.2 local scale heights
+    (H = 10.4 km at 263 K) and is no longer transparent. It has not cost the decoupling — OLR
+    349.7 against σT_lid⁴ 270.9 is still a genuine column integral, not the boundary
+    temperature read back out — but that is the margin a deeper shell or a coarser grid eats
+    first, and it should be checked, not assumed, in any configuration that changes either.
+
+    The larger effect is on **where the cloud deck lands**. Condensation begins at 236.4 km
+    against 230.2, and the equatorial column's OLR comes out **403.3 W/m² against 271.1** —
+    49 % in a single column, on exactly the sensitivity item 22 exposed. Ψ_max differs 9.5 %
+    with its maximum one layer lower. **A grid that locates the deck to ±11 km is not a grid
+    to quote an OLR from**, even though it gives the same answer about the sign of the
+    imbalance.
+
+    This is also the **second grid-convergence data point** and the first clean one. The
+    519-versus-581 W/m² pair still quoted below is at two different shell depths with `im`
+    fixed, so it confounds depth with resolution, and it predates item 22 besides. This pair
+    holds the shell fixed and moves only `im`.
+
+    Incidentally, the `im = 61` run above was made fresh and reproduced item 22's
+    337.39 / −66.13 **exactly**, which is item 18's "run-to-run bit-identical at a fixed
+    thread count" holding on a different day and a different working tree.
+
+    **The CFL headroom is real, and it is the actual prize.** `dt_visc` was cut from the
+    inherited `1e-4` to `4e-5` when `im` went 41 → 61, because the explicit diffusion limit
+    goes as the *physical* surface spacing squared and that spacing went 1.22 → 0.81 km, a
+    factor of 2.25. Going back to 41 levels should hand it back. Two 200-iteration runs at
+    `im = 41`, identical but for the step, **both completed, exit 0, no NaN, and both cleared
+    iteration 174** — the iteration at which `5e-4` is documented to have blown up the
+    near-surface cells:
+
+    | | `dt = 1e-4` | `dt = 4e-5` |
+    |---|---|---|
+    | iteration 20 | OLR 333.09, imb −62.03 | OLR 349.73, imb −78.67 |
+    | iteration 100 | OLR 279.18, imb −8.07 | OLR 294.35, imb −23.25 |
+    | iteration 200 | OLR 272.37, imb −1.26 | OLR 280.75, imb −9.64 |
+    | Ψ_max at 200 | 1 307 027 @ 43° | 710 833 @ 44° |
+
+    Those columns are **not** at the same physical time — the point of a bigger step is that
+    they cannot be. Compared where the physical time *does* match, `dt=1e-4` at iteration 80
+    against `dt=4e-5` at iteration 200, both at 8.0e-3 non-dimensional:
+
+    | at t = 8.0e-3 | `dt = 1e-4`, iter 80 | `dt = 4e-5`, iter 200 |
+    |---|---|---|
+    | OLR | 283.55 W/m² | 280.75 W/m² |
+    | imbalance | −12.45 W/m² | −9.64 W/m² |
+
+    **1.0 % in the OLR for 2.5× fewer iterations.** With `im = 41`'s 1.44× per iteration on
+    top, that is ~3.6× less wall clock to reach a given physical state, which is the number
+    that matters against item 18's ~10⁴-iteration estimate for geostrophic adjustment.
+
+    Two limits on that result. It validates `1e-4` **at `im = 41` only** — the CFL argument
+    says the same step is ~2.2× over the limit at 61 levels, so it must not be carried back to
+    the fine grid. And 200 iterations with `moist_phys_start_iter = 300` is a dry test: the
+    stiff microphysics has never seen this step.
+
+25. **The energy imbalance is a spin-up transient, and the converged OLR may be the skin
+    temperature read back out (measured; the discriminating test is named, not yet run).**
+
+    The 200-iteration runs of item 24 were meant to test a time step. What they showed is
+    that **the imbalance this README has been quoting since item 11 decays monotonically
+    toward zero**:
+
+    ```
+    dt = 4e-5:  -78.67  -53.66  -38.83  -29.48  -23.25  -18.88  -15.66  -13.19  -11.23  -9.64
+    dt = 1e-4:  -62.03  -33.96  -20.01  -12.45   -8.07   -5.39   -3.68   -2.55   -1.78  -1.26
+                (iterations 20, 40, 60, 80, 100, 120, 140, 160, 180, 200)
+    ```
+
+    No flattening, no sign change, no bounce — a clean decay in both, at a rate that scales
+    with the step. **Every imbalance figure in items 11 through 24 was measured at iteration
+    20 and is therefore a snapshot of a decaying transient**, including item 22's −66.13 and
+    item 23's comparison of the prescribed against the prognostic profile. The claim built on
+    them — *this atmosphere radiates away more than it takes in, so `kappa_H2O` is too low* —
+    does not survive at 200 iterations, where the imbalance is −1.26 W/m².
+
+    **But the way it closes is exactly the failure mode item 10 identified.** Over the same
+    200 iterations `t_skin` moves 262.91 → 262.96 K and σT_lid⁴ sits at 271.1 W/m²,
+    essentially constant; what moves is the OLR, 349.7 → 280.8, *downward onto them*. The
+    isothermal top of the prescribed profile is at `t_skin`, and `t_skin` is a fixed point
+    solved from σT_skin⁴ = absorbed SW + geothermal. So once the transient cloud and
+    temperature structure decays and the effective radiating level migrates up into that
+    isothermal skin, **OLR = absorbed is guaranteed by construction, not discovered**. A
+    converged column *must* satisfy it, which is why the coincidence is not by itself proof
+    of anything — and why it cannot be used as evidence that the opacities are right either.
+
+    **The discriminating test is a κ scan run to 200 iterations, not to 20.** If the converged
+    OLR lands on σT_skin⁴ for every `kappa_H2O`, the outgoing flux is still an input on long
+    runs and the grey scheme is only reporting its boundary condition — item 10's defect
+    surviving the item 11 rewrite, in a form that only shows up after the transient dies. If
+    instead the converged OLR moves with κ, the column integral is doing real work and the
+    balance is a result. **Nothing about the opacity should be claimed in either direction
+    until that run exists.** The same test settles item 24's other loose end, since it is the
+    converged OLR, not the 20-iteration one, that has to be grid-converged.
+
+    Two smaller things the long runs also settle. The `c ≤ 1 − co2` ceiling deleted
+    **0.000000 kg/kg over 200 iterations**, so item 23's result is not an artefact of stopping
+    at 20; and the column air mass drift is −0.0036 % over 200 against −0.0011 % over 20, so
+    item 19's anchor holds over ten times the length. Both still with the moist physics off.
+
 ## Remaining work
 
 
-- **Every 400-iteration number predates item 22.** The composition-ordering fix halved the
-  OLR at 20 iterations, and nothing has been run out to 400 since. Item 18's table is a
-  valid anelastic-versus-Boussinesq comparison and a stale radiation budget; **re-measure
-  before quoting any long-run figure.**
+- **Every 400-iteration number predates item 22, and every imbalance predates item 25.** The
+  composition-ordering fix halved the OLR at 20 iterations, and the 200-iteration runs then
+  showed that a 20-iteration imbalance is a transient. Item 18's table is a valid
+  anelastic-versus-Boussinesq comparison and a stale radiation budget; **quote no radiation
+  figure that was measured at 20 iterations, and re-measure anything from before item 22.**
+  The longest post-item-22 runs are the two 200-iteration ones of items 24-25, and both are
+  at `im = 41`.
 - **The prescribed profile now has a switch and an adjustment behind it, and the flip has
   not been made.** `ThermoAtm::densities()` still re-imposes the adiabat + isothermal top on
   `t` by default, so what the dynamics and the radiation compute is overwritten before it
@@ -1468,13 +1615,15 @@ the measurement.
   whole gap is the isothermal `t_skin` lid the prescription pins above 243 km. The next step
   is therefore not the flip — it is deciding what should set the top 60 km when nothing pins
   it, since the honest reading is that −66 W/m² is partly an assumption's doing.
-- **The opacity is still too low to hold the surface, at a third of the claimed margin.**
-  OLR 337 W/m² against 271 absorbed + geothermal, imbalance −66 W/m² at 20 iterations
-  (item 22). `kappa_H2O`/`kappa_CO2`/`kappa_bg` carry a factor-of-two uncertainty and are
-  the biggest lever, so a κ scan against *this* baseline is the first thing worth doing —
-  and −66 W/m² is close enough that the answer is no longer obviously "raise them". Fold in
-  item 23's unexplained latitudinal sign while scanning: the equator is the least emitting
-  column on the planet.
+- **The κ scan, run to 200 iterations, is now the single most informative thing to do**
+  (item 25). It answers two questions at once: whether the opacities are wrong, and whether
+  the OLR is a result at all. The claim that the opacity is too low to hold the surface was
+  measured on a transient that decays to −1.26 W/m², and the way it closes — the OLR falling
+  onto a σT_skin⁴ that never moves — is indistinguishable, at one κ, from the outgoing flux
+  being the boundary condition read back out. **If the converged OLR does not move with κ,
+  the grey scheme is reporting `t_skin` and item 11's rewrite did not cure item 10's defect,
+  it only postponed it past iteration 20.** Fold in item 23's unexplained latitudinal sign
+  while scanning: the equator is the least emitting column on the planet.
 - **The `c ≤ 1 − co2` ceiling has stopped firing** (item 23) — zero cells at 20 iterations,
   because it was reporting the misplaced cloud deck of item 22 and nothing else. With the
   transport exonerated (item 17), the column anchor fixed (item 19) and this gone, **no known
