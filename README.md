@@ -1594,6 +1594,136 @@ the measurement.
     at 20; and the column air mass drift is −0.0036 % over 200 against −0.0011 % over 20, so
     item 19's anchor holds over ten times the length. Both still with the moist physics off.
 
+26. **The Hadley cell was not decaying — the diagnostic was losing it, and the initial state
+    was never balanced (done).**
+
+    The question was why the cell structure visible at iteration 0 fades over the next
+    hundred. Three things turned out to be involved, and only the third is the cause.
+
+    **The streamfunction was a volume flux wearing a kg/s label.**
+    `write_meridional_streamfunction` carried `const double rho = r_air` — one constant, the
+    *surface* density, applied from the ground to the lid. On Earth's 16 km shell ρ spans
+    about 6× and the error is a stretch factor; here it spans four orders of magnitude, so a
+    cell at the lid was weighted ~40 000× too heavily and the thick upper layers — 23 km each
+    at `im = 41` — dominated an integral that belongs to the bottom few kilometres. ρ now
+    comes from `r_humid` and is averaged zonally *together* with v, keeping the ⟨ρ'v'⟩
+    correlation a warm rising branch carries. Both fields from the same 20-iteration run:
+
+    | | Ψ_max | latitude | height |
+    |---|---|---|---|
+    | old (ρ const) | 492 341 | +45° | 44.9 km |
+    | new (ρ(z) inside) | 155 762 | **+15°** | 0 km |
+
+    **It does not merely rescale the plot.** The peak moves from mid-latitudes into the
+    tropics, and at 15° the corrected Ψ *reverses sign* at ~60 km — −1 849 at 66 km, +7 823 at
+    55 km, +155 762 at the surface — while the old curve is single-signed at every height with
+    its largest magnitude at ~95 km. A sign reversal with height at fixed latitude is a closed
+    overturning cell. Share of |dΨ| below 55 km: **old 30.6 %, new 79.1 %.**
+
+    At iteration 100 of a moist run the same comparison gives old 879 470 at +44° against new
+    134 484 at +15°, and the vertical profiles say what the picture is:
+
+    ```
+    lat 15N:  0km:134484  36km:28904  55km:5810  79km:-8261  113km:-10632   <- reverses
+    lat 30N:  0km:107785  36km:77154  55km:61287 79km:42319  113km:22401    <- never
+    lat 45N:  0km:127060  36km:99210  55km:80874 79km:57298  113km:31015    <- never
+    lat 70N:  0km:47754   36km:25743  55km:18280 79km:11062  113km:5044     <- never
+    ```
+
+    **Exactly one closed cell exists**, tropical, below 60 km. Everything poleward of ~22° is
+    single-signed from surface to lid: mass moving poleward through the entire depth with no
+    return branch, which is not a cell at all. The 45° surface maximum is the peak of that
+    drift, not a Ferrel cell — and it is what the old diagnostic was reporting as the Hadley
+    circulation. **Every Ψ_max in items 18, 24 and 25 is a volume-flux number**: the growth
+    those series show is real and so is the extremum migrating to the boundary, but the
+    magnitudes and the latitude and height they report are not.
+
+    **The radial Shapiro filter is acquitted, and this is item 18's lesson in reverse.**
+    ATOM_Precipitation (`1e59daa`) and ASTIM (`cf43bfd`) both measured the radial Shapiro pass
+    on u,v,w as a dominant momentum sink, and this file's inherited comment says it *"erodes
+    the Hadley/Ferrel cells' two-branch v structure"* and carries *"~85 % of Mdot_net at
+    30–60°"* — ATURAN `7288cda` measured the same 85 % from the temperature side. A/B here
+    with `ATM_RADIAL_SHAPIRO_STRENGTH=0`:
+
+    | iter | Ψ_max, filter on | filter off |
+    |---|---|---|
+    | 2 | 157 220 | 157 263 |
+    | 14 | 154 463 | 154 708 |
+
+    **0.16 %, and the mid-latitude cell dies at the same iteration either way.** The
+    annotation is true where it was written — Earth, sharp jets on a 16 km shell — and false
+    on 41 levels spread over 300 km, where the vertical structure is smooth enough that a
+    4th-order filter in `i` barely touches it. Item 18 recorded the family naming a defect and
+    nobody checking; this is the family naming a suspect and the check acquitting it. **The
+    conclusion is grid-dependent and does not travel; the method does.**
+
+    **What kills the cell is that nothing was ever balanced.** At 45° the surface
+    streamfunction crosses zero at iteration ~5 and then grows linearly at ~1 335 per
+    iteration — constant dv/dt — and the budget says why in one line: `cor = 0.01532`,
+    `pgf = 0.00000`, advection, diffusion and drag all `0.00000`. `VelocityInitializer`
+    imposes an analytic profile onto a field with no pressure structure to support it, so the
+    Coriolis torque on the imposed wind is unopposed from iteration 0 and the two-branch
+    structure is buried within five iterations. Not damped — **overwhelmed**.
+
+    **`initBalancedState`, ported from ASTIM `cf43bfd` and re-derived against this model's own
+    equation.** Setting u = v = 0 and ∂/∂φ = 0 and requiring `rhs_v = 0`:
+
+    ```
+    dp_dyn/dthe = w^2*cotanthe + 2*force_nd*costhe*w*metricRadius(rm)
+    ```
+
+    It writes `p_dyn` because **`p_stat` appears nowhere in the momentum equations** (only in
+    the Held-Suarez σ) — the entire meridional pressure-gradient force in this model is
+    `p_dyn`, and a 50 K equator-to-pole contrast over a 250 bar column exerts none of it
+    directly. It runs *after* `project_initial_velocity`, which zeroes `p_dyn`; `run()` then
+    relaxes `p_dyn` in place rather than replacing it, and the balanced field is measured to
+    persist exactly — `pgf` identical at iterations 1, 2 and 3. This is also why item 18 found
+    `pgf` stuck at 1 % of Coriolis after 400 iterations: a balanced pressure is nearly
+    divergence-free, so it sits in the null space of what the projection solves each step.
+
+    **The radius is `metricRadius(rm)`, not `rad.z[i]`, and getting it wrong cost a factor of
+    20.** `inv_rm` carries the *planetary* radius (~21 in shell units) while `rad.z[i]` ~ 1,
+    and the Coriolis term carries no radius at all, so for `−dpdthe*inv_rm` to cancel it,
+    `dp/dθ` must carry `metricRadius`. `RungeKutta_Atm_Turb.cpp` warns about precisely this
+    two lines from where the metric is built — *"a solver that disagrees with the RHS about
+    the metric is the defect class this repo keeps finding"* — and the first version of this
+    port reproduced it:
+
+    | | pgf / cor | dv_dyn at iter 1 |
+    |---|---|---|
+    | unbalanced | 0.000 | 0.01532 |
+    | balanced, `rad.z[i]` | 0.051 | 0.01532 |
+    | balanced, `metricRadius(rm)` | **0.997** | **−0.00009** |
+
+    **And it collides with an Earth-tuned clamp.** The balance peaks at **455** while
+    `p_dyn_ceiling` is 10 during spin-up and 3 after iteration 300 — a backstop sized against
+    *"the accumulated steep-orography value (~7.7)"* in a model with no orography. **94.7 % of
+    (i,j) columns exceed it**, so `ATM_BALANCED_INIT=1` alone yields a 95 %-clipped field, and
+    unlike a uniform scaling, clipping distorts the *shape*. `ATM_P_DYN_CEILING` overrides it;
+    unset is bit-identical. `initBalancedState` now reports the fraction the clamp will
+    truncate, because a balance the model then clips is not a balance.
+
+    **Measured, 20 iterations, no NaN:**
+
+    | iter | Ψ_max | return branch @45° | Ψ₀ @45° |
+    |---|---|---|---|
+    | 2 | 157 443 | 28 319 | −4 858 |
+    | 8 | 157 373 | 28 265 | −4 833 |
+    | 20 | 157 403 | **28 195** | −4 813 |
+
+    The return branch is still there at iteration 20, having vanished by iteration 6 in every
+    run without this. Ψ₀ at 45° is frozen instead of crossing zero and accelerating. And Ψ_max
+    dips 0.04 % to iteration 8 and then **recovers** — it oscillates about the prescribed value
+    instead of decaying, which is how ASTIM described its cured jet. Both knobs default off
+    and the build is bit-identical: the balance-off run reproduces the pre-port run in every
+    traced column.
+
+    **`im = 41` becomes the default** on item 24's measurement. The shell depth is not a
+    resolution choice — the vertical extent is `H = R·T/g`, 59.3 km here against Earth's 8.4 —
+    but the level count is, and 41 buys 1.44× wall clock and 0.68× memory for 3.7 % on the OLR
+    with the sign of the imbalance unchanged. What it costs is at the top, so an absolute OLR
+    still wants re-measuring at 61.
+
 ## Remaining work
 
 
@@ -1630,6 +1760,13 @@ the measurement.
   mass sink remains**. The untested case is a run past `moist_phys_start_iter = 300`, where
   sedimentation runs for the first time; if the count comes back, measure *where* before
   proposing *why*, which is the one thing the two refuted mechanisms have in common.
+- **The balanced initial state is off by default, and its two knobs are coupled** (item 26).
+  `ATM_BALANCED_INIT=1` needs `ATM_P_DYN_CEILING` raised with it or 94.7 % of the field is
+  clipped. It cures the cell spin-down over 20 iterations; flipping either default wants a
+  200-iteration run first, and the `p_dyn_ceiling` question is separate and larger — an
+  Earth-sized clamp currently forbids the balanced state this model's own equation demands.
+- **`dt_visc` no longer matches the committed grid.** The config ships 4e-5, validated for
+  `im = 61`; item 24 validated 1e-4 at the `im = 41` that is now the default, worth 2.5×.
 - **The run is not converged, and 400 iterations is not close** (item 18). The meridional
   wind is in free acceleration under an unopposed Coriolis torque — the pressure gradient
   that should balance it is at 1.8 % of it after 400 iterations and growing linearly, which
