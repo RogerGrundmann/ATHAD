@@ -629,7 +629,16 @@ public:
         // (near-surface) to i=26/42°N/68°E (Pamir, ~4 km, the documented secular-growth
         // band). Symptom-only / whack-a-mole; the crash time is p_dyn-clip-independent.
         // Reverted to the hard clamp. See [[project_upper_velocity_secular_growth]].
-        const double p_dyn_ceiling = (m.total_iter_count > 300) ? 3.0 : 10.0;
+        // ATHAD A/B KNOB: both values above are Earth-sized -- 10.0 against accumulated
+        // steep-orography p_dyn, 3.0 against a Tian Shan/Pamir pegging. ATHAD has no
+        // orography at all, and initBalancedState finds that the balance its own
+        // theta-momentum equation demands peaks at ~40, i.e. FOUR TIMES the dry-spin-up
+        // ceiling, so this backstop currently forbids the balanced state. ATM_P_DYN_CEILING
+        // overrides it absolutely; unset keeps the inherited behaviour exactly.
+        static const double ceiling_override = [](){
+            const char* e = getenv("ATM_P_DYN_CEILING"); return e ? atof(e) : 0.0; }();
+        const double p_dyn_ceiling = (ceiling_override > 0.0) ? ceiling_override
+                                   : ((m.total_iter_count > 300) ? 3.0 : 10.0);
         #pragma omp parallel for collapse(3)
         for (int i = 0; i < m.im; i++) {
             for (int j = 0; j < m.jm; j++) {

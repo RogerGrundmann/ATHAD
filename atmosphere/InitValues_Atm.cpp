@@ -1083,3 +1083,148 @@ void cAtmosphereModel::initCloudIce() {
 /*
 *
 */
+
+/*
+* initBalancedState — ported from ASTIM cf43bfd ("Stop the prescribed jet from spinning
+* down"), which found two independent causes of a prescribed circulation decaying. The
+* second, the radial Shapiro pass draining vertical shear, was A/B-tested here and
+* ACQUITTED: turning it fully off (ATM_RADIAL_SHAPIRO_STRENGTH=0) changes Psi_max by
+* 0.16 % at 20 iterations and the mid-latitude cell still dies at the same iteration.
+* That annotation is true where it was written -- Earth, sharp jets on a 16 km shell --
+* and false on 41 levels spread over 300 km. This is the FIRST cause, which ATHAD has
+* no answer for at all.
+*
+* A prescribed circulation is not a solution of anything on its own. VelocityInitializer
+* imposes an analytic Hadley/Ferrel profile onto a field that carries no pressure
+* structure to support it, so from iteration 0 the Coriolis torque on the imposed wind is
+* unopposed and the flow accelerates instead of the cell equilibrating. Measured here:
+* at 45 deg the surface streamfunction crosses zero at iteration ~5 and then grows
+* LINEARLY at ~1335 per iteration -- constant dv/dt, the free-acceleration signature --
+* burying the two-branch cell structure within five iterations.
+*
+* THE BALANCE, TAKEN FROM THIS MODEL'S OWN theta-MOMENTUM EQUATION rather than an
+* idealised one, which is the part of ASTIM's approach worth keeping. With u = v = 0 and
+* d/dphi = 0, RHS_Atm_Turb.cpp writes
+*
+*     rhs_v = -dpdthe*inv_rm - transport_v + coriolis*force_nd*coriolis_the + ...
+*     transport_v  += (u*v - w^2*cotanthe) * inv_rm          [line 826]
+*     coriolis_the  = 2*costhe*w                             [line 394]
+*
+* and requiring rhs_v = 0 gives
+*
+*     dp_dyn/dthe = w^2*cotanthe + 2*force_nd*costhe*w*rm
+*
+* with force_nd = omega*metricShellLength()/u_0 and the sin(theta) >= 0.55 metric floor,
+* i.e. the same coefficients and the same polar clamp the RHS uses. ASTIM needed a
+* predictor in its trapezoid because its integrand depended on the density it was
+* solving for; ATHAD's depends only on w and the geometry, so a plain trapezoid is exact.
+*
+* WHY IT GOES INTO p_dyn, AND WHY IT SURVIVES. p_stat appears nowhere in the momentum
+* equations (only in the Held-Suarez sigma), so the ENTIRE meridional pressure-gradient
+* force in this model comes from p_dyn -- a 50 K equator-to-pole contrast over a 250 bar
+* column exerts none of it directly. p_dyn is the projection variable, and
+* project_initial_velocity() zeroes it, so this must run AFTER that call; the time loop's
+* run() then relaxes p_dyn in place rather than replacing it. This is also why item 18
+* found pgf stuck at 1 % of Coriolis after 400 iterations: a geostrophically balanced
+* pressure is very nearly divergence-free, so it sits in the null space of what the
+* projection solves each step, and the flow has to build it the slow way through the
+* buoyancy-driven divergence. Supplying it at t = 0 is the point.
+*
+* The integration constant is fixed by removing the sin(theta)-weighted mean at each
+* level, so the balance redistributes pressure in latitude without adding any.
+*
+* ATM_BALANCED_INIT scales the whole perturbation. DEFAULT 0.0 = OFF and bit-identical,
+* per this repo's convention for a change that has not yet been measured over a long run;
+* 1.0 is full balance, and intermediate values exist because ASTIM found the response
+* strongly nonlinear (98.3 % retention at 0.0 against 92.7 % at 1.0 for its filter knob).
+*/
+void cAtmosphereModel::initBalancedState(){
+    static const double strength = [](){
+        const char* e = getenv("ATM_BALANCED_INIT"); return e ? atof(e) : 0.0; }();
+    if(strength == 0.0) return;
+
+    std::cout << std::endl << "      AGCM: initBalancedState begin ......................." << std::endl;
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    const int j_eq = (jm - 1) / 2;
+    const double force_nd = omega * metricShellLength() / u_0;
+
+    // The solver clamps p_dyn to +-p_dyn_ceiling (10.0 during the dry spin-up, 3.0 after
+    // iter 300), a backstop sized on Earth against "the accumulated steep-orography value
+    // (~7.7)". Count what that clamp will truncate here, because a balance the model then
+    // clips is not a balance -- and unlike a uniform scaling, clipping distorts the SHAPE.
+    double max_add = 0.0;
+    long n_over = 0, n_tot = 0;
+    const double ceiling_probe = (total_iter_count > 300) ? 3.0 : 10.0;
+
+    #pragma omp parallel for schedule(static) reduction(max: max_add) reduction(+: n_over, n_tot)
+    for(int i = 0; i < im; i++){
+        const double rm = rad.z[i];
+
+        std::vector<double> wbar(jm, 0.0), pbal(jm, 0.0), f(jm, 0.0);
+        for(int j = 0; j < jm; j++){
+            double ws = 0.0; int n = 0;
+            for(int k = 0; k < km; k++){
+                if(i < i_topography[j][k]) continue;          // fluid cells only
+                ws += w.x[i][j][k]; n++;
+            }
+            wbar[j] = (n > 0) ? ws / (double)n : 0.0;
+        }
+
+        // THE RADIUS HERE IS metricRadius(rm), NOT rad.z[i], and getting that wrong cost a
+        // factor of ~20. The RHS multiplies BOTH the pressure gradient and the w^2*cotanthe
+        // curvature term by inv_rm = 1/metricRadius(rm) — "the 1/r factors carry the
+        // PLANETARY radius; exp_rm carries the stretched grid coordinate", as
+        // RungeKutta_Atm_Turb.cpp puts it — while the Coriolis term carries no radius at all.
+        // So for -dpdthe*inv_rm to cancel a Coriolis term that was never divided, dp/dthe has
+        // to carry metricRadius(rm) = m_metric_r0 + (rm - rad.z[0]) ~ 21 in shell units, not
+        // rm ~ 1. Measured with rm: pgf came out at 5.1 % of cor instead of 100 %. The
+        // curvature term takes no factor, because it is divided by the same inv_rm the
+        // pressure gradient is. This is the metric-disagreement defect that file warns about,
+        // reproduced in the act of porting a fix.
+        const double rmet = metricRadius(rm);
+        for(int j = 0; j < jm; j++){
+            const double the_j  = the.z[j];
+            double sinthe = sin(the_j);
+            if(sinthe < 0.55) sinthe = 0.55;                  // the RHS's metric floor
+            const double costhe   = cos(the_j);
+            const double cotanthe = costhe / sinthe;
+            f[j] = wbar[j] * wbar[j] * cotanthe
+                 + 2.0 * force_nd * costhe * wbar[j] * rmet;
+        }
+
+        for(int j = j_eq; j < jm - 1; j++)
+            pbal[j+1] = pbal[j] + 0.5 * dthe * (f[j] + f[j+1]);
+        for(int j = j_eq; j > 0; j--)
+            pbal[j-1] = pbal[j] - 0.5 * dthe * (f[j] + f[j-1]);
+
+        double wsum = 0.0, num = 0.0;
+        for(int j = 0; j < jm; j++){
+            const double aw = sin(the.z[j]);
+            wsum += aw;
+            num  += aw * pbal[j];
+        }
+        const double mean = (wsum > 0.0) ? num / wsum : 0.0;
+
+        for(int j = 0; j < jm; j++){
+            const double add = strength * (pbal[j] - mean);
+            if(std::fabs(add) > max_add) max_add = std::fabs(add);
+            n_tot++;
+            if(std::fabs(add) > ceiling_probe) n_over++;
+            for(int k = 0; k < km; k++)
+                p_dyn.x[i][j][k] += add;
+        }
+    }
+
+    std::cout << "      balancing pressure perturbation: max |dp_dyn| = " << max_add
+              << " (non-dim), strength = " << strength << std::endl;
+    std::cout << "      above the p_dyn ceiling (" << ceiling_probe << "): " << n_over
+              << " of " << n_tot << " (i,j) columns ("
+              << (n_tot > 0 ? 100.0 * (double)n_over / (double)n_tot : 0.0)
+              << " %) -- the solver will clip these on its first call" << std::endl;
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
+    printf(" time measured: %.3f seconds for initBalancedState\n", elapsed.count() * 1e-9);
+    std::cout << "      AGCM: initBalancedState end ......................." << std::endl;
+}

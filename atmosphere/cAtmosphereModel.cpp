@@ -661,6 +661,13 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     // ∇·v = 0 state with the solenoidal part of the prescribed flow intact.
     PressureSolverAtm(*this).project_initial_velocity(200);
 
+    // The projection makes the initial velocity divergence-free; it does NOT make it
+    // balanced, and it zeroes p_dyn on the way in — so the balanced pressure that supports
+    // the prescribed circulation has to be supplied here, after it. Without this the
+    // Coriolis torque on the imposed wind is unopposed from iteration 0 and the cells are
+    // buried by a linearly accelerating drift within ~5 iterations. Off by default.
+    initBalancedState();
+
     UtilsAtm(*this).storeIntermediateData3D(1.0);
     UtilsAtm(*this).findResiduumAtm();
 

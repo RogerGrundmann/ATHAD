@@ -157,9 +157,18 @@ public:
 
     const int c43 = 4.0/3.0, c13 = 1.0/3.0;
 
-    // ATHAD: 61 radial levels over a ~300 km shell. See param.py (L_atm, zeta) for the
-    // sizing and lib/Array.cpp MAXI for the matching assertion bound.
-    static const int im = 61, jm = 181, km = 361;
+    // ATHAD: 41 radial levels over a ~300 km shell (was 61 through README item 24). The
+    // SHELL is not a resolution choice — the vertical extent is H = R*T/g, 59.3 km here
+    // against Earth's 8.4 — but the LEVEL COUNT is, and 41 was measured against 61 in
+    // item 24: 1.44x less wall clock, 0.68x the memory, the OLR within 3.7 % and the sign
+    // of the imbalance unchanged. What it costs is at the top, where the lid emissivity
+    // goes 0.0000 -> 0.0068 and the cloud deck is located only to +-11 km, so a final
+    // absolute OLR should still be re-measured at 61. It also restores dt_visc = 1e-4
+    // (item 24): the explicit diffusion limit goes as the physical surface spacing squared,
+    // 1.22 km here against 0.81 km at im = 61. NOTE the config default is still 4e-5, which
+    // is safe but 2.5x more expensive than this grid allows.
+    // See param.py (L_atm, zeta) for the sizing and lib/Array.cpp MAXI for the assertion bound.
+    static const int im = 41, jm = 181, km = 361;
 
     double residuum_old = 1.0e-5;
 
@@ -426,6 +435,12 @@ private:
     void calculate_node_weights();
     void init_steps();
     void init_tropopause_layers();
+
+    // Balance the prescribed initial circulation against this model's own theta-momentum
+    // equation, so the imposed cells do not spin down from an unbalanced start.
+    // Ported from ASTIM cf43bfd; behind ATM_BALANCED_INIT, default 0.0 = off.
+    // See InitValues_Atm.cpp for the derivation and why it writes p_dyn.
+    void initBalancedState();
     void RHS_Atmosphere_Turb(int i, int j, int k, const CellGeometry& geo);   // single dynamical core (laminar RHS_Atmosphere dropped 2026-07-08)
     void solveRungeKutta_Atmosphere_Turb();
     void fft(Array &);
