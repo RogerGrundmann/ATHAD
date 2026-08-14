@@ -68,7 +68,8 @@ asserted.
 | `MixtureAtm.h` | Composition → mass fractions, `R_of`, `cp_of` (Shomate), `M_of`, `M_nonwater`, water's critical point |
 | `SaturationH2O.h` | IAPWS saturation + sublimation curves, Watson `latentHeat(T)`, exact `saturationMassFraction`, `dewPoint` (bisection), `dqSatdT` |
 | `MultiLayerRadiation.h` | Grey optical depth from column mass with pressure broadening; surface energy balance |
-| `ThermoAtm.h` | Densities and the hydrostatic column; `printColumnProfile` / `printLevelSummary` diagnostics |
+| `ThermoAtm.h` | Densities and the hydrostatic column, anchored to `p_0`; `printColumnProfile` / `printLevelSummary` diagnostics; the `ATM_PROGNOSTIC_T` knob |
+| `ConvectiveAdjustment.h` | Dry Manabe–Strickler, generalised to the stretched grid and to a local `cp_of()` — the family's shared version assumes neither |
 | `test/saturation_selftest.cpp` | IAPWS reference-point checks — `make test` |
 
 ## Four invariants — do not silently break these
@@ -92,11 +93,17 @@ asserted.
 
 3. **Radiation runs in mode 2** (direct σT⁴). Modes 0/1/3/4/5 all lean on the Scotese
    snapshot or the 280 ppm CO₂ reference; neither exists at 4.4 Ga. Radiation must *set*
-   the profile, not nudge it toward a prescribed one — **and it still does not**:
+   the profile, not nudge it toward a prescribed one — **and by default it still does not**:
    `ThermoAtm::densities()` re-imposes the adiabat on `t` every iteration, overwriting
-   what the dynamics and the radiation computed. The OLR is now a real integral over that
-   prescribed profile. Fixing the prescription is the open task, not a licence to restore
-   a prescribed target.
+   what the dynamics and the radiation computed. The OLR is a real integral over that
+   prescribed profile. `ATM_PROGNOSTIC_T=1` switches the overwrite off (README item 19) and
+   `ConvectiveAdjustment.h` supplies the mixing the adiabat was silently providing (item 20),
+   so the flip is now a measurement rather than a rewrite. **It has not been made, and as of
+   item 23 it makes the imbalance worse**: −226 W/m² prognostic against −66 prescribed, all
+   of it in the top five levels, where the prescription pins an isothermal `t_skin` = 263 K
+   that is itself an assumption. Fixing the prescription is the open task, not a licence to
+   restore a prescribed target — but note that the better-looking of the two numbers is the
+   more assumed one.
 
 4. **The column is on its own adiabat, integrated not fitted.** `dT/dz = −g/cp` with local
    cp, hydrostatic on the layer-mean T, isothermal above `t_skin`. Do **not** restore the
@@ -135,15 +142,19 @@ README items 9-11.
 - **Shell 300 km**, 61 levels; top 3.8e-4 bar with lid eps = 0.0000, isothermal skin
   resolved from 256 km. **OLR decoupled from sigma*T_lid^4 — a real column integral.** At
   the old 230 km the two were equal and the OLR was an input.
-- **The model's first genuine statement: its opacity is too low.** At 400 iterations,
-  **OLR = 679.8 W/m2 against 270.8 absorbed + geothermal** (sigma*T_lid^4 = 271.1), so the
-  atmosphere radiates away 2.5x what it takes in and cannot hold the prescribed 1500 K
-  surface. That is a claim about `kappa_H2O` = 0.01 m2/kg, not about the boundary. **The
-  581 W/m2 quoted here through items 11-17 was a 100-iteration figure and is superseded**;
-  the imbalance at 400 iterations is -409 W/m2 and still not converged (item 18).
+- **The model's first genuine statement: its opacity is too low — but by a third of what
+  was claimed.** At 20 iterations, **OLR = 337.4 W/m2 against 271.3 absorbed + geothermal**,
+  imbalance -66.1 W/m2 (README item 22). The atmosphere still radiates away more than it
+  takes in and cannot hold the prescribed 1500 K surface, and that is a claim about
+  `kappa_H2O` = 0.01 m2/kg rather than about the boundary — but at this margin the answer is
+  no longer obviously "raise the opacities". **Every larger figure this file has carried —
+  581 W/m2 through items 11-17, 679.8 and -409 at 400 iterations in item 18 — is superseded
+  by item 22**, which found the initial cloud deck had been built on a column the model does
+  not have. **Nothing has been run to 400 iterations since**; the only current numbers are
+  at 20.
 - **Not grid-converged**: 519 W/m2 at 260 km against 581 at 300 km with `im` fixed at 61
-  (both at 100 iterations — the check has not been repeated at 400).
-- Mean planetary albedo 0.4999 = `albedo_cloud`; the reflectivity saturates the moment any
+  (both at 100 iterations, both pre-item-22 — the check has to be redone, not just extended).
+- Mean planetary albedo 0.4981 ≈ `albedo_cloud`; the reflectivity saturates the moment any
   condensate exists, so the model reports that parameter.
 - Insolation is now TOA (mean 241.56 W/m2); `t_skin` is a fixed point against the model's
   own albedo, converging to 262.85 K.
@@ -190,7 +201,7 @@ C++ class, file and function names are kept **identical to `ATOM_Precipitation`*
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
 `config_athad.xml`, `pyathad`). Preserve that.
 
-**Seventeen defects found in the inherited code so far, all latent on Earth and live here.**
+**Nineteen defects found in the inherited code so far, all latent on Earth and live here.**
 The pattern is consistent and worth expecting: *Earth's numbers as bare literals inside
 physics kernels, each with a comment justifying it by Earth's conditions.* Examples —
 `dr = 0.025` silently tied to `im = 41`; a 333.15 K cap written back into the prognostic
@@ -211,6 +222,19 @@ this one is exponentially stretched, so the pole's convective top was placed at 
 (13 km) instead of 52 (196 km), and `VelocityInitializer` built the entire initial wind
 structure inside the bottom 4 % of the atmosphere.
 
+**The two newest are about order, not about literals, and they are the ones this file
+under-rated.** `initTemperatureData` reads `c` and `co2` at every level, but
+`initWaterWapour` and `co2Atmosphere` ran *after* it, so the whole initial column was
+integrated with R_bg = 317.3 instead of R_mix = 387.9 and a background-only cp — and
+`initCloudIce` and the first `SaturationAdjustment` then laid the cloud deck on that column,
+50 km too low, in a band where this atmosphere cannot condense. Halving the OLR when
+corrected (README item 22). And `p_stat.x[0]` was re-anchored every iteration to
+`r_air·R_mix·T_surf`, which holds the surface *density* fixed and lets the mass of a "250 bar
+atmosphere" follow the surface temperature (item 19). Both were dismissed in writing here as
+harmless because `densities()` rebuilds the column afterwards. **The lesson generalises: an
+initialisation defect is not excused by a later overwrite until you have listed everything
+that runs in between.**
+
 **Fixes worth porting back upstream** (not yet applied to ATOM_Precipitation as of
 2026-08-11): the `t.x[-1]` out-of-bounds in `MoistConvection::findCloudBaseLFS`; the
 `m_node_weights` OpenMP race in `GetMean_2D/3D`; the UB in `get_temperatures_from_curve`;
@@ -224,10 +248,12 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
-- **The profile is still prescribed.** `densities()` overwrites `t` with the adiabat every
-  iteration, so the OLR is a real integral over a profile the radiation did not choose.
-  `ThermoAtm::printPlanetaryBalance` prints the lid temperature and emissivity next to the
-  OLR, and flags the case where the two coincide.
+- **The profile is still prescribed by default.** `densities()` overwrites `t` with the
+  adiabat every iteration, so the OLR is a real integral over a profile the radiation did not
+  choose. `ThermoAtm::printPlanetaryBalance` prints the lid temperature and emissivity next
+  to the OLR, and flags the case where the two coincide. `ATM_PROGNOSTIC_T=1` plus
+  `ConvectiveAdjustment` is the intended replacement and is not yet good enough to be the
+  default — see README items 19-20 and 22.
 - **The surface temperature is prescribed, not solved.** Every result is conditional on it.
 - **Boussinesq.** The solver rests on the Boussinesq buoyancy approximation, but density
   varies by ~2 orders of magnitude across the column. This may force an anelastic or
@@ -241,10 +267,11 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   tracks the Boussinesq baseline to 0.03 K in mean T, 0.002 % in KE and 0.6 % in Ψ_max,
   with the `p_dyn_cap` clamp binding in 0 of 3 791 399 cells. `ATM_ANELASTIC=0` forces the
   Boussinesq path for A/B.
-- **The column air mass is not conserved.** `p_stat.x[0]` is re-anchored every iteration to
-  `r_air·R_mix·T_surf`, so the 250 bar column loses ~0.01 % of its mass per iteration as
-  the surface temperature drifts. This is what `waterBudget()` had been reporting as water
-  creation. Anchoring the column to a mass instead is the open task — README item 17.
+- **The column air mass is conserved now** (README item 19). `p_stat.x[0] = p_0`, a constant,
+  because the surface pressure of an atmosphere is the weight of the air above it and the
+  surface density is what follows. Drift −0.2128 % → −0.0011 % over 20 iterations, and the
+  water "creation" `waterBudget()` was reporting went with it. Do not re-anchor the column to
+  `r_air·R_mix·T_surf`.
 - **Deep convection is inactive.** Its trigger thresholds (1000/970/900/800 hPa) are
   absolute Earth surface pressures and never fire at 250 bar. They need to become
   fractions of surface pressure.

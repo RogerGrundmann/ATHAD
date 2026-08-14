@@ -1219,43 +1219,288 @@ the measurement.
     iteration estimate stands, and the solver is ruled out as its cause** — which is the
     result worth having, since it was the obvious suspect.
 
+19. **The column anchored to a mass, and the prescribed profile given a switch (done, and
+    instrumented).**
+
+    `p_stat.x[0]` was re-anchored every iteration to `r_air·R_mix·T_surf`. That holds the
+    surface *density* fixed and lets the surface *pressure* follow the surface temperature,
+    so every time the prognostic `T_surf` drifted off its prescribed 1500 K the whole
+    250 bar column was re-integrated from a different anchor and the atmosphere gained or
+    lost mass. The surface pressure of an atmosphere is the weight of the air above it: if
+    no mass enters or leaves it is a constant, and the surface density is what follows.
+    `p_prev = p_0`.
+
+    | column air mass drift | old anchor | new anchor |
+    |---|---|---|
+    | iteration 10 | −0.1258 % | −0.0011 % |
+    | iteration 20 | −0.2128 % | −0.0011 % |
+
+    The old one grows every 10 iterations; the new one takes one rounding-level step and
+    holds. Water against frozen weights improves with it, from a monotone +0.0025 % to an
+    oscillation about zero (−0.0005, +0.0008 %) — which is what item 17 predicted, since
+    the water field was never the problem, the denominator was.
+
+    The conservation references also move to **after** the first `densities()` call. Both
+    are mass-weighted by `p_stat`, so capturing them before it recorded a state the model
+    never integrates from. That was harmless while the anchor moved with the surface
+    temperature — the offset was buried in the drift it caused — and became visible the
+    moment the anchor stopped moving, as a fixed +0.62 % reported as drift.
+
+    **`ATM_PROGNOSTIC_T` (default 0, bit-identical) stops `densities()` overwriting `t`
+    with its adiabat**, so the temperature the dynamics and the radiation computed survives
+    the iteration. At 20 iterations it did not blow up, no NaN, run completes — and the
+    energy imbalance fell from −433 to −19 W/m². **That −19 W/m² is retracted in item 20**;
+    it was the removal of a constraint reporting itself, not the physics. What was worth
+    keeping is the profile it produced: the lower column cooling at 5.97 K/km against a
+    4.19 K/km dry adiabat — **super-adiabatic, convectively unstable** — and a grid-scale
+    sawtooth in the top 50 km, 366.8 / 333.0 / 252.7 / 263.6 / 318.2 / 231.0 K on adjacent
+    levels.
+
+    Both follow from one fact: **this adiabat is the model's only convective adjustment.**
+    ATHAD had no `ConvectiveAdjustment` at all, and `MoistConvection`'s triggers are
+    absolute Earth pressures that never fire at 250 bar, so switching the prescription off
+    does not give a radiative–convective profile — it gives a radiative one, which in an
+    optically thick atmosphere is super-adiabatic by construction. Hence item 20 before the
+    flip.
+
+20. **A convective adjustment, ported and generalised — and yesterday's −19 W/m² retracted
+    (done).**
+
+    `ConvectiveAdjustment.h`, dry Manabe–Strickler, from the family's shared
+    `planet/ConvectiveAdjustment.h` (ATURAN/ATJUP/ATSAT). **Not copied verbatim, and the
+    two reasons are the usual ones:**
+
+    1. The shared file assumes a **uniform grid** — `dz_m = L_atm*1e3/(im-1)` is a layer
+       thickness only when the layers are equal. ATHAD's radial coordinate is exponentially
+       stretched, `dz` running 0.81 km at the surface to ~15 km at the lid, a factor of 19,
+       so one critical drop would be 19× too strict at the bottom. Same defect class as
+       `init_tropopause_layers`' `round(h / L_atm)`. The critical drop is now per layer and
+       the segment adiabat a cumulative sum rather than the linear `dT_ad·(q−a)`.
+    2. It assumes a **constant `cp_mix`**. ATHAD's cp varies twofold across 300–1500 K and
+       follows the composition, so cp comes from `AtmMixture::cp_of()` locally — which is
+       what the shared file's own comment warns to do.
+
+    Enthalpy drift 1.6e-15 (prescribed) and 2.3e-14 (prognostic): the generalisation
+    conserves what the algorithm promises. With `ATM_PROGNOSTIC_T=1` the sawtooth of item 19
+    is gone — 609.1 / 548.9 / 484.3 / 417.9 / 347.2 / 272.2 K, monotone, and by construction
+    nowhere super-adiabatic. The adjustment does real work there: max ΔT 291.6 K in a single
+    column, 3.9 M layers mixed, against 3.18 K with the profile prescribed, where
+    `densities()` overwrites `t` on the next line anyway. It is wired in immediately before
+    `densities()`, so with the prescription on it costs one pass and reports the residual
+    instability the dynamics generate per iteration — which is itself a measurement of how
+    much work the prescription has been doing.
+
+    **And it retracts item 19's headline.** The −19 W/m² came from the sawtooth: a
+    convectively unstable column radiates from the wrong levels, and the apparent balance
+    was the instability flattering the OLR. With the column forced back onto its adiabat:
+
+    | at 20 iterations | OLR | imbalance | σT_lid⁴ |
+    |---|---|---|---|
+    | prescribed | 704.24 W/m² | −433.42 W/m² | — |
+    | prognostic + adjustment | 634.46 W/m² | −363.65 W/m² | 169.29 W/m² |
+
+    A 16 % improvement, not a factor of twenty. The imbalance is real, item 11's claim that
+    the opacity is too low to hold the surface stands, and **nothing in the κ question is
+    repaired by making the profile prognostic**. The lesson is the one this README keeps
+    relearning: a number that improves dramatically when a constraint is removed is usually
+    reporting the removal, not the physics. (Both rows predate item 22 and are superseded in
+    magnitude; the comparison between them is not.)
+
+21. **The water ceiling localised, and the mechanism its own comment asserted refuted
+    (measured — and the repair deliberately not made).**
+
+    The `c ≤ 1 − co2` ceiling deletes water: 0.000165 kg/kg per 20 iterations, 0.002364 per
+    400. The plan was to make it conservative. Measuring first was right, and stopped it.
+
+    The comment above the ceiling asserted a mechanism — water is pumped down out of the one
+    condensing level by sedimentation and evaporates into the superheated band below with no
+    return path, so `c` there grows until something stops it. A new per-level report tests
+    it. At 20 iterations with `moist_phys_start_iter = 300`, so `SaturationAdjustment`, the
+    ice schemes and **all sedimentation are off and never run**, the ceiling still bites
+    16 606 cells:
+
+    ```
+    by level:  i=51 (185 km)  5 054      i=52 (195 km)  11 552
+    ```
+
+    There is no sedimentation running, so sedimentation is not the cause. And the count is
+    **identical at iterations 10 and 20**, with the same per-level split, so it is not an
+    accumulation either. Both halves of the asserted mechanism fail.
+
+    What it looks like instead: a standing excess left at i = 51–52 by the one saturation
+    adjustment that *does* run, at initialisation, re-clipped to the same value every
+    iteration by something that either nudges `c` back above the ceiling or nudges the
+    ceiling below `c` — `1 − co2` moves when the transported CO₂ does, and CO₂ has been
+    prognostic since item 12. Which of the two has not been established.
+
+    **So the ceiling is left deleting.** A conservative ceiling that redistributes instead
+    of deleting would convert a bounded 0.35 %-per-400-iteration loss into an unbounded
+    pile-up somewhere else, and until the mechanism is known the deletion is the only thing
+    holding that band at a physically possible composition. The diagnostic is the deliverable
+    here; the repair is not, and saying so is the point.
+
+22. **The composition laid down before the column that reads it — and the OLR halves
+    (done).**
+
+    `initTemperatureData` reads `c` and `co2` at every level — `R_of(q_v, q_c, R_bg)` for the
+    hydrostatic step, `cp_of(q_v, q_c, T, M_bg)` for the adiabat — but `initWaterWapour` and
+    `co2Atmosphere` ran **after** it, so both fields were still zero. With `q_v = q_c = 0`
+    the gas constant collapses to the background, R_bg = 317.3 instead of R_mix = 387.9, an
+    18 % short scale height, and cp is the background-only value so the adiabat is too steep.
+    **The whole initial column was built for an atmosphere this model does not have.** Both
+    fills are unconditional uniform assignments with no dependence on `t` or `p_stat`, so
+    they simply move ahead of it; `initCloudIce` stays behind, since it genuinely needs the
+    profile.
+
+    This README said the defect was survivable because `densities()` rebuilds the column
+    straight afterwards, and that the only escapee was the lid snapshot — refreshed in
+    item 10 rather than repaired at source. **That accounting was incomplete.**
+    `initCloudIce` *and* the initial `SaturationAdjustment` both run between
+    `initTemperatureData` and `densities()`, so they laid the initial cloud and ice fields on
+    the wrong column. At 20 iterations:
+
+    | | before | after |
+    |---|---|---|
+    | max cloud water | 196 km | 243 km |
+    | max cloud ice | 186 km, 36.6 g/kg | 243 km, 29.2 g/kg |
+    | planetary albedo | 0.4998 | 0.4981 |
+    | OLR | 704.24 W/m² | **337.39 W/m²** |
+    | imbalance | −433.42 W/m² | **−66.13 W/m²** |
+
+    The cloud deck moves up about 50 km and the OLR halves. The consistency check that says
+    which state is right is the model's own profile report: *"condensation possible from
+    i = 55 (230.2 km) upward"*, and the old deck sat at 186–196 km — **in a band where this
+    atmosphere cannot condense at all.** The new one sits at 242.8 km, inside it. The deck
+    was in an impossible place because it was built on a column that did not exist.
+
+    **This also means the −409 to −433 W/m² imbalance quoted since item 11 was carrying a
+    second artefact** on top of the one item 7 looked for and did not find. It does *not*
+    retract item 11's conclusion — 337 W/m² against 271 absorbed is still an atmosphere
+    radiating away more than it takes in — but the margin is a third of what was claimed, and
+    every κ argument resting on the old figure needs redoing against this one. **Every
+    radiation number in item 18's 400-iteration table predates this fix and is superseded**;
+    the anelastic-versus-Boussinesq comparison in it is not, since both columns carried the
+    same artefact.
+
+23. **The prognostic column re-measured on the corrected baseline — it is now the worse of
+    the two — and item 21's open question answered by item 22 (done).**
+
+    Two 20-iteration runs at this commit, identical configuration (`nm = 20`, 8 threads),
+    the only difference `ATM_PROGNOSTIC_T`. The prescribed column reproduces item 22's
+    numbers to the last digit, so the pair is comparable:
+
+    | at iteration 20 | prescribed (default) | prognostic + adjustment |
+    |---|---|---|
+    | OLR | 337.39 W/m² | 497.61 W/m² |
+    | imbalance | −66.13 W/m² | −226.35 W/m² |
+    | planetary albedo | 0.4981 | 0.4981 |
+    | lid T / σT_lid⁴ | 262.95 K / 271.10 W/m² | 259.58 K / 257.47 W/m² |
+    | deleted by the `c` ceiling | 0.000000 kg/kg, 0 cells | 0.000000 kg/kg, 0 cells |
+    | column air mass drift | −0.0000 % | −0.0024 % |
+
+    **The sign of item 20's comparison has reversed.** Before the composition-ordering fix,
+    making the profile prognostic *improved* the imbalance by 16 % (704 → 634 W/m²) and that
+    was the argument for flipping the default. With the cloud deck in its right place the
+    prescribed column falls to 337 W/m² and the prognostic one only to 498, so **the
+    prescription is now better by a factor of 3.4** — and the whole difference is in the top
+    five levels:
+
+    | height | prescribed | prognostic |
+    |---|---|---|
+    | 242.8 km | 263.0 K | 309.0 K |
+    | 256.0 km | 263.0 K | 352.3 K |
+    | 270.0 km | 263.0 K | 337.5 K |
+    | 284.6 km | 263.0 K | 246.0 K |
+    | 300.0 km | 263.0 K | 257.1 K |
+
+    Everything above ~243 km is pinned at the isothermal skin `t_skin` = 263.0 K when the
+    profile is prescribed. **That skin was holding the OLR down**, and it is an assumption
+    rather than a result: `t_skin` is a fixed point against the model's own albedo (item 10),
+    not a temperature the radiation computed at those levels. So the −66 W/m² of item 22 is
+    the better-looking number and the more constrained one; the prognostic −226 W/m² is what
+    this radiation scheme actually produces when nothing pins its top.
+
+    **`ConvectiveAdjustment` is right not to touch that top.** 243 → 256 km is a temperature
+    *increase*: an inversion is convectively stable, and a dry adjustment leaves it alone by
+    construction. It is not idle elsewhere — 100 % of columns, 6.47 M layers, max ΔT 127.7 K,
+    every iteration, and **steady from iteration 2 to 20**, which says the radiative–dynamical
+    tendency regenerates the instability as fast as the adjustment removes it. What the
+    prognostic top needs is not more mixing, and item 20's structural improvement (the
+    sawtooth is gone; the lower column is monotone) survives this result intact.
+
+    **The water ceiling now never fires, and item 21's question is answered — by item 22, and
+    by none of the three mechanisms that had been proposed for it.** Zero cells and
+    0.000000 kg/kg deleted in both runs, against 16 606 cells and 0.000165 kg/kg per 20
+    iterations before the ordering fix. The tell was in the refuted report all along: the
+    clipping sat at **i = 51 (185 km) and i = 52 (195 km)**, and the misplaced cloud deck sat
+    at **186–196 km**. It was the same object. Neither the sedimentation mechanism the
+    comment asserted, nor the `c`-rises/`1−co2`-falls pair item 21 proposed in its place, was
+    the cause; the deck had been built on a column the model does not have, in a band where
+    this atmosphere cannot condense, and the ceiling was reporting that. **Two mechanisms
+    asserted, both wrong, and the measurement that settled it was a location.** The ceiling
+    stays as a diagnostic — the untested case is a run past `moist_phys_start_iter = 300`,
+    where sedimentation finally runs — and it is not to be made conservative while it has
+    nothing to delete.
+
+    **One thing this pair raises that is not yet explained**: in the prescribed run the
+    equatorial column radiates **271.1 W/m²** while the global mean is 337.4, so the hottest
+    surface on the planet sits under the *least* emitting column. With a surface suppression
+    of ×1049 and a transmitted fraction of 0.000 the OLR is set entirely by the cloud and
+    skin structure aloft, not by the surface beneath it — which is expected in an optically
+    thick atmosphere, but the latitudinal sign of it has not been checked and belongs in the
+    κ scan.
+
 ## Remaining work
 
 
-
-
-
-
-
-- **The temperature profile is still prescribed, not solved.** `ThermoAtm::densities()`
-  re-imposes the adiabat + isothermal top on `t` every iteration, so what the dynamics and
-  the radiation compute is overwritten before it can matter. Invariant 3 in CLAUDE.md says
-  radiation must *set* the profile rather than nudge it toward a prescribed one; the
-  prescription still wins. The OLR is now a genuine integral **over a prescribed profile** —
-  a real improvement, but not yet a prediction.
-- **The column air mass is not conserved** (item 17). `p_stat.x[0]` is re-anchored every
-  iteration to `r_air·R_mix·T_surf`, so a "250 bar atmosphere" loses mass whenever the
-  surface temperature moves — 0.126 % over 20 iterations, which is what the water budget
-  was reading as water creation. The tracer transport itself drifts ~0.0001 % per
-  iteration. Fixing this means anchoring the column to a mass rather than to a prescribed
-  surface density, and it is entangled with the prescribed profile below.
-- **The `c ≤ 1 − co2` ceiling still deletes water**, 0.000164 kg/kg over 20 iterations.
-  With the transport exonerated this is now the larger of the two mass errors, and unlike
-  the other one it is a straightforward deletion with no compensating source.
-- **`moist_phys_start_iter = 300`** means a 400-iteration run is dry for three quarters of
-  its length. Deliberate (it lets the circulation form before the stiff microphysics
-  starts), but it must be stated whenever a run is quoted.
+- **Every 400-iteration number predates item 22.** The composition-ordering fix halved the
+  OLR at 20 iterations, and nothing has been run out to 400 since. Item 18's table is a
+  valid anelastic-versus-Boussinesq comparison and a stale radiation budget; **re-measure
+  before quoting any long-run figure.**
+- **The prescribed profile now has a switch and an adjustment behind it, and the flip has
+  not been made.** `ThermoAtm::densities()` still re-imposes the adiabat + isothermal top on
+  `t` by default, so what the dynamics and the radiation compute is overwritten before it
+  can matter — invariant 3 in CLAUDE.md says radiation must *set* the profile, and the
+  prescription still wins. Items 19–20 built the two things the flip needs:
+  `ATM_PROGNOSTIC_T=1` and a grid- and cp-aware `ConvectiveAdjustment`. Item 23 measured the
+  pair on the corrected baseline and **the case for flipping it has weakened, not
+  strengthened**: prognostic now gives −226 W/m² against the prescription's −66, and the
+  whole gap is the isothermal `t_skin` lid the prescription pins above 243 km. The next step
+  is therefore not the flip — it is deciding what should set the top 60 km when nothing pins
+  it, since the honest reading is that −66 W/m² is partly an assumption's doing.
+- **The opacity is still too low to hold the surface, at a third of the claimed margin.**
+  OLR 337 W/m² against 271 absorbed + geothermal, imbalance −66 W/m² at 20 iterations
+  (item 22). `kappa_H2O`/`kappa_CO2`/`kappa_bg` carry a factor-of-two uncertainty and are
+  the biggest lever, so a κ scan against *this* baseline is the first thing worth doing —
+  and −66 W/m² is close enough that the answer is no longer obviously "raise them". Fold in
+  item 23's unexplained latitudinal sign while scanning: the equator is the least emitting
+  column on the planet.
+- **The `c ≤ 1 − co2` ceiling has stopped firing** (item 23) — zero cells at 20 iterations,
+  because it was reporting the misplaced cloud deck of item 22 and nothing else. With the
+  transport exonerated (item 17), the column anchor fixed (item 19) and this gone, **no known
+  mass sink remains**. The untested case is a run past `moist_phys_start_iter = 300`, where
+  sedimentation runs for the first time; if the count comes back, measure *where* before
+  proposing *why*, which is the one thing the two refuted mechanisms have in common.
 - **The run is not converged, and 400 iterations is not close** (item 18). The meridional
   wind is in free acceleration under an unopposed Coriolis torque — the pressure gradient
   that should balance it is at 1.8 % of it after 400 iterations and growing linearly, which
-  puts geostrophic adjustment of order 10⁴ iterations away. Ψ_max grows linearly throughout
-  and the imbalance sits at −408 W/m². **This is the largest open question about the
-  dynamics** and it is common to both continuity formulations.
+  puts geostrophic adjustment of order 10⁴ iterations away. Ψ_max grows linearly throughout.
+  **This is the largest open question about the dynamics**, it is common to both continuity
+  formulations, and item 18 ruled out the elliptic solver as its cause.
 - **The OLR is not grid-converged either**: 519 W/m² at a 260 km shell against 581 at
-  300 km, with `im` fixed at 61. Refine vertically and check.
-- **The opacity is too low to hold the surface.** OLR 581 W/m² against 271 absorbed. Since
-  `kappa_H2O`/`kappa_CO2`/`kappa_bg` carry a factor-of-two uncertainty and are the biggest
-  lever, this is the first quantity worth testing against the new scheme.
+  300 km, with `im` fixed at 61. Both figures predate item 22, so the check has to be redone
+  as well as extended — refine vertically and repeat.
+- **`moist_phys_start_iter = 300`** means a 400-iteration run is dry for three quarters of
+  its length. Deliberate (it lets the circulation form before the stiff microphysics
+  starts), but it must be stated whenever a run is quoted — and it is why the 20-iteration
+  measurements above are all made with sedimentation and the ice schemes switched off.
+- **Thread-count dependence at ~1e-8 remains** (item 18). The races are gone and a fixed
+  thread count is bit-identical run to run, but OpenMP reduction order still moves the last
+  digit, and it re-enters the physics through the global means the column is rebuilt from.
+  Ordered reductions, `t_skin` first.
+- **Deep convection is still inactive.** Its trigger thresholds (1000/970/900/800 hPa) are
+  absolute Earth surface pressures and never fire at 250 bar. They need to become fractions
+  of the local surface pressure — the same repair `initCloudIce` needs below.
 
 
 - **`albedo_cloud = 0.50` IS the model's planetary albedo** and is an assumption. It is
@@ -1264,15 +1509,13 @@ the measurement.
 - **`geothermal_flux` is the open number.** The ≥ ~195 W/m² figure was derived with the
   clear-sky albedo and the too-low insolation, so it has to be redone once the radiation
   can produce an OLR worth comparing to. Check against magma-ocean cooling estimates.
-- **`initTemperatureData` builds its column before the composition exists** — no water, no
-  CO₂, so a background-only cp and too steep a lapse. `densities()` overwrites it, so the
-  only thing that ever escaped was the lid snapshot (item 10), which is now refreshed. It
-  should still be built on the real mixture.
 - **`initCloudIce`'s H_crit parabola is keyed to absolute pressure** (`p_crit = 1000` hPa,
   `p_mid = 550`), an Earth surface pressure. It should be a fraction of the local surface
-  pressure, like the deep-convection triggers.
-- **The three κ opacities** carry factor-of-two uncertainty and are the biggest lever on
-  the OLR. A grey scheme cannot represent the window regions that set the real limit.
+  pressure, like the deep-convection triggers. Item 22 showed that what `initCloudIce`
+  builds is not overwritten before it reaches the radiation, so this one has a path to the
+  OLR.
+- **A grey scheme cannot represent the window regions** that set the real runaway limit,
+  whatever the three κ are set to.
 - **The surface temperature is prescribed, not solved.** Everything above is conditional
   on that.
 - **Boussinesq** remains untested against a column whose density spans two orders of

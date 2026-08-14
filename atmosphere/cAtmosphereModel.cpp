@@ -1389,31 +1389,38 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 // A ceiling that keeps biting is a signal, not a solution. Do not trust a run
                 // where this count stays large.
                 //
-                // THE MECHANISM THIS COMMENT USED TO ASSERT IS WRONG, and the per-level
-                // report below is what showed it. It said: "water is pumped down out of the
-                // one condensing level by sedimentation and evaporates into the superheated
-                // band below with no return path, so c there grows until something stops
-                // it." Measured at 20 iterations with moist_phys_start_iter = 300 — so
-                // SaturationAdjustment, the ice schemes and ALL sedimentation are switched
-                // off and never run — the ceiling still bites 16 606 cells:
+                // TWO MECHANISMS HAVE NOW BEEN ASSERTED HERE AND BOTH WERE WRONG. The first
+                // said: "water is pumped down out of the one condensing level by
+                // sedimentation and evaporates into the superheated band below with no
+                // return path, so c there grows until something stops it." The per-level
+                // report below refuted it — at 20 iterations with moist_phys_start_iter =
+                // 300, so SaturationAdjustment, the ice schemes and ALL sedimentation are
+                // switched off and never run, the ceiling still bit 16 606 cells:
                 //
                 //     by level:  i=51 (185 km) 5054    i=52 (195 km) 11552
                 //
-                // Two levels, and the count is IDENTICAL at iterations 10 and 20. There is
-                // no sedimentation running, so sedimentation cannot be the cause; and a
-                // count that does not grow is not an accumulation. What it looks like
-                // instead is a standing excess left at i=51-52 by the ONE saturation
-                // adjustment that does run, at initialisation, which is then re-clipped to
-                // the same value every iteration by something that nudges c back above the
-                // ceiling — or nudges the ceiling below c, since 1 - co2 moves when the
-                // transported CO2 does.
+                // — and the count was identical at iterations 10 and 20, so it was neither
+                // sedimentation nor an accumulation. The second guess was a standing excess
+                // left by the one saturation adjustment that does run, at initialisation,
+                // re-clipped every iteration by either c rising or 1 - co2 falling. It was
+                // neither of those two either.
                 //
-                // That is a different defect from the one described, and it is not yet
-                // established which of the two it is. What is established: the ceiling is
-                // NOT to be made conservative until it is. A ceiling that redistributes
-                // instead of deleting would turn a bounded 0.35 %-per-400-iteration loss
-                // into an unbounded pile-up somewhere else, and the deletion is currently
-                // the only thing holding the band at a possible composition.
+                // IT WAS THE INITIALISATION ORDER (README item 22). initTemperatureData ran
+                // before initWaterWapour and co2Atmosphere, so the initial column was built
+                // at R_bg instead of R_mix, and initCloudIce and the first
+                // SaturationAdjustment laid the cloud deck on it 50 km too low — at 186-196
+                // km, which is EXACTLY the i=51-52 the clipping was reported at, and a band
+                // where this atmosphere cannot condense at all. With the composition laid
+                // down first, the deck moves to 243 km and THE CEILING IS NEVER HIT: zero
+                // cells and 0.000000 kg/kg deleted at 20 iterations, both with the profile
+                // prescribed and with ATM_PROGNOSTIC_T=1. The two levels in the refuted
+                // report were the tell, and neither guess read them as a location.
+                //
+                // So the deletion no longer has anything to delete, and making the ceiling
+                // conservative is still not the thing to do: it is a diagnostic now. If this
+                // count ever comes back — the untested case is a run past
+                // moist_phys_start_iter, where sedimentation finally does run — measure WHERE
+                // before proposing WHY.
                 if (n_ceiling > 0 && iter_n % diagnosticStride() == 0) {
                     cout << "      AGCM: water-vapour ceiling c = 1 - co2 hit in "
                          << n_ceiling << " cells" << endl;
