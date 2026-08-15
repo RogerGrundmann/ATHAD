@@ -116,7 +116,8 @@ public:
             //   up[i]  upward   long-wave flux leaving the TOP    of layer i  [W/m2]
             //   dn[i]  downward long-wave flux leaving the BOTTOM of layer i  [W/m2]
             //   T[i]   layer temperature [K], updated in place by the sweeps
-            std::vector<double> up(m.im, 0.0), dn(m.im + 1, 0.0), T(m.im, 0.0);
+            std::vector<double> up(m.im, 0.0), dn(m.im + 1, 0.0), T(m.im, 0.0),
+                                Gf(m.im, 0.0);   // dB/dF for the direct solve
 
             const int i_trop  = m.im - 1;   // top layer
             const int i_mount = 0;          // surface / bottom layer
@@ -292,8 +293,76 @@ public:
                 // nearly a no-op, since up and dn both approach the local sigma*T^4 and the
                 // update becomes a three-point average. The fluxes themselves, and hence
                 // the OLR, are exact for the current temperature field at every iteration.
-                constexpr int n_lambda = 4;
+                // ATM_N_LAMBDA — the sweep count, made a knob to test whether the hot
+                // upper branch the prognostic profile settles on (README item 28/30: lid
+                // 889 K, OLR 82 000 W/m2) is this iteration failing to converge or a real
+                // second root of the scheme. 4 is the inherited value and the default, so
+                // this is bit-identical when unset.
+                static const int n_lambda = [](){
+                    const char* e = getenv("ATM_N_LAMBDA"); return e ? atoi(e) : 4; }();
 
+                // ---- DIRECT SOLUTION, no iteration at all (ATM_RAD_DIRECT) ----
+                //
+                // The Lambda iteration above is a Jacobi relaxation on a 41-link chain:
+                // information moves one layer per sweep, so it needs O(N^2) sweeps. Measured
+                // in this model (README item 30): n_lambda = 4 gives OLR 65 982 W/m2, 400
+                // gives 15 248, and it only settles by ~2000 at 15 770 — a factor of 4 in
+                // the headline number, at 500x the cost.
+                //
+                // It does not need iterating. In radiative equilibrium the NET flux is
+                // constant with height, and that closes the system in one pass. Writing
+                // a_i = 1 - eps_i/2, b_i = eps_i/2, a layer in equilibrium
+                // (B_i = (U_{i-1} + D_i)/2, which is the eps-cancelled condition above)
+                // transfers
+                //     U_i     = a_i U_{i-1} + b_i D_i
+                //     D_{i-1} = b_i U_{i-1} + a_i D_i
+                // and a_i + b_i = 1 exactly, so U - D takes the same value at both faces:
+                // F is constant, which is the definition of radiative equilibrium and here
+                // falls out of the discretisation rather than being imposed. Then
+                //     U_{i-1} = B_i + F/(2 a_i),   D_i = B_i - F/(2 a_i)
+                // and eliminating the fluxes leaves an explicit march for the source
+                // function, LINEAR in F:
+                //     B_{i+1} - B_i = (F/2) [ (1 - eps_i)/a_i - 1/a_{i+1} ]
+                // March G = dB/dF from the surface boundary U_m = sigma*T_s^4 (so
+                // B_{m+1} = sigma*T_s^4 - F/(2 a_{m+1}), i.e. G_{m+1} = -1/(2 a_{m+1})),
+                // then close on the top boundary D_n = 0 (so B_n = F/(2 a_n)):
+                //     F = sigma*T_s^4 / ( 1/(2 a_n) - G_n )
+                // and B_i = sigma*T_s^4 + F G_i. Two O(N) passes, exact.
+                //
+                // Validated against the Lambda iteration run to convergence on synthetic
+                // columns — identical to all printed digits transparent, optically thick and
+                // ATHAD-graded — and it reproduces the two exact limits: with eps -> 0 it
+                // gives F = sigma*T_s^4 and T_i = T_s/2^(1/4), the classical skin
+                // temperature of a freely radiating surface.
+                //
+                // DEFAULT OFF while it is being measured, per this repo's convention, and
+                // because it does not merely change the prognostic path: the PRESCRIBED
+                // path's OLR is what 4 sweeps produce starting from the adiabat that
+                // densities() re-imposes every iteration, so converging the solver moves
+                // that number too. See README item 30 before reading any OLR across it.
+                static const bool rad_direct = [](){
+                    const char* e = getenv("ATM_RAD_DIRECT"); return e && atoi(e) != 0; }();
+
+                if (rad_direct) {
+                    const int m1 = i_mount + 1, ntop = i_trop;
+                    if (ntop > m1) {
+                        auto aof = [&](int i){ return 1.0 - 0.5 * m.epsilon.x[i][j][k]; };
+                        const double B_s = m.sigma * pow(T[i_mount], 4.0);
+                        Gf[m1] = -0.5 / aof(m1);
+                        for (int i = m1; i < ntop; i++) {
+                            const double e = m.epsilon.x[i][j][k];
+                            Gf[i+1] = Gf[i] + 0.5 * ((1.0 - e) / aof(i) - 1.0 / aof(i+1));
+                        }
+                        const double den = 0.5 / aof(ntop) - Gf[ntop];
+                        const double F   = (std::fabs(den) > 1.0e-30) ? B_s / den : 0.0;
+                        for (int i = m1; i <= ntop; i++) {
+                            const double B = B_s + F * Gf[i];
+                            if (B > 0.0 && AtomUtils::is_finite_safe(B))
+                                T[i] = pow(B / m.sigma, 0.25);
+                        }
+                    }
+                }
+                else
                 for (int it = 0; it < n_lambda; it++) {
 
                     // Upward sweep. The surface is layer i_mount and emits as a black body;

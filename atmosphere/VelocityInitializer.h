@@ -22,31 +22,35 @@ public:
     {
         using namespace std;
         cout << endl << "      AGCM: init_velocities" << endl;
+        if(latScale() != 1.0)
+            cout << "      cell latitudes scaled by " << latScale()
+                 << ": Hadley anchor at " << (90 - js(75)) << " deg, Ferrel at "
+                 << (90 - js(45)) << " deg, polar at " << (90 - js(15)) << " deg" << endl;
 
         // u-component up to tropopause and back on half distance
-        init_u(m.u,  0);
-        init_u(m.u, 30);
-        init_u(m.u, 60);
-        init_u(m.u, 90);
-        init_u(m.u,120);
-        init_u(m.u,150);
-        init_u(m.u,180);
+        init_u(m.u, js(0));
+        init_u(m.u, js(30));
+        init_u(m.u, js(60));
+        init_u(m.u, js(90));
+        init_u(m.u, js(120));
+        init_u(m.u, js(150));
+        init_u(m.u, js(180));
 
         // initialise v: tropopause and surface values per latitude
         // equator
-        init_v_or_w(m.v,  90,  0.0,  0.0);                              // lat:   0   j=90
+        init_v_or_w(m.v, js(90),  0.0,  0.0);                              // lat:   0   j=90
         // northern polar cell
-        init_v_or_w(m.v,   0,  0.5,  0.0);                              // lat:  90   j=0
-        init_v_or_w(m.v,  15,  0.5,  0.6);                              // lat:  75   j=15
+        init_v_or_w(m.v, js(0),  0.5,  0.0);                              // lat:  90   j=0
+        init_v_or_w(m.v, js(15),  0.5,  0.6);                              // lat:  75   j=15
         // southern polar cell
-        init_v_or_w(m.v, 180,  0.5,  0.0);                              // lat: -90   j=180
-        init_v_or_w(m.v, 165,  0.5,  0.6);                              // lat: -75   j=165
+        init_v_or_w(m.v, js(180),  0.5,  0.0);                              // lat: -90   j=180
+        init_v_or_w(m.v, js(165),  0.5,  0.6);                              // lat: -75   j=165
         // northern Ferrel cell
-        init_v_or_w(m.v,  30, -0.2,  0.0);                              // lat:  60   j=30
-        init_v_or_w(m.v,  45,  4.0, -1.5);                              // lat:  45   j=45
+        init_v_or_w(m.v, js(30), -0.2,  0.0);                              // lat:  60   j=30
+        init_v_or_w(m.v, js(45),  4.0, -1.5);                              // lat:  45   j=45
         // southern Ferrel cell
-        init_v_or_w(m.v, 150, -0.2,  0.0);                              // lat: -60   j=150
-        init_v_or_w(m.v, 135,  4.0, -1.5);                              // lat: -45   j=135
+        init_v_or_w(m.v, js(150), -0.2,  0.0);                              // lat: -60   j=150
+        init_v_or_w(m.v, js(135),  4.0, -1.5);                              // lat: -45   j=135
         // Hadley cells — SYMMETRIC about the equator.
         //
         // These two carried 4.0 at 15N against 3.0 at 15S (and, before someone swapped
@@ -66,10 +70,10 @@ public:
         //
         // 3.5 is their mean, which removes the asymmetry and leaves the total initial
         // Hadley mass flux unchanged.
-        init_v_or_w(m.v,  60,  0.0,  0.5);                              // lat:  30   j=60
-        init_v_or_w(m.v,  75, -3.0,  3.5);                              // lat:  15   j=75
-        init_v_or_w(m.v, 120,  0.0,  0.5);                              // lat: -30   j=120
-        init_v_or_w(m.v, 105, -3.0,  3.5);                              // lat: -15   j=105
+        init_v_or_w(m.v, js(60),  0.0,  0.5);                              // lat:  30   j=60
+        init_v_or_w(m.v, js(75), -3.0,  3.5);                              // lat:  15   j=75
+        init_v_or_w(m.v, js(120),  0.0,  0.5);                              // lat: -30   j=120
+        init_v_or_w(m.v, js(105), -3.0,  3.5);                              // lat: -15   j=105
 
         // initialise w: tropopause and surface values per latitude.
         // w is the ZONAL jet (East+). The SURFACE value (2nd coeff) is what the
@@ -83,63 +87,63 @@ public:
         // westerly jets (subtropical jet strongest at 30deg). See wind-IC diagnosis
         // in project_hydro_ekman_sh_gyre.
         // equator
-        init_v_or_w(m.w,  90, -3.0, -5.0);                             // lat:   0   j=90   easterly (equatorial)
+        init_v_or_w(m.w, js(90), -3.0, -5.0);                             // lat:   0   j=90   easterly (equatorial)
         // northern polar cell
-        init_v_or_w(m.w,   0,  0.0,  0.0);                              // lat:  90   j=0
+        init_v_or_w(m.w, js(0),  0.0,  0.0);                              // lat:  90   j=0
         // southern polar cell
-        init_v_or_w(m.w, 180,  0.0,  0.0);                              // lat: -90   j=180
+        init_v_or_w(m.w, js(180),  0.0,  0.0);                              // lat: -90   j=180
         // northern Ferrel cell (mid-latitude westerlies, weakening to the pole)
-        init_v_or_w(m.w,  30, 10.0,  6.0);                             // lat:  60   j=30   westerly
+        init_v_or_w(m.w, js(30), 10.0,  6.0);                             // lat:  60   j=30   westerly
         // southern Ferrel cell
-        init_v_or_w(m.w, 150, 10.0,  6.0);                             // lat: -60   j=150  westerly
+        init_v_or_w(m.w, js(150), 10.0,  6.0);                             // lat: -60   j=150  westerly
         // northern subtropics — horse latitudes (trade/westerly transition, calm)
-        init_v_or_w(m.w,  60, 30.0, -1.0);                             // lat:  30   j=60   weak easterly
+        init_v_or_w(m.w, js(60), 30.0, -1.0);                             // lat:  30   j=60   weak easterly
         // southern subtropics
-        init_v_or_w(m.w, 120, 30.0, -1.0);                             // lat: -30   j=120  weak easterly
+        init_v_or_w(m.w, js(120), 30.0, -1.0);                             // lat: -30   j=120  weak easterly
         // northern westerly max at j=45
-        init_v_or_w(m.w,  45, 15.0, 10.0);                             // lat:  45   j=45   westerly max
+        init_v_or_w(m.w, js(45), 15.0, 10.0);                             // lat:  45   j=45   westerly max
         // southern westerly max at j=135
-        init_v_or_w(m.w, 135, 15.0, 10.0);                             // lat: -45   j=135  westerly max
+        init_v_or_w(m.w, js(135), 15.0, 10.0);                             // lat: -45   j=135  westerly max
         // northern trade-easterly max at j=75 (15N)
-        init_v_or_w(m.w,  75,  5.0, -7.0);                             // lat:  15   j=75   easterly (trade max)
+        init_v_or_w(m.w, js(75),  5.0, -7.0);                             // lat:  15   j=75   easterly (trade max)
         // southern trade-easterly max at j=105 (15S)
-        init_v_or_w(m.w, 105,  5.0, -7.0);                             // lat: -15   j=105  easterly (trade max)
+        init_v_or_w(m.w, js(105),  5.0, -7.0);                             // lat: -15   j=105  easterly (trade max)
 
         // forming diagonals — northern hemisphere
-        form_diagonals(m.u,  0,  30);
-        form_diagonals(m.w,  0,  30);
-        form_diagonals(m.w, 30,  45);
-        form_diagonals(m.v,  0,  15);
-        form_diagonals(m.v, 15,  30);
+        form_diagonals(m.u, js(0), js(30));
+        form_diagonals(m.w, js(0), js(30));
+        form_diagonals(m.w, js(30), js(45));
+        form_diagonals(m.v, js(0), js(15));
+        form_diagonals(m.v, js(15), js(30));
 
-        form_diagonals(m.u, 30,  60);
-        form_diagonals(m.w, 45,  60);
-        form_diagonals(m.v, 30,  45);
-        form_diagonals(m.v, 45,  60);
+        form_diagonals(m.u, js(30), js(60));
+        form_diagonals(m.w, js(45), js(60));
+        form_diagonals(m.v, js(30), js(45));
+        form_diagonals(m.v, js(45), js(60));
 
-        form_diagonals(m.u, 60,  90);
-        form_diagonals(m.w, 60,  75);                                   // 30N->15N (trade node at j=75)
-        form_diagonals(m.w, 75,  90);                                   // 15N->0
-        form_diagonals(m.v, 60,  75);
-        form_diagonals(m.v, 75,  90);
+        form_diagonals(m.u, js(60), js(90));
+        form_diagonals(m.w, js(60), js(75));                                   // 30N->15N (trade node at j=75)
+        form_diagonals(m.w, js(75), js(90));                                   // 15N->0
+        form_diagonals(m.v, js(60), js(75));
+        form_diagonals(m.v, js(75), js(90));
 
         // forming diagonals — southern hemisphere
-        form_diagonals(m.u,  90, 120);
-        form_diagonals(m.w,  90, 105);                                  // 0->15S (trade node at j=105)
-        form_diagonals(m.w, 105, 120);                                 // 15S->30S
-        form_diagonals(m.w, 120, 135);
-        form_diagonals(m.v,  90, 105);
-        form_diagonals(m.v, 105, 120);
+        form_diagonals(m.u, js(90), js(120));
+        form_diagonals(m.w, js(90), js(105));                                  // 0->15S (trade node at j=105)
+        form_diagonals(m.w, js(105), js(120));                                 // 15S->30S
+        form_diagonals(m.w, js(120), js(135));
+        form_diagonals(m.v, js(90), js(105));
+        form_diagonals(m.v, js(105), js(120));
 
-        form_diagonals(m.u, 120, 150);
-        form_diagonals(m.w, 135, 150);
-        form_diagonals(m.v, 120, 135);
-        form_diagonals(m.v, 135, 150);
+        form_diagonals(m.u, js(120), js(150));
+        form_diagonals(m.w, js(135), js(150));
+        form_diagonals(m.v, js(120), js(135));
+        form_diagonals(m.v, js(135), js(150));
 
-        form_diagonals(m.u, 150, 180);
-        form_diagonals(m.w, 150, 180);
-        form_diagonals(m.v, 150, 165);
-        form_diagonals(m.v, 165, 180);
+        form_diagonals(m.u, js(150), js(180));
+        form_diagonals(m.w, js(150), js(180));
+        form_diagonals(m.v, js(150), js(165));
+        form_diagonals(m.v, js(165), js(180));
 
         // Zero land cells; non-dimensionalise air cells — single fused pass
         const double inv_u_0 = 1.0 / m.u_0;
@@ -216,6 +220,36 @@ public:
 
 private:
     cAtmosphereModel& m;
+
+
+    // ATM_CELL_LAT_SCALE — compress the prescribed cell latitudes toward the equator.
+    //
+    // Every anchor below sits at an EARTH latitude: Hadley 15 deg, Ferrel 45, polar 75,
+    // with the trade/westerly nodes between them. Those latitudes are a consequence of
+    // Earth's thermal Rossby number, and this atmosphere's is 12.5x smaller —
+    // Ro_T = g*H*(dtheta/theta)/(omega^2 a^2) = 0.0048 against 0.0598, because rotation is
+    // 4.35x faster (omega^2 18.9x) and the FRACTIONAL equator-pole contrast is 4.7x weaker
+    // (50 K on 1500 K against 45 K on 288 K), only partly offset by a 7x deeper atmosphere.
+    // Held-Hou then puts the direct cell's edge near 5 deg here against 18 deg for Earth,
+    // i.e. cells roughly a third as wide. A hot surface is not a strongly DIFFERENTIALLY
+    // heated one, which is why the higher energy content narrows the circulation instead of
+    // widening it.
+    //
+    // The knob exists to test whether the cell decay measured in README item 28 is partly
+    // the model rejecting an over-wide imposed cell, rather than only the residual
+    // meridional force. 1.0 = Earth's latitudes (default, what every run so far used).
+    // The poles are fixed points of the map, so the interpolation still spans [0, jm-1].
+    static double latScale(){
+        static const double s = [](){ const char* e = getenv("ATM_CELL_LAT_SCALE");
+            return e ? atof(e) : 1.0; }();
+        return s;
+    }
+    int js(int j) const {
+        if(j <= 0) return 0;
+        if(j >= m.jm - 1) return m.jm - 1;
+        const int jeq = (m.jm - 1) / 2;
+        return (int)std::lround(jeq + (double)(j - jeq) * latScale());
+    }
 
     void init_u(Array& u, int j)
     {
