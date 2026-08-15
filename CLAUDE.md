@@ -120,7 +120,7 @@ the outputs predictions. These are inputs, in rough order of how much they move 
 
 | Parameter | Value | Status |
 |---|---|---|
-| `kappa_H2O` / `kappa_CO2` / `kappa_bg` | 0.01 / 0.001 / 1e-6 m²/kg | Factor-of-2 uncertain. **Whether they are a lever on the *converged* OLR at all is untested** — README item 25 |
+| `kappa_H2O` / `kappa_CO2` / `kappa_bg` | 0.01 / 0.001 / 1e-6 m²/kg | Factor-of-2 uncertain, and **not a lever on the converged OLR at all**: 64× moves it 0.10 % — README item 29 |
 | `geothermal_flux` | 150 W/m² | Open. The ≥195 W/m² argument is retracted, and item 25 makes it worse: it enters the `t_skin` fixed point, so it helps set the very flux it was being compared against |
 | `t_surf_equator` / `t_surf_pole` | 1500 / 1450 K | **Prescribed, not solved** |
 | `t_skin` | 254.0 K start, relaxes to 262.96 | **Now the prime suspect** (item 25): it is a fixed point of σT⁴ = absorbed, the prescribed profile's top is isothermal at it, and the converged OLR falls onto it |
@@ -285,23 +285,33 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   surface density is what follows. Drift −0.2128 % → −0.0011 % over 20 iterations, and the
   water "creation" `waterBudget()` was reporting went with it. Do not re-anchor the column to
   `r_air·R_mix·T_surf`.
-- **The initial circulation is balanced against the model's own θ-momentum equation**
-  (`initBalancedState`, README items 26-27, on by default since item 27). Without it the
-  prescribed cells are buried within ~5 iterations by a linearly accelerating drift, and at
-  200 iterations that drift is twice the strength of the cell it replaced. Two things go with
-  it: the balance must be written to **`p_dyn`**, because `p_stat` appears nowhere in the
-  momentum equations — the entire meridional pressure-gradient force is `p_dyn`, and the
-  50 K equator-to-pole contrast exerts none of it directly; and the radius in it is
-  **`metricRadius(rm)`, not `rad.z[i]`**, which is worth a factor of ~21 and was got wrong
-  the first time.
+- **The initial circulation is balanced against the model's own momentum equations —
+  BOTH of them** (`initBalancedState`, README items 26-28, on by default since item 27,
+  two-component since item 28). Without any balance the prescribed cells are buried within
+  ~5 iterations by a linearly accelerating drift, and at 200 iterations that drift is twice
+  the strength of the cell it replaced. Three things go with it. The balance must be written
+  to **`p_dyn`**, because `p_stat` appears nowhere in the momentum equations — the entire
+  meridional pressure-gradient force is `p_dyn`, and the 50 K equator-to-pole contrast exerts
+  none of it directly. The radius in it is **`metricRadius(rm)`, not `rad.z[i]`**, worth a
+  factor of ~21 and got wrong the first time. And **balancing one component is not a
+  balance**: the θ-only version of item 27 created a radial acceleration of 293 rms where the
+  model had none, because with the default switches `rhs_u` at u = v = 0 is `−dp_dyn/dr·exp_rm`
+  and nothing else — no `nontrad` Coriolis, no curvature term, and `buoyancy_ramp` = 0 at
+  iteration 0. It drove the vertical wind from 0.11 to 11 m/s over 200 iterations with the
+  tropics sinking over the 1500 K equator, and Ψ_max never saw it. **Read the switches, not
+  just the RHS**: `metric_curvature()` and `coriolis_nontraditional()` are both false by
+  default, so terms that are written in `RHS_Atm_Turb.cpp` are not necessarily terms the model
+  applies — the item-27 balance was built on one of them.
 - **`p_dyn_ceiling` is 2000, not the inherited 10/3**, and is **untested beyond 200
   iterations**. The Earth values were keyed to steep orography this model does not have and
   forbade the balanced state outright (94.7 % of columns clipped). One accessor,
   `cAtmosphereModel::pDynCeiling()`, so the solver and the diagnostic cannot disagree.
-- **The OLR does not respond to anything.** An 8× change in `kappa_H2O` moves it 0.9 %
-  (item 25) and a 500× change in the circulation moves it 0.03 % (item 27). It relaxes onto
-  σT_skin⁴ either way. Treat any OLR number as a statement about `t_skin` until that is
-  broken.
+- **The OLR does not respond to anything, now measured in both directions.** A **64×** change
+  in `kappa_H2O` moves the converged OLR by **0.10 %** (item 29, four 200-iteration runs) and
+  a 500× change in the circulation moves it 0.03 % (item 27). σT_lid⁴ is 271.11 W/m² in every
+  one of those runs and `t_skin` is 262.96 in every one. Treat any OLR number as a statement
+  about `t_skin` until that is broken. (The 0.9 %-over-8× figure this file used to carry was
+  written before any scan existed — see item 29.)
 - **Deep convection is inactive.** Its trigger thresholds (1000/970/900/800 hPa) are
   absolute Earth surface pressures and never fire at 250 bar. They need to become
   fractions of surface pressure.

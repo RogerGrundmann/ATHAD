@@ -256,6 +256,23 @@ void cAtmosphereModel::write_meridional_streamfunction(int iter){
          << setprecision(2) << "   Psi_min=" << psimin / 1.0e9 << " @ lat=" << lat_of(jmn)
          << " z=" << setprecision(0) << get_layer_height(imn) << "m"
          << "   -> " << fname.str() << endl;
+
+    // NORTH-SOUTH SYMMETRY, AS A NUMBER RATHER THAN TWO NUMBERS TO COMPARE BY EYE.
+    // Invariant 1: nothing in this model can sustain a hemispheric asymmetry — no
+    // topography, a symmetric surface-temperature parabola, mirrored insolation, no
+    // obliquity, no seasons — so |Psi_max| and |Psi_min| are the same cell reflected and
+    // MUST be equal. Any difference is a defect, which is how item 13's 32 % Hadley
+    // asymmetry should have been caught: it was found by reading a plot instead, after the
+    // two printed extrema had disagreed for many runs without anyone subtracting them.
+    // Floating-point reduction order alone gives ~1e-5 (item 18), so the threshold is well
+    // above that and well below anything physical.
+    const double pk   = std::max(std::fabs(psimax), std::fabs(psimin));
+    const double asym = (pk > 0.0) ? (std::fabs(psimax) - std::fabs(psimin)) / pk : 0.0;
+    cout << "      [streamfn] N-S asymmetry = " << scientific << setprecision(2) << asym
+         << fixed << "   (invariant 1: must be zero to reduction noise, ~1e-5)";
+    if(std::fabs(asym) > 1.0e-3)
+        cout << "   <-- ASYMMETRIC, and nothing in this model can produce that";
+    cout << endl;
 }
 
 

@@ -451,6 +451,11 @@ private:
     // Ported from ASTIM cf43bfd; behind ATM_BALANCED_INIT, default 0.0 = off.
     // See InitValues_Atm.cpp for the derivation and why it writes p_dyn.
     void initBalancedState();
+    // The elliptic half of it: the p_dyn that leaves the least unbalanced acceleration in
+    // the radial AND meridional equations at once. See InitValues_Atm.cpp, README item 28.
+    void balancedStateSolve(const std::vector<double>& F_r,
+                            const std::vector<double>& F_the,
+                            std::vector<double>& p) const;
     void RHS_Atmosphere_Turb(int i, int j, int k, const CellGeometry& geo);   // single dynamical core (laminar RHS_Atmosphere dropped 2026-07-08)
     void solveRungeKutta_Atmosphere_Turb();
     void fft(Array &);

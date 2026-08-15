@@ -1137,6 +1137,270 @@ void cAtmosphereModel::initCloudIce() {
 * per this repo's convention for a change that has not yet been measured over a long run;
 * 1.0 is full balance, and intermediate values exist because ASTIM found the response
 * strongly nonlinear (98.3 % retention at 0.0 against 92.7 % at 1.0 for its filter knob).
+*
+* ============================================================================
+* THE RADIAL HALF, AND WHY THE THETA-ONLY VERSION ABOVE IS NOT A BALANCE (item 28).
+*
+* Everything above balances ONE component. p_dyn is one scalar field and it appears in
+* all three momentum equations, so fixing rhs_v = 0 fixes dp/dtheta and says nothing
+* about dp/dr -- and the radial equation then gets whatever is left. It is not small.
+* Measured over 200 iterations at kappa_H2O = 0.010, balanced against the unbalanced
+* control, both with the moist physics from iteration 0:
+*
+*     max |u|        0.114 m/s (iter 0)  ->  11.17 m/s (iter 200)     balanced
+*                    0.114 m/s           ->   0.095 m/s               unbalanced
+*     u at the equator, 95 km   +0.061 -> -6.35 m/s: the tropics REVERSE to sinking
+*
+* The aspect ratio says the vertical velocity should be ~(300 km/10 000 km)*v ~ 0.09 m/s,
+* which is what the control has. The balanced run is ~100x over it, with descent over the
+* 1500 K equator and ascent at the poles. Psi_max -- the number item 27 flipped the
+* default on -- is built from v alone and reports 157 555 against 153 301 throughout:
+* item 26's lesson recurring, an instrument that cannot see the component going wrong.
+*
+* THE MECHANISM. p_bal is integrated level by level and its amplitude follows w^2, which
+* grows strongly upward, so the field varies with r even though each level's mean is
+* removed. Measured at the equator: 6.9e6 hPa at 9 km -> 1.79e7 hPa at 55 km, i.e.
+* -(1/rho)dp/dz of -630 to -1290 m/s^2. Nothing opposes it: with the DEFAULT switches
+* the radial equation has no other term at u = v = 0. coriolis_rad carries the factor
+* nontrad, and AtomUtils::coriolis_nontraditional() is false by default; the -(v^2+w^2)/r
+* curvature term is inside if(AtomUtils::metric_curvature()), false by default; and the
+* buoyancy term is multiplied by buoyancy_ramp, which is 0 at iteration 0. So
+*
+*     rhs_u = -dp_dyn/dr * exp_rm      and nothing else.
+*
+* WHICH ALSO CONVICTS THE THETA HALF. That same switch governs the w^2*cotanthe term the
+* balance above is built on: with metric_curvature() off it is not in rhs_v either, so
+* the theta balance is being computed against an equation the model does not solve. The
+* balance was derived from the RHS as written, not as configured -- the family's constant
+* trap in a new form, an Earth-tested code path read without checking whether it runs.
+*
+* THE FIX. There is no p(r,theta) satisfying both components exactly: that needs
+* d(F_theta)/dr = d(F_r)/dtheta, and the curl of the force field is generally nonzero --
+* the rotational part is what buoyancy balances in a real atmosphere, and here buoyancy is
+* ramped off at iteration 0. So take the best available compromise instead of pretending
+* one exists, minimising the acceleration the model is actually left holding:
+*
+*     J = SUM_ij [ (dp/dr*exp_rm - F_r)^2 + (dp/dtheta*inv_rm - F_theta)^2 ]
+*
+* in the RHS's own units -- both residuals ARE accelerations there, so this is the total
+* spurious force. Its Euler-Lagrange equation is elliptic,
+*
+*     d/dr[ exp_rm^2 dp/dr ] + d/dtheta[ inv_rm^2 dp/dtheta ]
+*         = d/dr[ exp_rm F_r ] + d/dtheta[ inv_rm F_theta ]
+*
+* solved here by SOR in conservative form, with the Neumann condition (dp/dr*exp_rm = F_r)
+* at both walls falling out of dropping the boundary faces from both sides. F_r and
+* F_theta are read from the RHS TERM BY TERM AND SWITCH BY SWITCH, so with the defaults
+* F_r = 0 and the solve says what the radial equation says: p_dyn must not vary with r.
+* Turn ATOM_METRIC_CURVATURE on and both halves gain their w^2 terms and the solve balances
+* those instead -- the point of the formulation is that it does not have to be rewritten
+* when the model is reconfigured.
+*
+* The gauge is now a single global constant, NOT a per-level mean: removing a different
+* constant at each level is itself a radial gradient, which is the thing being fixed.
+*
+* ATM_BALANCED_MODE=1 restores the theta-only field for A/B (exactly as committed in item
+* 27, curvature term unconditional, per-level gauge); 2 is this solve and is the default.
+* Both print the residual accelerations they leave behind, so neither can be judged again
+* by a diagnostic that only looks at one component.
+*/
+/*
+* balancedStateSolve — the elliptic half of initBalancedState (README item 28).
+*
+* Given the non-pressure forces (F_r, F_theta) that the RHS applies at u = v = 0, find the
+* p_dyn perturbation that leaves the least unbalanced acceleration in BOTH components:
+*
+*     minimise  J = SUM_ij [ (dp/dr*exp_rm - F_r)^2 + (dp/dtheta*inv_rm - F_theta)^2 ]
+*     Euler-Lagrange:
+*        d/dr[ exp_rm^2 dp/dr ] + d/dtheta[ inv_rm^2 dp/dtheta ]
+*            = d/dr[ exp_rm F_r ] + d/dtheta[ inv_rm F_theta ]
+*
+* Conservative 5-point discretisation on the computational (i,j) grid, coefficients at the
+* half points, boundary faces dropped from BOTH sides — which is exactly the Neumann
+* condition dp/dr*exp_rm = F_r at the walls, i.e. the balance is asked for at the surface
+* and the lid too rather than being clamped there.
+*
+* Solved by serial SOR. Serial ON PURPOSE: it is 41x181 = 7421 unknowns and costs
+* milliseconds, and a deterministic sweep order keeps the initial state bit-identical run to
+* run, which a red-black OpenMP sweep would not (README item 18 is about exactly this).
+*
+* Pure Neumann leaves the constant undetermined, so the mean is removed each sweep to stop
+* it drifting, and once more at the end: that is the gauge, and it is GLOBAL. The theta-only
+* path removed a separate mean at every level, and a per-level constant is a radial gradient.
+*/
+void cAtmosphereModel::balancedStateSolve(const std::vector<double>& F_r,
+                                          const std::vector<double>& F_the,
+                                          std::vector<double>& p) const
+{
+    const int    nij      = im * jm;
+    const double inv_dr2  = 1.0 / (dr * dr);
+    const double inv_dthe2 = 1.0 / (dthe * dthe);
+
+    std::vector<double> e_half(im, 0.0);                      // exp_rm at i+1/2
+    for(int i = 0; i < im - 1; i++)
+        e_half[i] = 1.0 / (0.5 * (rad.z[i] + rad.z[i+1]) + 1.0);
+    std::vector<double> inv_rm(im, 0.0);
+    for(int i = 0; i < im; i++) inv_rm[i] = 1.0 / metricRadius(rad.z[i]);
+
+    std::vector<double> cE(nij, 0.0), cW(nij, 0.0), cN(nij, 0.0), cS(nij, 0.0),
+                        diag(nij, 0.0), src(nij, 0.0);
+
+    for(int i = 0; i < im; i++){
+        const double m2 = inv_rm[i] * inv_rm[i] * inv_dthe2;
+        for(int j = 0; j < jm; j++){
+            const int    id = i*jm + j;
+            double s = 0.0;
+            if(i < im - 1){
+                cE[id] = e_half[i] * e_half[i] * inv_dr2;
+                s += e_half[i] * 0.5 * (F_r[id] + F_r[id + jm]) / dr;
+            }
+            if(i > 0){
+                cW[id] = e_half[i-1] * e_half[i-1] * inv_dr2;
+                s -= e_half[i-1] * 0.5 * (F_r[id] + F_r[id - jm]) / dr;
+            }
+            if(j < jm - 1){
+                cN[id] = m2;
+                s += inv_rm[i] * 0.5 * (F_the[id] + F_the[id + 1]) / dthe;
+            }
+            if(j > 0){
+                cS[id] = m2;
+                s -= inv_rm[i] * 0.5 * (F_the[id] + F_the[id - 1]) / dthe;
+            }
+            diag[id] = cE[id] + cW[id] + cN[id] + cS[id];
+            src [id] = s;
+        }
+    }
+
+    // ALTERNATING-DIRECTION LINE RELAXATION, not point SOR. The operator is strongly anisotropic —
+    // exp_rm^2/dr^2 runs ~55x the inv_rm^2/dthe^2 term, because a radial pressure gradient
+    // buys ~10x the acceleration a meridional one does and the radial grid is finer. Point
+    // relaxation crawls on that (20 000 sweeps and still moving); solving each radial column
+    // exactly with Thomas and sweeping in theta converges in tens of sweeps, because the
+    // stiff direction is no longer being iterated at all.
+    const int    max_sweep = 5000;
+    const double tol       = 1.0e-10;
+    static const bool trace = (getenv("ATM_BALANCE_TRACE") != nullptr);
+    double scale = 0.0;
+    for(int id = 0; id < nij; id++) scale = std::max(scale, std::fabs(src[id]));
+    if(!(scale > 0.0)){ std::fill(p.begin(), p.end(), 0.0); return; }
+
+    const int nmax = std::max(im, jm);
+    std::vector<double> a(nmax), b(nmax), c(nmax), d(nmax), cp(nmax), dp(nmax);
+
+    // Thomas, in place on a/b/c/d, writing the solution back through `put`.
+    // Over-relaxed: the line solves handle each direction exactly, but the error mode that
+    // is smooth in BOTH is nearly in the null space of either pass and decays at ~0.999 per
+    // sweep without this (measured: 5.5 -> 5.3e-3 over 5000 sweeps, still not converged).
+    // 1.98 is the measured optimum on this grid: sweeps to a 1e-10 relative residual run
+    // 5000+ (w=1.0, never gets there), 4265 (1.90), 1247 (1.98), 2441 (1.99), 5000+ (1.995).
+    // The converged field is identical to 4 digits across all of them, as it must be — this
+    // buys wall clock, not a different answer.
+    static const double omega_line = [](){
+        const char* e = getenv("ATM_BALANCE_OMEGA"); return e ? atof(e) : 1.98; }();
+    auto thomas = [&](int n, auto&& get_old, auto&& put){
+        cp[0] = c[0] / b[0];
+        dp[0] = d[0] / b[0];
+        for(int m = 1; m < n; m++){
+            const double q = b[m] - a[m] * cp[m-1];
+            cp[m] = (std::fabs(q) > 1e-300) ? c[m] / q : 0.0;
+            dp[m] = (std::fabs(q) > 1e-300) ? (d[m] - a[m] * dp[m-1]) / q : 0.0;
+        }
+        double dloc = 0.0, next = 0.0;
+        for(int m = n - 1; m >= 0; m--){
+            const double ps  = (m == n - 1) ? dp[m] : dp[m] - cp[m] * next;
+            const double p0  = get_old(m);
+            const double pn  = p0 + omega_line * (ps - p0);
+            const double del = pn - p0;
+            next = ps;                    // the sweep marches on the exact line solution
+            put(m, pn);
+            if(std::fabs(del) > dloc) dloc = std::fabs(del);
+        }
+        return dloc;
+    };
+
+    int    sweep = 0;
+    double dmax  = 0.0;
+    for(; sweep < max_sweep; sweep++){
+        dmax = 0.0;
+
+        // --- pass 2 of the alternating direction: theta lines, one per level. The radial
+        // pass below kills the stiff direction; without this one the smooth theta mode
+        // decays at ~1-(pi/jm)^2 per sweep and 5000 sweeps are not enough.
+        for(int i = 0; i < im; i++){
+            for(int j = 0; j < jm; j++){
+                const int id = i*jm + j;
+                a[j] = (j > 0)      ? -cS[id] : 0.0;
+                c[j] = (j < jm - 1) ? -cN[id] : 0.0;
+                b[j] = diag[id];
+                d[j] = -src[id]
+                     + (i < im-1 ? cE[id] * p[(i+1)*jm + j] : 0.0)
+                     + (i > 0    ? cW[id] * p[(i-1)*jm + j] : 0.0);
+                if(!(b[j] > 0.0)){ b[j] = 1.0; a[j] = c[j] = d[j] = 0.0; }
+            }
+            const double dl = thomas(jm,
+                [&](int j){ return p[i*jm + j]; },
+                [&](int j, double v){ p[i*jm + j] = v; });
+            if(dl > dmax) dmax = dl;
+        }
+
+        for(int j = 0; j < jm; j++){
+            for(int i = 0; i < im; i++){
+                const int id = i*jm + j;
+                a[i] = (i > 0)      ? -cW[id] : 0.0;          // sub-diagonal
+                c[i] = (i < im - 1) ? -cE[id] : 0.0;          // super-diagonal
+                b[i] = diag[id];
+                d[i] = -src[id]
+                     + (j < jm-1 ? cN[id] * p[i*jm + j + 1] : 0.0)
+                     + (j > 0    ? cS[id] * p[i*jm + j - 1] : 0.0);
+                if(!(b[i] > 0.0)){ b[i] = 1.0; a[i] = c[i] = d[i] = 0.0; }
+            }
+            // The pure-Neumann column would be singular on its own (b = -(a+c) exactly when
+            // there is no theta coupling); the diagonal carries the cN/cS terms, which make
+            // it strictly dominant. Only an all-zero column can fail, and that is the guard.
+            const double dl = thomas(im,
+                [&](int i){ return p[i*jm + j]; },
+                [&](int i, double v){ p[i*jm + j] = v; });
+            if(dl > dmax) dmax = dl;
+        }
+        double mean = 0.0;
+        for(int id = 0; id < nij; id++) mean += p[id];
+        mean /= (double)nij;
+        for(int id = 0; id < nij; id++) p[id] -= mean;
+
+        // Stop on the RESIDUAL, not on the update. A pure-Neumann system relaxed with a
+        // per-sweep mean removal keeps producing a constant-size update long after the
+        // answer stops moving — measured here: the field was identical to four digits at
+        // 100 sweeps and at 5000, while "last update" sat at 7e-4 and declared failure.
+        // ||A p - src|| is the quantity that actually says whether it is solved.
+        dmax = 0.0;
+        for(int i = 0; i < im; i++){
+            for(int j = 0; j < jm; j++){
+                const int id = i*jm + j;
+                if(!(diag[id] > 0.0)) continue;
+                const double r = (i < im-1 ? cE[id] * p[id + jm] : 0.0)
+                               + (i > 0    ? cW[id] * p[id - jm] : 0.0)
+                               + (j < jm-1 ? cN[id] * p[id + 1]  : 0.0)
+                               + (j > 0    ? cS[id] * p[id - 1]  : 0.0)
+                               - diag[id] * p[id] - src[id];
+                if(std::fabs(r) > dmax) dmax = std::fabs(r);
+            }
+        }
+        if(trace && (sweep < 3 || sweep == 9 || sweep == 99 || sweep == 999
+                     || sweep == 4999))
+            std::cout << "        [balance trace] sweep " << (sweep + 1) << "  residual "
+                      << std::scientific << std::setprecision(3) << dmax << std::fixed
+                      << std::endl;
+        if(dmax <= tol * scale) { sweep++; break; }
+    }
+
+    std::cout << "      balance solve: " << sweep << " line-relaxation sweeps, residual "
+              << std::scientific << std::setprecision(3) << dmax << " against a source of "
+              << scale << std::fixed
+              << (sweep >= max_sweep ? "   <-- HIT THE SWEEP CAP, not converged" : "")
+              << std::endl;
+}
+/*
+*
 */
 void cAtmosphereModel::initBalancedState(){
     // DEFAULT 1.0 = ON since README item 27. It was committed at 0.0 (bit-identical) and
@@ -1152,6 +1416,11 @@ void cAtmosphereModel::initBalancedState(){
     std::cout << std::endl << "      AGCM: initBalancedState begin ......................." << std::endl;
     auto begin = std::chrono::high_resolution_clock::now();
 
+    // ATM_BALANCED_MODE — 2 (default) balances both momentum components at once; 1 is the
+    // theta-only field of item 27, kept verbatim so the two can be run against each other.
+    static const int mode = [](){
+        const char* e = getenv("ATM_BALANCED_MODE"); return e ? atoi(e) : 2; }();
+
     const int j_eq = (jm - 1) / 2;
     const double force_nd = omega * metricShellLength() / u_0;
 
@@ -1163,19 +1432,61 @@ void cAtmosphereModel::initBalancedState(){
     long n_over = 0, n_tot = 0;
     const double ceiling_probe = pDynCeiling();
 
-    #pragma omp parallel for schedule(static) reduction(max: max_add) reduction(+: n_over, n_tot)
-    for(int i = 0; i < im; i++){
-        const double rm = rad.z[i];
+    // ---- the zonal-mean zonal wind the balance is built on, over fluid cells ----
+    const int nij = im * jm;
+    std::vector<double> wbar(nij, 0.0), F_r(nij, 0.0), F_the(nij, 0.0),
+                        pbal2(nij, 0.0), padd(nij, 0.0);
 
-        std::vector<double> wbar(jm, 0.0), pbal(jm, 0.0), f(jm, 0.0);
+    #pragma omp parallel for collapse(2) schedule(static)
+    for(int i = 0; i < im; i++){
         for(int j = 0; j < jm; j++){
             double ws = 0.0; int n = 0;
             for(int k = 0; k < km; k++){
                 if(i < i_topography[j][k]) continue;          // fluid cells only
                 ws += w.x[i][j][k]; n++;
             }
-            wbar[j] = (n > 0) ? ws / (double)n : 0.0;
+            wbar[i*jm + j] = (n > 0) ? ws / (double)n : 0.0;
         }
+    }
+
+    // ---- the forces the RHS actually applies at u = v = 0, d/dphi = 0 ----
+    // Read from RHS_Atm_Turb.cpp term by term AND SWITCH BY SWITCH: coriolis_rad carries
+    // nontrad, the curvature pair sits inside if(metric_curvature()), and both default off.
+    // Signs follow rhs_x = ... - transport_x, so -transport_u = +(v^2+w^2)*inv_rm at v = 0.
+    const bool   curvature = AtomUtils::metric_curvature();
+    const double nontrad   = AtomUtils::coriolis_nontraditional() ? 1.0 : 0.0;
+
+    for(int i = 0; i < im; i++){
+        const double rmet   = metricRadius(rad.z[i]);
+        const double inv_rm = 1.0 / rmet;
+        for(int j = 0; j < jm; j++){
+            double sinthe = sin(the.z[j]);
+            if(sinthe < 0.55) sinthe = 0.55;                  // the RHS's metric floor
+            const double costhe   = cos(the.z[j]);
+            const double cotanthe = costhe / sinthe;
+            const double wb       = wbar[i*jm + j];
+
+            // No Coriolis flag here on purpose: RHS_Atm_Turb.cpp:375 hard-codes its own
+            // local `coriolis = 1.0` and never reads the config member of that name, so
+            // multiplying by the config value would balance a force the model does not apply.
+            double fr  = force_nd * nontrad * 2.0 * sinthe * wb;
+            double fth = force_nd * 2.0 * costhe * wb;
+            if(curvature){
+                fr  += wb * wb * inv_rm;
+                fth += wb * wb * cotanthe * inv_rm;
+            }
+            F_r  [i*jm + j] = fr;
+            F_the[i*jm + j] = fth;
+        }
+    }
+
+    if(mode == 2) balancedStateSolve(F_r, F_the, pbal2);
+
+    #pragma omp parallel for schedule(static) reduction(max: max_add) reduction(+: n_over, n_tot)
+    for(int i = 0; i < im; i++){
+        const double rm = rad.z[i];
+
+        std::vector<double> pbal(jm, 0.0), f(jm, 0.0);
 
         // THE RADIUS HERE IS metricRadius(rm), NOT rad.z[i], and getting that wrong cost a
         // factor of ~20. The RHS multiplies BOTH the pressure gradient and the w^2*cotanthe
@@ -1189,31 +1500,44 @@ void cAtmosphereModel::initBalancedState(){
         // pressure gradient is. This is the metric-disagreement defect that file warns about,
         // reproduced in the act of porting a fix.
         const double rmet = metricRadius(rm);
-        for(int j = 0; j < jm; j++){
-            const double the_j  = the.z[j];
-            double sinthe = sin(the_j);
-            if(sinthe < 0.55) sinthe = 0.55;                  // the RHS's metric floor
-            const double costhe   = cos(the_j);
-            const double cotanthe = costhe / sinthe;
-            f[j] = wbar[j] * wbar[j] * cotanthe
-                 + 2.0 * force_nd * costhe * wbar[j] * rmet;
-        }
+        double mean = 0.0;
 
-        for(int j = j_eq; j < jm - 1; j++)
-            pbal[j+1] = pbal[j] + 0.5 * dthe * (f[j] + f[j+1]);
-        for(int j = j_eq; j > 0; j--)
-            pbal[j-1] = pbal[j] - 0.5 * dthe * (f[j] + f[j-1]);
-
-        double wsum = 0.0, num = 0.0;
-        for(int j = 0; j < jm; j++){
-            const double aw = sin(the.z[j]);
-            wsum += aw;
-            num  += aw * pbal[j];
+        if(mode == 2){
+            // The two-component solve has already produced the whole field, and its gauge
+            // is one global constant (removed below), not a per-level mean.
+            for(int j = 0; j < jm; j++) pbal[j] = pbal2[i*jm + j];
         }
-        const double mean = (wsum > 0.0) ? num / wsum : 0.0;
+        else{
+            // Item 27's theta-only path, kept verbatim — including the unconditional
+            // w^2*cotanthe term, which is what was measured, switch or no switch.
+            for(int j = 0; j < jm; j++){
+                const double the_j  = the.z[j];
+                double sinthe = sin(the_j);
+                if(sinthe < 0.55) sinthe = 0.55;              // the RHS's metric floor
+                const double costhe   = cos(the_j);
+                const double cotanthe = costhe / sinthe;
+                const double wb       = wbar[i*jm + j];
+                f[j] = wb * wb * cotanthe
+                     + 2.0 * force_nd * costhe * wb * rmet;
+            }
+
+            for(int j = j_eq; j < jm - 1; j++)
+                pbal[j+1] = pbal[j] + 0.5 * dthe * (f[j] + f[j+1]);
+            for(int j = j_eq; j > 0; j--)
+                pbal[j-1] = pbal[j] - 0.5 * dthe * (f[j] + f[j-1]);
+
+            double wsum = 0.0, num = 0.0;
+            for(int j = 0; j < jm; j++){
+                const double aw = sin(the.z[j]);
+                wsum += aw;
+                num  += aw * pbal[j];
+            }
+            mean = (wsum > 0.0) ? num / wsum : 0.0;
+        }
 
         for(int j = 0; j < jm; j++){
             const double add = strength * (pbal[j] - mean);
+            padd[i*jm + j] = add;                             // kept for the residual report
             if(std::fabs(add) > max_add) max_add = std::fabs(add);
             n_tot++;
             if(std::fabs(add) > ceiling_probe) n_over++;
@@ -1222,12 +1546,52 @@ void cAtmosphereModel::initBalancedState(){
         }
     }
 
-    std::cout << "      balancing pressure perturbation: max |dp_dyn| = " << max_add
+    std::cout << "      balancing pressure perturbation: mode " << mode
+              << (mode == 2 ? " (two-component least squares)" : " (theta only, item 27)")
+              << ", max |dp_dyn| = " << max_add
               << " (non-dim), strength = " << strength << std::endl;
     std::cout << "      above the p_dyn ceiling (" << ceiling_probe << "): " << n_over
               << " of " << n_tot << " (i,j) columns ("
               << (n_tot > 0 ? 100.0 * (double)n_over / (double)n_tot : 0.0)
               << " %) -- these would be clipped on the solver's first call" << std::endl;
+
+    // WHAT THE BALANCE LEAVES BEHIND, IN BOTH COMPONENTS. rhs_u and rhs_v apply
+    // -dp/dr*exp_rm and -dp/dtheta*inv_rm, so these residuals are the accelerations the
+    // model is still holding at iteration 0, in its own units. Printing only the theta one
+    // is how a field that drove the vertical wind to 11 m/s passed for a balance (item 28).
+    {
+        const double inv_2dr_l   = 1.0 / (2.0 * dr);
+        const double inv_2dthe_l = 1.0 / (2.0 * dthe);
+        double r2 = 0.0, t2 = 0.0, r2_0 = 0.0, t2_0 = 0.0, rmx = 0.0, tmx = 0.0;
+        long n = 0;
+        for(int i = 1; i < im - 1; i++){
+            const double exp_rm = 1.0 / (rad.z[i] + 1.0);
+            const double inv_rm = 1.0 / metricRadius(rad.z[i]);
+            for(int j = 1; j < jm - 1; j++){
+                const double dpdr   = (padd[(i+1)*jm + j] - padd[(i-1)*jm + j]) * inv_2dr_l;
+                const double dpdthe = (padd[i*jm + j+1]   - padd[i*jm + j-1])   * inv_2dthe_l;
+                const double res_r  = -dpdr   * exp_rm + F_r  [i*jm + j];
+                const double res_t  = -dpdthe * inv_rm + F_the[i*jm + j];
+                r2   += res_r * res_r;      t2   += res_t * res_t;
+                r2_0 += F_r[i*jm+j] * F_r[i*jm+j];
+                t2_0 += F_the[i*jm+j] * F_the[i*jm+j];
+                if(std::fabs(res_r) > rmx) rmx = std::fabs(res_r);
+                if(std::fabs(res_t) > tmx) tmx = std::fabs(res_t);
+                n++;
+            }
+        }
+        if(n > 0){
+            std::cout << "      unbalanced acceleration left at iteration 0 (rms, non-dim):"
+                      << std::endl
+                      << "        radial      " << std::scientific << std::setprecision(3)
+                      << sqrt(r2 / n) << "   (max " << rmx
+                      << ", against " << sqrt(r2_0 / n) << " with no balance at all)"
+                      << std::endl
+                      << "        meridional  " << sqrt(t2 / n) << "   (max " << tmx
+                      << ", against " << sqrt(t2_0 / n) << " with no balance at all)"
+                      << std::fixed << std::endl;
+        }
+    }
 
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);

@@ -1788,6 +1788,240 @@ the measurement.
     the diagnostic that reports against it — the same defect class as a solver disagreeing
     with the RHS about the metric, which is what cost item 26 a factor of 20.
 
+28. **The balance had only one component, and the other one drove the vertical wind to
+    11 m/s (fixed; the 200-iteration A/B is running).**
+
+    **Found by looking at a picture and not believing it.** The question asked was why the
+    ParaView glyphs in the `u-v-Cell` field show no circulation at all when the `u` field
+    plainly has one. That turned out to be a plotting defect (below), but checking it meant
+    reading `u` out of the vtk files directly — and that is where the real thing was.
+
+    **The u field in the unbalanced control is a correct Hadley cell.** At iteration 20,
+    ascent over the equator out to ~10°, descent at 20–30°, surface `v` at 15° flowing
+    *toward* the equator, and symmetric to the last digit (u(15°N) = u(15°S) = −4.395e-4,
+    v(15°N) = −v(15°S) = 2.898), so invariant 1 holds. Between iterations 0 and 20 only the
+    bottom ~5 km at the equator changes sign; the deep pattern keeps its sign and loses 8 %
+    over 200 iterations.
+
+    **The balanced run — the default since item 27 — does not.**
+
+    | iteration | unbal max \|u\| | unbal u at EQ, 95 km | bal max \|u\| | bal u at EQ, 95 km |
+    |---|---|---|---|---|
+    | 0 | 1.14e-1 | +6.08e-2 | 1.14e-1 | +6.08e-2 |
+    | 20 | 1.06e-1 | +6.00e-2 | 2.53e+0 | −7.91e-1 |
+    | 100 | 8.63e-2 | +5.50e-2 | 8.08e+0 | −4.08e+0 |
+    | 200 | 9.47e-2 | +4.45e-2 | **1.12e+1** | **−6.35e+0** |
+
+    The vertical velocity grows ~100×, the tropics **reverse to sinking over the 1500 K
+    equator**, and the poles rise. The aspect ratio says this atmosphere's vertical velocity
+    should be ~(300 km/10 000 km)·v ≈ 0.09 m/s, which is what the control has. **And Ψ_max,
+    the number item 27 flipped the default on, reports 157 555 against 153 301 throughout**:
+    it is built from `v` alone. Item 26's lesson recurring one item later — an instrument
+    that cannot see the component going wrong.
+
+    **THE MECHANISM, AND WHY NOTHING OPPOSED IT.** `initBalancedState` integrates
+    `dp_dyn/dθ` level by level and removes each level's mean, so the field's *shape* still
+    follows w², which grows strongly upward. Measured at the equator: p_dyn goes 6.9e6 hPa
+    at 9 km to 1.79e7 at 55 km, i.e. `−(1/ρ)dp/dz` of −630 to −1290 m/s², downward, where
+    the flow is indeed now sinking. With the **default switches the radial equation contains
+    nothing else at u = v = 0**: `coriolis_rad` carries the factor `nontrad` and
+    `AtomUtils::coriolis_nontraditional()` is false by default; the `−(v²+w²)/r` curvature
+    term sits inside `if(AtomUtils::metric_curvature())`, also false; and the buoyancy term
+    is multiplied by `buoyancy_ramp`, which is **0 at iteration 0**. So `rhs_u` is
+    `−dp_dyn/dr·exp_rm` and nothing else, and any radial gradient the balance writes is a
+    pure unopposed vertical force.
+
+    **The same switch touches the θ half, but this is the smaller half of the finding and
+    was overstated when first written here.** `metric_curvature()` also governs the `w²cotθ`
+    term the item-27 balance is built on, so with the defaults that term is not in `rhs_v`
+    either — **the balance was derived from the RHS as written rather than as configured**,
+    which is the family's constant trap one level up: not an Earth number this time, an
+    Earth-tested code path read without checking whether it runs. **Measured, though, it is
+    worth 0.3 %**: rms `F_θ` is 14.61 with the switch off and 14.66 with it on, because both
+    balances are ~99.7 % Coriolis. So the defect that matters is the one-component
+    balancing, not the missing term — and enabling the switch does **not** repair it, see
+    below.
+
+    **Enabling `ATOM_METRIC_CURVATURE` does not make the two components consistent** — the
+    obvious hypothesis, tested and refuted at the initialisation:
+
+    | | rms `F_r` | mode 2 leaves | rms `F_θ` | mode 2 leaves |
+    |---|---|---|---|---|
+    | curvature off | 0.000 | 0.712 | 14.61 | 5.658 |
+    | curvature on | **0.0754** | 0.718 | 14.66 | 5.693 |
+
+    The radial equation does gain a real force, exactly as the switch promises. It is
+    **~4000× too small** to justify the radial gradient the θ-balance implies (0.075 against
+    the 293 that mode 1 creates), so the solve returns essentially the same field either way.
+    The θ-force's shape varies with height because `w` does, and **no radial force of
+    comparable size exists to pay for that variation** — which is the real reason a
+    one-component balance cannot be rescued by completing the metric.
+
+    **THE FIX.** No `p(r,θ)` satisfies both components exactly — that needs
+    `∂F_θ/∂r = ∂F_r/∂θ` and the curl of the force field is not zero; the rotational part is
+    what buoyancy balances in a real atmosphere, and here buoyancy is ramped off at iteration
+    0. So take the best compromise instead of pretending one exists, minimising the
+    acceleration the model is left holding in its own units:
+
+    ```
+    J = SUM_ij [ (dp/dr*exp_rm - F_r)^2 + (dp/dtheta*inv_rm - F_theta)^2 ]
+    ```
+
+    whose Euler–Lagrange equation, `d/dr[exp_rm² dp/dr] + d/dθ[inv_rm² dp/dθ] =
+    d/dr[exp_rm F_r] + d/dθ[inv_rm F_θ]`, is solved in conservative form by
+    alternating-direction line relaxation. `F_r` and `F_θ` are read from the RHS **term by
+    term and switch by switch**, so the balance follows the model's configuration instead of
+    assuming one: with the defaults `F_r = 0` and the solve returns what the radial equation
+    asks for, which is that p_dyn must not vary with r. The gauge is now a **single global
+    constant** — a per-level mean is itself a radial gradient.
+
+    **What each mode leaves behind, which is the diagnostic whose absence let this through:**
+
+    | | radial residual (rms) | meridional residual (rms) | max \|dp_dyn\| |
+    |---|---|---|---|
+    | no balance at all | 0.000 | 14.61 | — |
+    | mode 1 (item 27) | **293.4** (max 1827) | 0.062 | 455.07 |
+    | mode 2 (new) | **0.712** (max 2.37) | 5.66 | 199.3 |
+
+    Mode 1 buys a 0.4 % meridional balance by **creating** a radial imbalance of 293 rms
+    where there was none. Mode 2 leaves 412× less of it and still removes 61 % of the
+    meridional force. Both modes now print this pair, so neither can be judged again by a
+    diagnostic that looks at one component. `ATM_BALANCED_MODE=1` restores item 27's field
+    verbatim — it reproduces `max |dp_dyn| = 455.06686` exactly, so the legacy path is
+    untouched.
+
+    **The solver.** Serial on purpose: 41×181 = 7421 unknowns cost milliseconds, and a
+    deterministic sweep order keeps the initial state bit-identical run to run, which a
+    red-black OpenMP sweep would not (item 18 is about exactly that). Point SOR crawls on
+    this operator — `exp_rm²/dr²` runs ~55× the `inv_rm²/dθ²` term — so it is line relaxation
+    in both directions with over-relaxation. Sweeps to a 1e-10 relative residual against ω:
+    **1.0 never gets there, 1.90 takes 4265, 1.98 takes 1247, 1.99 takes 2441, 1.995 never**.
+    The converged field is identical to four digits across all of them, as it must be; ω
+    buys wall clock, not an answer. 0.87 s at ω = 1.98.
+
+    **Two things that did not work, recorded so they are not retried.** A finite-difference
+    continuity check on the vtk output cannot distinguish the two runs: the residual scales
+    with the field in both (relative residual 0.79 unbalanced against 1.0 balanced), because
+    centred differences on a grid whose spacing runs 1.2 → 44 km are not accurate enough for
+    the test. And the zonal term is not the missing partner either — `u` varies only ~2 %
+    with longitude in both runs, so there is no `∂/∂φ` convergence to balance a radial term
+    that is 36× the meridional one.
+
+    **Still open, and deliberately not fixed here:** the `u-v-Cell` glyph vector
+    (`Paraview_Atm.cpp:674`) is written in raw m/s onto points laid out in *index* units,
+    `x = i*0.1` (level) and `y = j*0.05` (degree). One plot unit is 12–440 km of height
+    against a fixed 2222 km of latitude, so an arrow whose true in-plane tilt is 27–70° is
+    drawn at 0.2–3.8° and every arrow lies flat along the latitude axis. **No single glyph
+    scale factor in ParaView can fix it**, because the distortion runs 150× at 4 km to 20× at
+    133 km; the writer has to emit the vector in plot units. A second, smaller one found
+    beside it: at the iteration-0 write `t_ref_level` has not been sized yet — only
+    `computeLevelMeanTemperature()` fills it, from inside the RK4 step — so `ThermoAtm.h:521`
+    takes its fallback `t_ref = 1.0`, and the iteration-0 `BuoyancyForce` field is
+    `1e-3·ρ·g·(T/273.15 − 1)`, ~300× too large and shaped like the temperature rather than
+    like an anomaly. It is not a force map until the first written iteration.
+
+    **THE 200-ITERATION A/B** (moist physics from iteration 0, κ_H2O = 0.010, `im` = 41,
+    `dt_visc` = 1e-4, identical but for the balance):
+
+    | iteration | mode 2 Ψ_max | max \|u\| | mode 1 Ψ_max | max \|u\| | unbalanced Ψ_max | max \|u\| |
+    |---|---|---|---|---|---|---|
+    | 20 | 156 059 @15° | 0.119 | 157 584 @15° | 2.53 | 153 301 @15° | 0.106 |
+    | 100 | 148 411 @15° | 0.173 | 157 054 @15° | 8.08 | 134 484 @15° | 0.086 |
+    | 200 | 138 531 @15° | **0.215** | 157 555 @15° | **11.17** | 255 670 **@45°** | 0.095 |
+
+    **Mode 1 reproduces the item-27 run to five digits** — 157 584 / 2.5291 at iteration 20,
+    11.1670 against 11.1662 at 200, a 1e-5 difference that is item 18's reduction-order noise
+    — so the legacy path came through the refactor untouched, and so did item 27's headline
+    numbers (control cell −27 %, drift 255 670 @ 45°, mode-1 return branch 30 771, Ψ₀@45
+    = −504).
+
+    **What mode 2 fixes:** the vertical wind, 11.17 → 0.215 m/s, a factor of 52 and inside
+    the range the aspect ratio predicts (~0.09 m/s); and the drift, which never takes over —
+    Ψ_max stays at 15° for all 200 iterations and the 45° surface value is +1271 against the
+    control's 255 670. Its mid-latitude return branch is stronger than mode 1's, 42 254
+    against 30 771.
+
+    **What it does not fix: the cell still decays**, 156 059 → 138 531, −11.2 %. That is the
+    price of removing 61 % of the meridional force rather than all of it, and the two numbers
+    match: mode 2 removes 61.2 % of the force and 60.6 % of the decay rate (−4.9 % against
+    the control's −12.3 % at iteration 100). **The decay rate is proportional to the
+    unbalanced θ-force**, which is a stronger statement than either measurement alone and
+    says item 26 identified the whole mechanism. The tropical return branch erodes fastest of
+    the three, −11 413 → −5 946 (−48 %) against mode 1's −27 % and the control's −18 %.
+
+    **`ATOM_METRIC_CURVATURE` does not rescue it either — measured, not assumed.** Three more
+    200-iteration runs, and the switch was demonstrably live (the balance's rms `F_r` reads
+    7.539e-02 against exactly 0.000e+00 with it off):
+
+    | at iteration 200 | Ψ_max | max \|u\| | Ψ₀ @45° |
+    |---|---|---|---|
+    | mode 2 | 138 530 @15° | 0.215 | 1271 |
+    | curvature + mode 2 | 138 501 @15° | 0.217 | 1298 |
+    | curvature + divergence + mode 2 | 138 263 @15° | 0.216 | 1261 |
+    | unbalanced | 255 670 @45° | 0.095 | 255 670 |
+    | curvature + unbalanced | 256 606 @45° | 0.091 | 256 606 |
+
+    Every pairing agrees to **0.02–0.4 %**, including with `ATOM_METRIC_DIVERGENCE` on as
+    well, which is how `Utils.h` says the two halves of the metric belong. **Including on the
+    component the terms are supposed to act on**: `vw·cotθ/r` is described there as the
+    meridian-convergence term that conserves angular momentum, "the one that makes jets", and
+    `max|w|` at iteration 200 is 21.3974 with it off against 21.3929 with it on — 0.02 %. The
+    terms are in the equation and are doing nothing at this amplitude.
+
+    **So the decay is not a missing metric term and cannot be fixed by completing the
+    metric.** Removing more of `F_θ` without reintroducing a radial gradient requires the
+    rotational part to be balanced by buoyancy — a thermal-wind temperature perturbation —
+    and that is blocked twice over: `buoyancy_ramp` is 0 at iteration 0, and `densities()`
+    overwrites `t` with the adiabat every iteration unless `ATM_PROGNOSTIC_T=1`. **The cell's
+    decay is therefore the same open task as invariant 3**, which is where item 29 arrives
+    from the radiation side as well.
+
+    **One diagnostic added while reading this output.** `[streamfn]` printed `Psi_max` and
+    `Psi_min` and never compared them, though invariant 1 says `|Ψ_max|` = `|Ψ_min|` exactly —
+    they are one cell reflected. It now prints the N–S asymmetry as a number and flags
+    anything above 1e-3 (reduction order alone gives ~1e-5; the runs here sit at 4.5e-6).
+    Item 13's 32 % Hadley asymmetry was found by reading a plot, after two printed extrema
+    had disagreed for many runs with nobody subtracting them.
+
+29. **The κ scan, run to 200 iterations: the converged OLR does not move with the opacity
+    (done — and it is the answer item 25 feared).**
+
+    Four runs at the shipped defaults, identical but for `kappa_H2O`, over a **64× span**:
+
+    | κ_H2O | OLR @20 | OLR @200 | imbalance @200 | σT_lid⁴ | T_lid | albedo |
+    |---|---|---|---|---|---|---|
+    | 0.0025 | 334.08 | 272.44 | −1.32 | 271.11 | 262.96 | 0.4986 |
+    | 0.010 | 333.07 | 272.42 | −1.31 | 271.11 | 262.96 | 0.4986 |
+    | 0.040 | 329.18 | 272.37 | −1.25 | 271.11 | 262.96 | 0.4986 |
+    | 0.160 | 315.98 | 272.17 | −1.05 | 271.11 | 262.96 | 0.4986 |
+
+    **A 64× change in the water opacity moves the converged OLR by 0.10 %.** σT_lid⁴ is
+    271.11 in all four, identical to five digits, and `t_skin` is 262.96 in all four. The
+    5.4 % spread that exists at iteration 20 decays away: **κ changes how fast the column
+    relaxes onto the skin temperature, not where it lands.** The single equatorial column
+    behaves the same way, 273.7 → 273.1 W/m² across the same 64×, with `σT_surf⁴` identical
+    at 275 680 because the surface temperature is prescribed.
+
+    So item 25's discriminating test comes back the way it feared. **The grey scheme is
+    reporting its top boundary condition. Item 11's rewrite postponed item 10's defect past
+    iteration 20 rather than curing it**, and no claim about `kappa_H2O` is supportable in
+    either direction — including the one this file used to make in the other direction. The
+    mechanism is not in doubt: `updateSkinTemperature` targets `((absorbed SW + geothermal)/σ)^¼`,
+    which contains no κ at all, and `ThermoAtm.h:1446` pins the profile's top at exactly
+    `max(t_skin, T_ad)`. Once the effective radiating level sits inside that isothermal skin,
+    OLR = absorbed is arithmetic.
+
+    Two smaller things it settles. **Item 24's unexplained latitudinal sign was a transient**:
+    at 200 iterations the equatorial column emits 273.7 against a global mean of 272.42, so
+    the hottest surface is no longer under the least-emitting column and there is nothing left
+    to explain. And **the claim was in the file before the run was**: CLAUDE.md carried "an 8×
+    change in `kappa_H2O` moves it 0.9 % (item 25)" and item 27 carried "the κ scan showed the
+    outgoing flux does not move with the opacity", both citing an item 25 whose own text says
+    the test was "named, not yet run", with no scan in the repo record. The measurement now
+    exists and is *stronger* than what was claimed — 0.10 % over 64× rather than 0.9 % over
+    8× — which is luck, not vindication. **A cross-reference is not a check, and neither is a
+    conclusion written ahead of its measurement.**
+
 ## Remaining work
 
 
@@ -1809,26 +2043,47 @@ the measurement.
   whole gap is the isothermal `t_skin` lid the prescription pins above 243 km. The next step
   is therefore not the flip — it is deciding what should set the top 60 km when nothing pins
   it, since the honest reading is that −66 W/m² is partly an assumption's doing.
-- **The κ scan, run to 200 iterations, is now the single most informative thing to do**
-  (item 25). It answers two questions at once: whether the opacities are wrong, and whether
-  the OLR is a result at all. The claim that the opacity is too low to hold the surface was
-  measured on a transient that decays to −1.26 W/m², and the way it closes — the OLR falling
-  onto a σT_skin⁴ that never moves — is indistinguishable, at one κ, from the outgoing flux
-  being the boundary condition read back out. **If the converged OLR does not move with κ,
-  the grey scheme is reporting `t_skin` and item 11's rewrite did not cure item 10's defect,
-  it only postponed it past iteration 20.** Fold in item 23's unexplained latitudinal sign
-  while scanning: the equator is the least emitting column on the planet.
+- **The κ scan is done and the OLR is not a result** (item 29). 64× in `kappa_H2O` moves the
+  converged OLR by 0.10 %, σT_lid⁴ is 271.11 in every run, and item 23's latitudinal sign
+  turned out to be a transient too. **What replaces it is the top boundary condition itself.**
+  The radiation cannot be made to respond to anything while `ThermoAtm.h:1446` pins the
+  profile's top at `max(t_skin, T_ad)` and `updateSkinTemperature` solves `t_skin` from a
+  budget with no κ in it. Breaking that loop — deciding what sets the top 60 km when nothing
+  pins it — is now the single most informative thing to do, and it is the same task the
+  prescribed-profile bullet above describes. Until it is done, **every OLR number in this
+  file is a statement about `t_skin`**, and a grid-convergence check on the OLR would only be
+  measuring how well the grid resolves a boundary condition.
 - **The `c ≤ 1 − co2` ceiling has stopped firing** (item 23) — zero cells at 20 iterations,
   because it was reporting the misplaced cloud deck of item 22 and nothing else. With the
   transport exonerated (item 17), the column anchor fixed (item 19) and this gone, **no known
   mass sink remains**. The untested case is a run past `moist_phys_start_iter = 300`, where
   sedimentation runs for the first time; if the count comes back, measure *where* before
   proposing *why*, which is the one thing the two refuted mechanisms have in common.
-- **The balanced initial state is now on by default and the `p_dyn` ceiling is 2000**
-  (item 27), and **the ceiling is untested beyond 200 iterations**. It replaces a backstop
-  that existed because unbounded `p_dyn` blew this solver up on Earth; that failure was
-  orography-driven and should not arise over a featureless surface, but that is an argument,
-  not a measurement. A long run is the check.
+- **The tropical cell decays 11.2 % over 200 iterations even when the balance is right**
+  (item 28), and that is now the open question about the circulation. The decay rate is
+  proportional to the unbalanced θ-force: mode 2 removes 61 % of the force and 61 % of the
+  decay. Removing the rest without reintroducing a radial gradient needs the rotational part
+  balanced by buoyancy — a thermal-wind temperature perturbation — which `buoyancy_ramp` = 0
+  at iteration 0 and `densities()`'s overwrite of `t` both block. **Same task as the
+  prescribed profile above**, approached from the dynamics instead of the radiation.
+  `ATOM_METRIC_CURVATURE` was tested as the alternative and changes nothing (0.02–0.4 %).
+- **The tropical return branch erodes fastest with the balance on**: −11 413 → −5 946
+  (−48 %) against mode 1's −27 % and the control's −18 %. Item 27 first saw this and the
+  two-component balance slightly worsens it. Unexplained.
+- **The `p_dyn` ceiling is 2000 and is untested beyond 200 iterations** (item 27). It
+  replaces a backstop that existed because unbounded `p_dyn` blew this solver up on Earth;
+  that failure was orography-driven and should not arise over a featureless surface, but that
+  is an argument, not a measurement. A long run is the check. Note item 28 halves what the
+  balance asks of it — max |dp_dyn| 455 → 199.
+- **The `u-v-Cell` glyph vector is drawn in the wrong metric** (item 28), so the meridional
+  circulation is invisible in ParaView even when it is there. `Paraview_Atm.cpp:674` writes
+  raw m/s onto points laid out in index units; the fix is to emit the vector in plot units
+  (`u/(dz_i/0.1)`, `v/(dy/0.05)`). A ParaView-side scale factor cannot substitute, because
+  the distortion runs 150× at 4 km to 20× at 133 km. The same applies to the `longal` writer.
+- **The iteration-0 `BuoyancyForce` field is not a force** (item 28): `t_ref_level` is sized
+  only inside `computeLevelMeanTemperature()`, called from the RK4 step, so the first write
+  takes the `t_ref = 1.0` fallback at `ThermoAtm.h:521` and reports ~300× too much, shaped
+  like the temperature. Either size the array at init or make the diagnostic say so.
 - **The tropical return branch still erodes** — −11 969 → −8 689 over 200 iterations, and
   marginally faster with the balance on than without it. The drift that used to mask this is
   gone, so this is now the open question about the cell itself.
