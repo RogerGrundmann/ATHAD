@@ -67,7 +67,7 @@ asserted.
 |---|---|
 | `MixtureAtm.h` | Composition → mass fractions, `R_of`, `cp_of` (Shomate), `M_of`, `M_nonwater`, water's critical point |
 | `SaturationH2O.h` | IAPWS saturation + sublimation curves, Watson `latentHeat(T)`, exact `saturationMassFraction`, `dewPoint` (bisection), `dqSatdT` |
-| `MultiLayerRadiation.h` | Grey optical depth from column mass with pressure broadening; surface energy balance |
+| `MultiLayerRadiation.h` | Grey optical depth from column mass with pressure broadening; surface energy balance; the **closed-form** two-stream equilibrium solve (`ATM_RAD_DIRECT`, item 30) beside the inherited Lambda iteration (`ATM_N_LAMBDA`, default 4 = under-converged by 4× at 250 bar) |
 | `ThermoAtm.h` | Densities and the hydrostatic column, anchored to `p_0`; `printColumnProfile` / `printLevelSummary` diagnostics; the `ATM_PROGNOSTIC_T` knob |
 | `ConvectiveAdjustment.h` | Dry Manabe–Strickler, generalised to the stretched grid and to a local `cp_of()` — the family's shared version assumes neither |
 | `test/saturation_selftest.cpp` | IAPWS reference-point checks — `make test` |
@@ -120,12 +120,13 @@ the outputs predictions. These are inputs, in rough order of how much they move 
 
 | Parameter | Value | Status |
 |---|---|---|
-| `kappa_H2O` / `kappa_CO2` / `kappa_bg` | 0.01 / 0.001 / 1e-6 m²/kg | Factor-of-2 uncertain, and **not a lever on the converged OLR at all**: 64× moves it 0.10 % — README item 29 |
+| `kappa_H2O` / `kappa_CO2` / `kappa_bg` | 0.01 / 0.001 / 1e-6 m²/kg | Factor-of-2 uncertain, and **not a lever on the converged OLR at all**: 64× moves it 0.10 % (item 29), confirmed with a converged solver — 0.14 % over 16× (item 30) |
 | `geothermal_flux` | 150 W/m² | Open. The ≥195 W/m² argument is retracted, and item 25 makes it worse: it enters the `t_skin` fixed point, so it helps set the very flux it was being compared against |
 | `t_surf_equator` / `t_surf_pole` | 1500 / 1450 K | **Prescribed, not solved** |
 | `t_skin` | 254.0 K start, relaxes to 262.96 | **Now the prime suspect** (item 25): it is a fixed point of σT⁴ = absorbed, the prescribed profile's top is isothermal at it, and the converged OLR falls onto it |
 | insolation | 0.71 S₀ | Faint young Sun at 4.4 Ga |
 | `omega` | 3.17e-4 (5.5 h day) | Estimates range 4–6 h |
+| prescribed cell latitudes | Hadley 15°, Ferrel 45°, polar 75° | **Earth's, and wrong for this regime**: Ro_T is 12.5× smaller, Held–Hou puts the edge at 5.1°. `ATM_CELL_LAT_SCALE` — item 31 |
 | `cosmo_lapse_fraction` | 1.0 (dry adiabat) | Justified: nothing condenses in the deep column |
 
 A grey scheme also cannot represent the window regions that set the real runaway limit.
@@ -204,12 +205,15 @@ C++ class, file and function names are kept **identical to `ATOM_Precipitation`*
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
 `config_athad.xml`, `pyathad`). Preserve that.
 
-**Nineteen defects found in the inherited code so far, all latent on Earth and live here.**
+**Twenty defects found in the inherited code so far, all latent on Earth and live here.**
 The pattern is consistent and worth expecting: *Earth's numbers as bare literals inside
 physics kernels, each with a comment justifying it by Earth's conditions.* Examples —
 `dr = 0.025` silently tied to `im = 41`; a 333.15 K cap written back into the prognostic
 temperature; `287.0` J/(kg·K) as the density gas constant; convective triggers as absolute
-hPa; `p_stat` cubically extrapolated at the lid. When something behaves oddly, look for a
+hPa; `p_stat` cubically extrapolated at the lid. The twentieth is not a physical constant but
+an **iteration count**: `n_lambda = 4` radiation sweeps, adequate on a 1 bar column and 4×
+wrong on a 250 bar one (item 30) — the same pattern in a place nobody thinks to look for it,
+since a loop bound does not read like an Earth assumption. When something behaves oddly, look for a
 constant that was true at 1 bar and 288 K.
 
 The three most recent are worth stating because they show the pattern's worst form — an
@@ -306,6 +310,17 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   iterations**. The Earth values were keyed to steep orography this model does not have and
   forbade the balanced state outright (94.7 % of columns clipped). One accessor,
   `cAtmosphereModel::pDynCeiling()`, so the solver and the diagnostic cannot disagree.
+- **The radiation solver was never converging, and now has a closed form** (item 30).
+  `n_lambda = 4` is an Earth constant: the Lambda iteration is Jacobi on a 41-link chain and
+  needs O(N²) sweeps, so 4 gives an OLR 4× too high on a prognostic column (65 982 against a
+  converged 15 769). It does not need iterating — `a_i + b_i = 1` makes the net flux constant,
+  which closes the system in two O(N) passes, exact to 8 figures against 10 000 sweeps and
+  3200× faster. **`ATM_RAD_DIRECT` is default-off pending a longer measurement.** It changes
+  the standard prescribed configuration by 0.15 %, so no quoted OLR is at risk — but with it
+  on, the PROGNOSTIC column stops sitting on a hot branch and starts relaxing (OLR
+  15 764 → 8 542 → 6 211 over 200 iterations, still falling). Where that lands is the open
+  question, and **a monotone trend is not a limit** — this file has now been caught on that
+  twice in one day, both times on radiation numbers.
 - **The OLR does not respond to anything, now measured in both directions.** A **64×** change
   in `kappa_H2O` moves the converged OLR by **0.10 %** (item 29, four 200-iteration runs) and
   a 500× change in the circulation moves it 0.03 % (item 27). σT_lid⁴ is 271.11 W/m² in every

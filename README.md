@@ -2022,6 +2022,120 @@ the measurement.
     8× — which is luck, not vindication. **A cross-reference is not a check, and neither is a
     conclusion written ahead of its measurement.**
 
+30. **The radiation solver was never converging, and the two-stream system did not need
+    iterating at all (done — solver written, default not yet flipped).**
+
+    Chasing why the prognostic column grows a 1124 K inversion in its top four levels ended
+    somewhere else. Those levels are not broken: the scheme's own comment says that at the
+    top, where `dn → 0`, the update reduces to `σT⁴ = up/2` — the classical skin temperature
+    *of the flux arriving from below* — and the measurement agrees, 82 000 W/m² giving 922 K
+    predicted against 889 K measured. **They are slaved to the column's flux and cannot be
+    fixed locally**, and pinning them to `t_skin` would re-impose exactly the lock item 29
+    diagnosed. What was wrong was upstream.
+
+    **`n_lambda = 4` is an Earth constant.** The Lambda iteration is a Jacobi relaxation on a
+    41-link chain — information moves one layer per sweep, so it needs O(N²) — and 4 sweeps
+    is nowhere near converged at 250 bar:
+
+    | `n_lambda` | lid T | τ≈1 level | OLR | cost/call |
+    |---|---|---|---|---|
+    | 4 (inherited) | 889.2 K | 774.6 K | 65 982 | 0.370 s |
+    | 40 | 687.3 K | 662.4 K | 50 656 | 0.443 s |
+    | 400 | 477.9 K | 349.0 K | 15 248 | 4.551 s |
+    | 2 000 | 478.0 K | 362.0 K | 15 754 | 34.5 s |
+    | 10 000 | 478.0 K | 362.0 K | 15 769 | 116.3 s |
+
+    A factor of 4 in the headline number, converged only by ~2000 sweeps at 500× the cost.
+
+    **It does not need iterating.** With `a_i = 1 − ε_i/2` and `b_i = ε_i/2`, a layer in
+    radiative equilibrium transfers `U_i = a_i U_{i−1} + b_i D_i` and
+    `D_{i−1} = b_i U_{i−1} + a_i D_i`, and **`a_i + b_i = 1` exactly** — so `U − D` is the
+    same at both faces and the net flux is constant. That is the definition of radiative
+    equilibrium, and here it falls out of the discretisation rather than being imposed.
+    Eliminating the fluxes leaves a march for the source function that is *linear in F*,
+    `B_{i+1} − B_i = (F/2)[(1−ε_i)/a_i − 1/a_{i+1}]`, closed by `D_top = 0` into
+    `F = σT_s⁴/(1/(2a_n) − G_n)`. **Two O(N) passes, exact, no linear solve** — Feautrier's
+    tridiagonal is not needed either.
+
+    | method | lid T | τ≈1 level | OLR | cost/call |
+    |---|---|---|---|---|
+    | `n_lambda` = 10 000 | 478.0 K | 362.0 K | 15 769.09 | 116.332 s |
+    | **direct** | 478.0 K | 362.0 K | **15 769.11** | **0.036 s** |
+
+    Eight significant figures against 10 000 sweeps, **3200× faster** than converging them
+    and **10× faster than the wrong default**. Validated against the iteration run to
+    convergence on synthetic transparent, thick and ATHAD-graded columns, and against both
+    exact limits: `ε → 0` returns `F = σT_s⁴` and `T = T_s/2^¼`, the classical skin
+    temperature of a freely radiating surface.
+
+    **What it does not change is the useful part.** Over 200 iterations in the standard
+    prescribed configuration the OLR goes **273.31 → 272.91 W/m²**, the imbalance −2.23 →
+    −1.83: **0.15 %**. Every OLR figure this project has quoted survives the solver defect,
+    because while `densities()` re-imposes the adiabat every iteration the reported flux is a
+    property of the *prescribed profile* and does not depend on how well the radiation was
+    solved.
+
+    **And it confirms item 29 rather than overturning it.** Converged, prescribed, 200
+    iterations: **272.91 at κ = 0.010 against 272.54 at 0.160 — 0.14 % over 16×.** The
+    κ-insensitivity was never a solver artefact. The prescription is the lock, and that now
+    rests on a converged calculation.
+
+    **One thing it does change.** With the converged solver the prognostic column stops
+    sitting on a hot branch and starts relaxing: OLR **15 764 → 8 542 → 6 211** over 200
+    iterations, still falling, against ~66 000 and motionless at 4 sweeps. Still 23× the
+    absorbed flux, so nothing is settled — and the earlier reading of this run, *"58× the
+    absorbed flux, the column is too transparent"*, was a snapshot of a decaying quantity.
+    **That is the trap item 25 exists to warn about, walked into twice in one day**: first
+    predicting the hot branch was physical, then over-correcting to "it converges to the
+    prescribed values" on a monotone trend that had not converged. The rule earns restating —
+    *a monotone trend is not a limit* — and it applies to the 6 211 above as much as to
+    anything else here.
+
+31. **Earth's cell latitudes are wrong for a 5.5-hour day, and about a third of the item-28
+    decay was the model rejecting them (done).**
+
+    `VelocityInitializer` prescribes Hadley at 15°, Ferrel at 45°, polar at 75° — Earth's
+    latitudes, which follow from Earth's thermal Rossby number. This atmosphere's is 12.5×
+    smaller:
+
+    | | scale height | Δθ/θ | Ω | Ro_T | Held–Hou edge |
+    |---|---|---|---|---|---|
+    | Earth | 8.4 km | 45/288 = 0.156 | 7.29e-5 | 0.0598 | 18.1° |
+    | ATHAD | 59.3 km | 50/1500 = **0.033** | 3.17e-4 | **0.0048** | **5.1°** |
+
+    Rotation is 4.35× faster (Ω² 18.9×) and the **fractional** contrast 4.7× weaker, only
+    partly offset by a 7× deeper atmosphere. **A hot surface is not a strongly
+    *differentially* heated one** — which is why the higher energy content narrows the
+    circulation instead of widening it, the giant-planet direction rather than the Venus one.
+    The Rhines scale agrees: ~2450 km against Earth's ~3490, so ~8 bands pole-to-pole
+    against ~6.
+
+    Four 200-iteration runs, mode 2 balance, moist physics from iteration 0, `ATM_CELL_LAT_SCALE`:
+
+    | scale | Hadley anchor | Ψ @20 | Ψ @200 | decay |
+    |---|---|---|---|---|
+    | 1.00 | 15° (Earth) | 156 059 | 138 530 | **−11.2 %** |
+    | 0.75 | 11° | 148 752 | 134 937 | −9.3 % |
+    | 0.50 | 7° | 132 100 | 122 337 | −7.4 % |
+    | 0.33 | 5° | 106 309 | 98 519 | **−7.3 %** |
+
+    The decay falls monotonically as the cell moves to where the regime wants it and
+    **saturates between 7° and 5°, where Held–Hou puts the edge**. So about a third of item
+    28's decay was the imposed width, and the remaining ~7.3 % is the residual meridional
+    force — consistent with mode 2 removing 61 % of it. Two separate causes, now separated.
+
+    **The Ferrel and polar anchors are a different matter and are not transferable at all.**
+    Earth's Ferrel cell is thermally indirect and eddy-driven; this flow is **axisymmetric to
+    2 %** (measured: `u` varies 2.3 % across all 361 longitudes) and the column is neutrally
+    stratified by construction (`cosmo_lapse_fraction = 1.0`, so N² ≈ 0), so there are no
+    baroclinic eddies to drive one. Those two cells have no maintenance mechanism in **any**
+    eon in this model, which is a model property rather than a Hadean one and should not be
+    confused with the regime argument above.
+
+    The 50 K contrast is **prescribed**, so this rests on an input — but robustly: recovering
+    Earth's `Ro_T` at this rotation rate would need ΔT ≈ 630 K, and even 200 K still lands
+    at ~10°.
+
 ## Remaining work
 
 
@@ -2059,14 +2173,29 @@ the measurement.
   mass sink remains**. The untested case is a run past `moist_phys_start_iter = 300`, where
   sedimentation runs for the first time; if the count comes back, measure *where* before
   proposing *why*, which is the one thing the two refuted mechanisms have in common.
-- **The tropical cell decays 11.2 % over 200 iterations even when the balance is right**
-  (item 28), and that is now the open question about the circulation. The decay rate is
-  proportional to the unbalanced θ-force: mode 2 removes 61 % of the force and 61 % of the
-  decay. Removing the rest without reintroducing a radial gradient needs the rotational part
-  balanced by buoyancy — a thermal-wind temperature perturbation — which `buoyancy_ramp` = 0
-  at iteration 0 and `densities()`'s overwrite of `t` both block. **Same task as the
-  prescribed profile above**, approached from the dynamics instead of the radiation.
-  `ATOM_METRIC_CURVATURE` was tested as the alternative and changes nothing (0.02–0.4 %).
+- **The tropical cell decays even when the balance is right** (item 28), and item 31 split
+  that decay in two: about a third was Earth's imposed cell latitude, and the rest tracks the
+  unbalanced θ-force, of which mode 2 removes 61 %. At the regime's own latitude the decay
+  is −7.3 % over 200 iterations and no longer improves with narrowing. Removing the residual
+  force needs the rotational part balanced by buoyancy — a thermal-wind temperature
+  perturbation — which `buoyancy_ramp` = 0 at iteration 0 and `densities()`'s overwrite of
+  `t` both block. **Same task as the prescribed profile above.** `ATOM_METRIC_CURVATURE` was
+  tested as the alternative and changes nothing (0.02–0.4 %).
+- **`ATM_CELL_LAT_SCALE` should probably become a config parameter, not an environment knob**
+  (item 31), and its default is still Earth's 1.0. The regime says ~0.33; the measurement
+  says the decay saturates there. Flipping it is a defensible default change that has been
+  measured over one 200-iteration set.
+- **`ATM_RAD_DIRECT` is written, exact and 10× cheaper than the wrong default, and is still
+  off** (item 30). The case for flipping: it changes the standard configuration by 0.15 %,
+  it is a closed-form solution rather than an under-iterated one, and it costs less. The case
+  against: one 200-iteration measurement. `ATM_N_LAMBDA` exists to reproduce the old
+  behaviour and to show what it was worth.
+- **The prognostic column is relaxing, and where it lands is unknown** (item 30). With the
+  converged solver its OLR falls 15 764 → 8 542 → 6 211 over 200 iterations and is still
+  falling, against ~66 000 and motionless with 4 sweeps. **Do not quote 6 211 as a converged
+  number** — a monotone trend is not a limit, which this file has now been caught on twice.
+  A long prognostic run with the direct solver is the single most informative thing to do
+  next, and unlike the κ scan it has a real chance of changing invariant 3.
 - **The tropical return branch erodes fastest with the balance on**: −11 413 → −5 946
   (−48 %) against mode 1's −27 % and the control's −18 %. Item 27 first saw this and the
   two-component balance slightly worsens it. Unexplained.
