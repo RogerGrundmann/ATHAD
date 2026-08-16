@@ -21,10 +21,13 @@ python/pyathad.h
 # python/pyathad.pyx, cli+python/config_athad.xml) are deliberately TRACKED, as in the
 # parent repo — a param.py change then shows its full effect in the diff.
 
-# Simulation output data
-output_Hadean*/
-python/output_Hadean*/
-cli/output_Hadean*/
+# Simulation output data. The pattern is output_*/ rather than output_Hadean*/
+# because an experiment directory named anything else (output_amp100_m1/ and the
+# like) then sits untracked-but-not-ignored and shows up in every git status.
+# Nothing tracked lives inside an output directory, so the wider pattern is safe.
+output_*/
+python/output_*/
+cli/output_*/
 atm_log.txt
 atom_log.txt
 
