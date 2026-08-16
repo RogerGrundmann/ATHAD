@@ -33,13 +33,13 @@ public:
              << endl;
 
         // u-component up to tropopause and back on half distance
-        init_u(m.u, js(0));
-        init_u(m.u, js(30));
-        init_u(m.u, js(60));
-        init_u(m.u, js(90));
-        init_u(m.u, js(120));
-        init_u(m.u, js(150));
-        init_u(m.u, js(180));
+        init_u(m.u, 0);
+        init_u(m.u, 30);
+        init_u(m.u, 60);
+        init_u(m.u, 90);
+        init_u(m.u, 120);
+        init_u(m.u, 150);
+        init_u(m.u, 180);
 
         // initialise v: tropopause and surface values per latitude
         // equator
@@ -270,7 +270,18 @@ private:
         return (int)std::lround(jeq + (double)(j - jeq) * latScale());
     }
 
-    void init_u(Array& u, int j)
+    // j_earth is the UNSCALED anchor index — the case labels below are Earth's grid
+    // indices, so the lookup has to happen before js() moves the anchor. Passing the
+    // scaled index in (as compute() used to) makes the switch miss: at
+    // cell_lat_scale = 0.33 the anchors land on 60/70/80/90/100/110/120, of which only
+    // 90 is a real case, 60 and 120 pick up a NEIGHBOUR's coefficient (the poles got
+    // +ua_60 instead of -ua_90 — sign flipped and 1.5x too large) and the other four
+    // fall through `default: return` and are silently never written. At 0.75 six of the
+    // seven miss. form_diagonals then interpolates across anchors that were never set.
+    //
+    // The write location and the tropopause layer must still use the SCALED index,
+    // which is the whole point of the knob: same coefficient, moved in latitude.
+    void init_u(Array& u, int j_earth)
     {
         const double ua_00  = 0.02894;
         const double ua_30  = 0.02315;
@@ -278,7 +289,7 @@ private:
         const double ua_90  = 0.011574;
 
         double coeff;
-        switch (j) {
+        switch (j_earth) {
             case  90: coeff =  ua_00; break;
             case  60: coeff = -ua_30; break;
             case 120: coeff = -ua_30; break;
@@ -289,6 +300,7 @@ private:
             default:  return;
         }
 
+        const int    j            = js(j_earth);
         const int    tl           = m.get_tropopause_layer(j);
         const double tropo_h      = m.get_layer_height(tl);
         const double half_tropo_h = tropo_h / 3.0;
