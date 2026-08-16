@@ -2173,6 +2173,161 @@ the measurement.
     measurement cannot separate 0.33 from 0.50; the Held–Hou estimate is what chooses. Every
     number in this file measured before this item used 1.0.
 
+
+33. **Scaling the cell latitudes without the amplitudes tripled the shear; a mode now
+    scales both (done, default off).**
+
+    Item 32 moved the anchors and nothing else, so the same velocity change was
+    interpolated across a third of the latitude span and every meridional gradient in the
+    initial state was 1/s times Earth's — 3× at the 0.33 default. `cell_amp_mode`:
+
+    | mode | v × | w × | rationale |
+    |---|---|---|---|
+    | 0 | 1 | 1 | off — what item 32 committed |
+    | 1 | s | s | continuity: preserves every prescribed gradient |
+    | 2 | s | s² | continuity + angular momentum for the jet |
+
+    Mode 2's s² is the small-angle form of the angular-momentum jet ratio
+    `sin²φ/cos φ`; exact at s = 0.33 is 0.110 against s² = 0.109. The RADIAL amplitudes
+    never scale in any mode, because continuity makes `du_r/dz` invariant when v and the
+    latitude scale shrink together.
+
+    Three 100-iteration runs, mode 2 balance, moist physics from iteration 0, measured on
+    the *untiled* layout — see item 36, which invalidates the absolute numbers but not the
+    comparison between modes:
+
+    | mode | Ψ@20 | Ψ@100 | decay | max w | mean KE |
+    |---|---|---|---|---|---|
+    | 0 | 106 309 | 102 800 | −3.30 % | 22.60 | 19.50 |
+    | 1 | 34 824 | 33 666 | −3.33 % | 7.456 | 2.124 |
+    | 2 | 34 982 | 34 504 | **−1.37 %** | 2.459 | 0.244 |
+
+    **The decay is scale-invariant but ratio-sensitive, and that isolates its cause.**
+    Modes 0 and 1 differ by 3× in *every* amplitude and decay identically. Modes 1 and 2
+    share v and Ψ and differ only in the jet — and the decay halves. Since w/v goes
+    8.29 → 8.29 → 2.92, the residual tropical-cell decay tracks the prescribed **zonal
+    jet**, not the overturning or the overall scale. That is a handle on item 28's open
+    question and points where the README already suspects: an unopposed Coriolis torque,
+    which a weaker jet exerts less of.
+
+    Default stays 0. One run, and mode 2's absolute winds (max zonal 2.46 m/s) are far
+    below the model's own emergent scale.
+
+34. **`u_0` = 8 m/s is Earth's mean surface wind, and it cannot be calibrated in this
+    configuration.**
+
+    `u_0` non-dimensionalises the whole momentum equation. Term by term most of it is
+    genuinely invariant — Coriolis `omega*L/u_0`, drag, eddy viscosity and Held-Suarez all
+    scale so that the ratio to advection is fixed. **Buoyancy is the exception**: coded as
+    `g*dt/u_0` where the advective-time-consistent form is `g*L/u_0²`, and its own comment
+    admits it is "the calibrated, STABLE reference" rather than a derived one. `u_0` also
+    sets the clock: physical time per iteration is `dt*L_atm/u_0` and `dt` is a constant
+    independent of `u_0` (`cAtmosphereModel.cpp:1127`).
+
+    Predicted therefore that `u16@100 ≈ u8@50`. **The two diagnostics disagree:**
+
+    | | u_0 = 8 | u_0 = 16 | ratio | clock predicts |
+    |---|---|---|---|---|
+    | Ψ decay over 100 iter | −3.30 % | −1.83 % | **1.80** | 2.0 ✅ |
+    | KE decay over 100 iter | −14.56 % | −14.20 % | **1.03** | 2.0 ❌ |
+
+    The circulation behaves like a clock in `u_0`; the kinetic energy does not. Mean T is
+    identical to six figures across every run, which is what `densities()` re-imposing the
+    adiabat each iteration would produce — so the energetics do not experience elapsed
+    time at all. **`u_0` cannot be calibrated from a prescribed-profile run**, which puts
+    it behind the same blocker as items 25, 29 and 30. Not changed, and on present
+    evidence should not be until `ATM_PROGNOSTIC_T` works.
+
+    Chasing the buoyancy coefficient turned up a defect of item 30's shape. RK4 multiplies
+    every RHS by `dt`. The Held-Suarez block carries an explicit note that its extra `*dt`
+    was removed because "the extra `*dt` made HS enter as dt² = ~1e-4 too weak -> inert".
+    **The buoyancy term (`RHS_Atm_Turb.cpp:1002`) and the Rayleigh drag (`:1019`) still
+    carry it.** Both enter as dt², everything else as dt¹; for buoyancy that is a factor
+    `L/(u_0*dt)` ≈ 2e7 below the consistent coefficient. Two caveats before this is called
+    a one-line fix: the same comment records that a merely 336× larger coefficient "drove
+    a polar vertical runaway", so the solver has already failed to carry a value four
+    orders of magnitude short of consistent — that points at the Boussinesq open risk. And
+    it makes both terms dt-dependent, so item 24's `dt_visc` 4e-5 → 1e-4 silently changed
+    the effective buoyancy and drag by 6.25×.
+
+35. **Earth's grid indices as `switch` labels: four of seven radial anchors were silently
+    dropped at any scale ≠ 1 (fixed).**
+
+    `compute()` passed `init_u` the SCALED index; `init_u` dispatched on `switch (j)` with
+    Earth's UNSCALED indices as case labels. At `cell_lat_scale` = 1.0 they coincide, which
+    is why this was invisible until item 32 flipped the default.
+
+    `js()` clamps on its input, so `js(0)` and `js(jm-1)` return the poles unscaled: the
+    poles and the equator always hit their case correctly. The **same four** anchors were
+    dropped at every s < 1 — ±30° and ±60°, the ascent/descent branches at the
+    Hadley/Ferrel and Ferrel/polar boundaries. `form_diagonals` then interpolated across
+    anchors that had never been written. Ψ@20 moves 106 308.91 → 106 012.76 (−0.28 %) when
+    fixed, so every item-31 row except `s = 1.00` shifts by about that.
+
+    The anchors are now generated from `n_cells_hemisphere` rather than written as ~30
+    latitude literals plus 24 hand-written `form_diagonals` calls, and the amplitudes are
+    expressed by role. Verified bit-identical at n = 3.
+
+    Two process notes, because the second is the interesting one. The commit message for
+    the fix (`eaf6e8d`) states the poles were sign-flipped; they were not, for the `js()`
+    clamping reason above. **The same oversight then produced the same bug in the fix**:
+    `jN` initially inlined `round(90 - phi*s)`, moving the pole anchor to 30°N and leaving
+    everything poleward unfilled. The tell was a 2e-7 residual in Ψ that had no business
+    existing, on a change proved equivalent by enumeration. *An equivalence argument is
+    not a check* — the same lesson as "a cross-reference is not a check".
+
+36. **The cells did not tile the hemisphere, and item 31's scan was measured on a layout
+    where narrowing meant deleting (fixed).**
+
+    `cell_lat_scale` compressed every anchor and let `js()` pin the pole. At s = 0.33 that
+    gives edges 0/10/20/90 — cells **10, 10 and 70 degrees wide**, with the entire
+    extratropics a single linear ramp. Raising n made it worse: n = 4 packed four narrow
+    cells into 0–22° and left a 68° cell whose prescribed core sat at 26°.
+
+    **This was the committed behaviour from item 31 onward**, so item 31's four-run scan
+    compared configurations that differed in more than cell width: narrowing mostly
+    *removed* the outer cells. The Ψ_max figures stand — that peak is at 5°, inside the
+    resolved part — but "the decay saturates at 0.33" was concluded from it.
+
+    Held-Hou constrains the direct cell's edge and says nothing about the extratropical
+    bands, which the Rhines scale sets independently. So s now scales the Hadley edge only
+    and the remaining band is tiled by the other n-1 cells. This is the first layout on
+    which the two estimates agree — extratropical bands 27° at n = 4 and **20° at n = 5**,
+    against the Rhines ~22°:
+
+    | n | s | edges | widths |
+    |---|---|---|---|
+    | 3 | 1.00 | 0/30/60/90 | 30/30/30 — **Earth exactly** |
+    | 3 | 0.33 | 0/10/50/90 | 10/40/40 |
+    | 5 | 0.33 | 0/10/30/50/70/90 | 10/20/20/20/20 |
+
+    The residual 2:1 between Hadley and band is regime physics, not a tuning artefact: the
+    Held-Hou edge goes as 1/Ω and the Rhines band only as 1/√Ω, so fast rotation separates
+    two scales that nearly coincide on Earth (30° against 31°) — which is why Earth's
+    three cells look uniform and this atmosphere's cannot.
+
+    **Two 100-iteration runs, n = 3 against n = 5** (`cell_lat_scale` 0.33, moist physics
+    from iteration 0). Every prescribed core is a Ψ maximum and every interior edge a Ψ
+    minimum, so the structure is laid down as intended.
+
+    - **Cell count does not reach the tropical cell.** Decay 20 → 100 is −3.48 % at n = 3
+      against −3.41 % at n = 5. The Hadley edge is 10° either way.
+    - **The extratropical cells GROW rather than decay** — +11 to +25 % at the mid-latitude
+      cores over 20 → 100 while the tropical cell loses 3.5 %. This was predicted to go the
+      other way, on the grounds that nothing maintains an indirect cell here.
+    - **n = 5 keeps its boundaries; n = 3 does not.** Core-to-edge contrast at n = 3's single
+      interior edge falls 24:1 → 10:1 as the two 40° cells merge, while n = 5 *deepens* two
+      of its three interior boundaries (4.2:1 → 5.3:1 and 4.5:1 → 6.4:1).
+
+    **Mean KE is 38–40 here against 19.50 on the untiled layout.** Restoring the
+    extratropics roughly doubled the model's kinetic energy, so every KE figure measured
+    before this item — item 34's `u_0` comparison included — was made with half the
+    circulation missing.
+
+    n = 5 is now better supported than n = 3 on three independent grounds, but the default
+    is unchanged at 3: 100 iterations is a trend, and the extratropical growth is exactly
+    the kind of monotone trend this file has twice been caught extrapolating.
+
 ## Remaining work
 
 
@@ -2219,12 +2374,29 @@ the measurement.
   `t` both block. **Same task as the prescribed profile above.** `ATOM_METRIC_CURVATURE` was
   tested as the alternative and changes nothing (0.02–0.4 %).
 - **`cell_lat_scale` is now a config parameter and its default is 0.33, not Earth's 1.0**
-  (item 32). The regime argument (Held–Hou at this rotation rate) and the measurement (the
-  decay saturates below 0.50) agree, but note what each is worth: the Ro_T derivation picks
-  the value, and the measurement only corroborates it — −7.4 % at 0.50 against −7.3 % at 0.33
-  does not discriminate between them. **The default change rests on one 200-iteration set**,
-  and every result in this file from before item 32 was measured at 1.0. Set
+  (item 32), and it now scales the **Hadley edge only** (item 36). The Ro_T derivation picks
+  the value; item 31's measurement corroborated it but cannot discriminate 0.33 from 0.50,
+  and item 36 showed that scan ran on a layout where narrowing the cells mostly *deleted*
+  the outer ones. Every result in this file from before item 32 was measured at 1.0; set
   `<cell_lat_scale>1.0</cell_lat_scale>` to reproduce them.
+- **`n_cells_hemisphere` defaults to 3 and the evidence now favours 5** (item 36). n = 5 is
+  the only layout whose extratropical bands match the Rhines scale (20° against ~22°), and
+  the only one whose interior boundaries the model *deepens* rather than erodes. It is not
+  the default because the supporting run is 100 iterations, which is a trend.
+- **Every kinetic-energy figure measured before item 36 was taken with half the circulation
+  missing.** Mean KE is 38–40 on the tiled layout against 19.50 on the untiled one. Item 34's
+  `u_0` comparison is affected; item 33's mode comparison is internally consistent but its
+  absolute numbers are not.
+- **`cell_amp_mode` is written and default-off** (item 33). The tropical-cell decay tracks
+  the prescribed **zonal jet**, not the overturning: modes 0 and 1 differ 3× in every
+  amplitude and decay identically, while mode 2 changes only the jet and halves the decay.
+  That is the first handle on item 28's residual force.
+- **The buoyancy body force and the Rayleigh drag still carry an extra `*dt`** (item 34), so
+  both enter as dt² where everything else is dt¹ — the exact defect the Held–Suarez block
+  above them documents having fixed. For buoyancy that is ~2e7 below the consistent
+  coefficient, and it makes both terms `dt_visc`-dependent, so item 24's timestep change
+  silently moved them by 6.25×. Not a one-line fix: a merely 336× larger coefficient is
+  recorded as having driven a polar vertical runaway.
 - **`ATM_RAD_DIRECT` is written, exact and 10× cheaper than the wrong default, and is still
   off** (item 30). The case for flipping: it changes the standard configuration by 0.15 %,
   it is a closed-form solution rather than an under-iterated one, and it costs less. The case
