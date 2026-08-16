@@ -62,7 +62,7 @@
         <tropopause_equator>207000.0</tropopause_equator>  <!-- ATHAD: top of the convective column at the equator in m(double) -->
         <cell_lat_scale>0.33</cell_lat_scale>  <!-- ATHAD: prescribed circulation-cell latitudes as a fraction of Earth's; 0.33 = Held-Hou edge for this rotation rate, 1.0 = Earth(double) -->
         <cell_amp_mode>0</cell_amp_mode>  <!-- ATHAD: scale the prescribed velocity amplitudes with cell_lat_scale; 0 = off (amplitudes unscaled), 1 = v,w by s (continuity), 2 = v by s and w by s^2 (angular momentum)(int) -->
-        <n_cells_hemisphere>3</n_cells_hemisphere>  <!-- ATHAD: prescribed circulation cells per hemisphere; 3 = Earth (Hadley/Ferrel/polar), ~4 is what this rotation rate implies(int) -->
+        <n_cells_hemisphere>5</n_cells_hemisphere>  <!-- ATHAD: prescribed circulation cells per hemisphere; 5 = this rotation rate (Rhines ~22 deg bands), 3 = Earth (Hadley/Ferrel/polar)(int) -->
         <albedo_surface>0.08</albedo_surface>  <!-- ATHAD: clear-sky albedo of the molten silicate surface(double) -->
         <albedo_cloud>0.5</albedo_cloud>  <!-- ATHAD: shortwave albedo of an optically thick cloud top(double) -->
         <epsilon_equator>0.48</epsilon_equator>  <!-- emissivity and absorptivity caused by other gases than water vapour/(by Häckel)(double) -->

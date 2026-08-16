@@ -478,13 +478,36 @@ def main():
             # scale shrinks, rather than at the pole. At n = 3 that is Hadley/Ferrel/polar
             # unchanged.
             #
-            # CAVEAT, and it is the same one item 31 raised about the Ferrel and polar
-            # anchors: this flow is axisymmetric to 2 % and neutrally stratified by
-            # construction, so there are no baroclinic eddies to maintain ANY indirect
-            # cell. A fourth prescribed cell will decay like the other two. Raising n
-            # tests whether the initial structure matters, not whether the model can
-            # sustain four cells.
-            ('n_cells_hemisphere', 'ATHAD: prescribed circulation cells per hemisphere; 3 = Earth (Hadley/Ferrel/polar), ~4 is what this rotation rate implies', 'int', 3),
+            # DEFAULT 5, changed from Earth's 3 after items 36-37. Three independent
+            # arguments, none of them a converged measurement:
+            #
+            #   1. Band width. With the Hadley edge at 30*s = 9.9 deg, tiling the rest of
+            #      the hemisphere gives extratropical cells of 40 deg at n = 3, 27 at
+            #      n = 4 and 20 at n = 5, against the Rhines scale's ~22. Only n = 5
+            #      matches, and it is the same layout the hemisphere-integrated band count
+            #      N = a*int sqrt(cos phi) dphi / L_beta(0) points at once the narrow
+            #      direct cell is counted separately (~1 + 4 rather than a uniform ~3.7).
+            #   2. Geometry. At n = 3 and s = 0.33 the two extratropical cells are 40 deg
+            #      wide -- wider than Earth's 30 -- so compressing the tropics visibly
+            #      stretches everything else. n = 5 divides the extratropics evenly.
+            #   3. Core position, and this is the only one that is not a rate. At 400
+            #      iterations n = 5's Psi maxima still sit exactly on its prescribed cores
+            #      at 20/40/60 deg, while n = 3's 30 deg core is no longer a peak at all,
+            #      the maximum having migrated equatorward past 20. The model keeps the
+            #      layout n = 5 gives it and rearranges the one n = 3 gives it.
+            #
+            # WHAT THE DEFAULT DOES NOT REST ON. Item 36 also reported that n = 5 deepens
+            # its interior boundaries; item 37 withdrew that, because by 400 iterations
+            # every boundary in both layouts erodes to the same ~3:1 contrast. And the
+            # tropical cell does not care about n at all -- Psi_max decays -16.7 % at n = 3
+            # against -16.2 % at n = 5 over 20->400, converging to within 0.35 %.
+            #
+            # CAVEAT, the same one item 31 raised about the Ferrel and polar anchors: this
+            # flow is axisymmetric to 2 % and neutrally stratified by construction, so there
+            # are no baroclinic eddies to maintain any indirect cell. n sets the structure
+            # the model is handed, not a structure it can generate. Set 3 to recover Earth's
+            # layout, which is what everything before item 37 was measured on.
+            ('n_cells_hemisphere', 'ATHAD: prescribed circulation cells per hemisphere; 5 = this rotation rate (Rhines ~22 deg bands), 3 = Earth (Hadley/Ferrel/polar)', 'int', 5),
 
 
             # ATHAD albedo. These replace the inherited albedo_pole/albedo_equator, which

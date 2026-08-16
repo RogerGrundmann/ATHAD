@@ -127,7 +127,7 @@ the outputs predictions. These are inputs, in rough order of how much they move 
 | insolation | 0.71 S₀ | Faint young Sun at 4.4 Ga |
 | `omega` | 3.17e-4 (5.5 h day) | Estimates range 4–6 h |
 | `cell_lat_scale` | 0.33, scaling the **Hadley edge only** | Config parameter since item 32; **default was Earth's 1.0 for everything measured before it**. Held–Hou puts the edge at 5.1° because Ro_T is 12.5× Earth's. Item 36: scaling every anchor left cells 10/40/40° wide with the extratropics a bare ramp, so item 31's scan compared layouts that differed in more than width |
-| `n_cells_hemisphere` | 3 (Earth); evidence favours **5** | Item 36. Rhines gives ~4–5 bands; at n = 5 the extratropical cells are 20° against the Rhines 22°, and the model deepens its interior boundaries instead of eroding them. Default unchanged pending a run longer than 100 iterations |
+| `n_cells_hemisphere` | **5** (Earth is 3) | Default since item 38; **everything measured before it used 3**. Three unconverged arguments: 20° bands against the Rhines ~22°, no 40°-wide-cell artefact, and Ψ maxima still on their prescribed cores at 400 iterations where n = 3's migrate off. Not a claim the model *sustains* five cells — nothing maintains an indirect cell here |
 | `cell_amp_mode` | 0 (off) | Item 33. Scaling latitudes without amplitudes multiplies the initial meridional shear by 1/s. The decay tracks the **zonal jet**, not the overturning |
 | `cosmo_lapse_fraction` | 1.0 (dry adiabat) | Justified: nothing condenses in the deep column |
 

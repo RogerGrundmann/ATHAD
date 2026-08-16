@@ -2395,6 +2395,37 @@ the measurement.
     grounds now (Rhines band width, the geometric artefact, and core position), none of
     which is a converged measurement.
 
+38. **`n_cells_hemisphere` defaults to 5 (done).**
+
+    Items 36–37 built the case; this changes the default from Earth's 3. The committed
+    configuration now lays down
+
+    ```
+    n_cells_hemisphere = 5, cell_lat_scale = 0.330
+    cell edges at 0 / 10 / 30 / 50 / 70 / 90 deg N; cores at 5 / 20 / 40 / 60 / 80 deg;
+    widths 10 / 20 / 20 / 20 / 20 deg
+    ```
+
+    — a 10° direct cell at the Held–Hou edge plus four 20° extratropical bands against the
+    Rhines scale's ~22°, which is the first layout in this model on which the two
+    independent estimates agree.
+
+    **What the default rests on, and what it does not.** Three arguments, none converged:
+    band width, the removal of the 40°-wide-cell artefact, and — the only one that is not a
+    rate — n = 5's Ψ maxima sitting exactly on its prescribed cores at 400 iterations while
+    n = 3's migrate off theirs. It does **not** rest on item 36's interior-boundary claim,
+    withdrawn by item 37. And it changes nothing about the tropical cell, which decays
+    −16.2 % at n = 5 against −16.7 % at n = 3 and does not respond to cell count at any run
+    length tested.
+
+    **This is a structural default, not a claim that the model sustains five cells.** The
+    caveat item 31 raised about the Ferrel and polar anchors applies to all four
+    extratropical cells: the flow is axisymmetric to 2 % and neutrally stratified by
+    construction, so no baroclinic eddies exist to maintain an indirect cell. n sets the
+    structure the model is handed. Everything in this file measured before item 38 used
+    n = 3.
+
+
 ## Remaining work
 
 
@@ -2446,13 +2477,13 @@ the measurement.
   and item 36 showed that scan ran on a layout where narrowing the cells mostly *deleted*
   the outer ones. Every result in this file from before item 32 was measured at 1.0; set
   `<cell_lat_scale>1.0</cell_lat_scale>` to reproduce them.
-- **`n_cells_hemisphere` defaults to 3 and the evidence favours 5** (items 36–37), on three
-  grounds: the extratropical bands match the Rhines scale (20° against ~22°), the geometric
-  artefact is gone, and at 400 iterations n = 5's Ψ maxima still sit exactly on its
-  prescribed cores while n = 3's migrate equatorward off theirs. **The interior-boundary
-  argument of item 36 is withdrawn** — it reversed by 400, where every boundary in both
-  layouts erodes to the same ~3:1 contrast. Default unchanged because none of the three is a
-  converged measurement.
+- **`n_cells_hemisphere` now defaults to 5, not Earth's 3** (item 38), on three grounds from
+  items 36–37: the extratropical bands match the Rhines scale (20° against ~22°), the
+  geometric artefact of the 40°-wide cells is gone, and at 400 iterations n = 5's Ψ maxima
+  still sit exactly on its prescribed cores while n = 3's migrate equatorward off theirs.
+  **None of the three is a converged measurement**, and the interior-boundary argument of
+  item 36 is withdrawn outright — it reversed by 400. Everything measured before item 38 used
+  3; set `<n_cells_hemisphere>3</n_cells_hemisphere>` to reproduce it.
 - **The tropical cell decays linearly to 400 iterations with no turnover** (item 37),
   −16.7 % at n = 3 and −16.2 % at n = 5, converging to within 0.35 %. Cell count does not
   reach the Hadley cell at any run length tested.
