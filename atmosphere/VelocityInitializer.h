@@ -146,28 +146,56 @@ private:
     // the circulation instead of widening it.
     //
     // Set 1.0 to restore Earth's latitudes, which is what every run before README item 31
-    // used. The poles are fixed points of the map, so the interpolation still spans the
-    // full [0, jm-1]. The measured cell decay and the derivation are in param.py.
+    // used. s now scales the HADLEY EDGE ONLY — see edgeLat below for why scaling every
+    // anchor uniformly does not tile the hemisphere. The measured cell decay and the
+    // derivation are in param.py.
     double latScale() const { return m.cell_lat_scale; }
 
     // ---- cell geometry ------------------------------------------------------
     // n cells per hemisphere. Cell k (k = 0 at the equator) runs from edge k to
-    // edge k+1 with its core at centre k:
+    // edge k+1 with its core at the midpoint of the two.
     //
-    //     edges   phi_e(k) = 90*k/n        k = 0..n
-    //     centres phi_c(k) = 90*(k+0.5)/n  k = 0..n-1
+    // THE CELLS MUST TILE THE HEMISPHERE. Scaling every anchor by s and letting js()
+    // pin the pole does not: at s = 0.33 it gives edges 0/10/20/90, so the three cells
+    // are 10, 10 and *70* degrees wide and the whole extratropics is one linear ramp
+    // between the 20 deg anchor and the pole. Adding cells made it worse, not better --
+    // n = 4 packed four narrow cells into 0-22 deg and left a 68 deg cell behind. That
+    // was the committed behaviour from item 31 onward, and it is why item 31's scan
+    // measured a tropical cell against an extratropics that had been deleted rather
+    // than narrowed.
     //
-    // n = 3 gives 0/30/60/90 and 15/45/75 — the inherited Earth anchors exactly.
+    // Held-Hou constrains the DIRECT cell's edge and says nothing about the
+    // extratropical bands, which the Rhines scale sets independently. So s scales the
+    // Hadley edge only, and the remaining band is tiled by the other n-1 cells:
     //
-    // jN goes THROUGH js() rather than inlining round(90 - phi*s), because js clamps on
-    // its input: js(0) and js(jm-1) return the poles unscaled. The poles are fixed points
-    // of the map, so the prescribed structure still spans the full hemisphere however hard
-    // the cells are compressed. Inlining the scaling instead moves the pole anchor inward
-    // (to 30 deg N at s = 0.33) and leaves everything poleward of it unfilled.
+    //     edge(0) = 0
+    //     edge(1) = 30 * s                                    <- Earth's Hadley edge, scaled
+    //     edge(k) = edge(1) + (90 - edge(1))*(k-1)/(n-1)
+    //     core(k) = midpoint of edge(k), edge(k+1)
+    //
+    // At s = 1, n = 3 this is 0/30/60/90 with cores 15/45/75 -- Earth exactly, midpoints
+    // and all. At s = 0.33 the extratropical bands come out 26.7 deg wide at n = 4 and
+    // 20 deg at n = 5, against the Rhines scale's ~22 deg, which is the first time the
+    // Held-Hou and Rhines estimates have agreed on a layout.
+    //
+    // jN must NOT go through js() any more: the scaling is already in edgeLat, and js
+    // would apply it a second time. The pole needs no pinning either, because edge(n) is
+    // exactly 90 by construction.
     int    nCells()          const { return m.n_cells_hemisphere; }
-    double edgeLat(int k)    const { return 90.0 * k / (double)nCells(); }
-    double centreLat(int k)  const { return 90.0 * (k + 0.5) / (double)nCells(); }
-    int    jN(double phi)    const { return js((int)std::lround(90.0 - phi)); }
+    double hadleyEdge()      const { return 30.0 * latScale(); }
+    double edgeLat(int k)    const {
+        if(k <= 0)         return 0.0;
+        if(nCells() <= 1)  return 90.0;
+        const double h = hadleyEdge();
+        return h + (90.0 - h) * (double)(k - 1) / (double)(nCells() - 1);
+    }
+    double centreLat(int k)  const { return 0.5 * (edgeLat(k) + edgeLat(k + 1)); }
+    int    jN(double phi)    const {
+        int j = (int)std::lround(90.0 - phi);
+        if(j < 0)          j = 0;
+        if(j > m.jm - 1)   j = m.jm - 1;
+        return j;
+    }
     int    jS(double phi)    const { return (m.jm - 1) - jN(phi); }
 
     // ---- prescribed amplitudes ----------------------------------------------
@@ -255,12 +283,15 @@ private:
         const int n = nCells();
         cout << "      n_cells_hemisphere = " << n << ", cell_lat_scale = " << latScale()
              << (n == 3 && latScale() == 1.0 ? "   <- Earth's 3-cell layout" : "") << endl;
-        cout << "      cell cores at ";
-        for(int k = 0; k < n; k++)
-            cout << (90 - jN(centreLat(k))) << (k + 1 < n ? " / " : "");
-        cout << " deg N; edges at ";
+        cout << "      cell edges at ";
         for(int k = 0; k <= n; k++)
             cout << (90 - jN(edgeLat(k))) << (k < n ? " / " : "");
+        cout << " deg N; cores at ";
+        for(int k = 0; k < n; k++)
+            cout << (90 - jN(centreLat(k))) << (k + 1 < n ? " / " : "");
+        cout << " deg; widths ";
+        for(int k = 0; k < n; k++)
+            cout << (jN(edgeLat(k)) - jN(edgeLat(k + 1))) << (k + 1 < n ? " / " : "");
         cout << " deg" << endl;
         cout << "      cell_amp_mode  = " << m.cell_amp_mode << ": v x " << ampScale(m.v)
              << ", w x " << ampScale(m.w) << ", radial x 1 (continuity)"
