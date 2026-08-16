@@ -22,10 +22,10 @@ public:
     {
         using namespace std;
         cout << endl << "      AGCM: init_velocities" << endl;
-        if(latScale() != 1.0)
-            cout << "      cell latitudes scaled by " << latScale()
-                 << ": Hadley anchor at " << (90 - js(75)) << " deg, Ferrel at "
-                 << (90 - js(45)) << " deg, polar at " << (90 - js(15)) << " deg" << endl;
+        cout << "      cell_lat_scale = " << latScale()
+             << ": Hadley anchor at " << (90 - js(75)) << " deg, Ferrel at "
+             << (90 - js(45)) << " deg, polar at " << (90 - js(15)) << " deg"
+             << (latScale() == 1.0 ? "   <- Earth's latitudes" : "") << endl;
 
         // u-component up to tropopause and back on half distance
         init_u(m.u, js(0));
@@ -222,28 +222,23 @@ private:
     cAtmosphereModel& m;
 
 
-    // ATM_CELL_LAT_SCALE — compress the prescribed cell latitudes toward the equator.
+    // cell_lat_scale — compress the prescribed cell latitudes toward the equator.
     //
-    // Every anchor below sits at an EARTH latitude: Hadley 15 deg, Ferrel 45, polar 75,
-    // with the trade/westerly nodes between them. Those latitudes are a consequence of
+    // Every anchor below is written at an EARTH latitude: Hadley 15 deg, Ferrel 45, polar
+    // 75, with the trade/westerly nodes between them. Those latitudes are a consequence of
     // Earth's thermal Rossby number, and this atmosphere's is 12.5x smaller —
     // Ro_T = g*H*(dtheta/theta)/(omega^2 a^2) = 0.0048 against 0.0598, because rotation is
     // 4.35x faster (omega^2 18.9x) and the FRACTIONAL equator-pole contrast is 4.7x weaker
     // (50 K on 1500 K against 45 K on 288 K), only partly offset by a 7x deeper atmosphere.
     // Held-Hou then puts the direct cell's edge near 5 deg here against 18 deg for Earth,
-    // i.e. cells roughly a third as wide. A hot surface is not a strongly DIFFERENTIALLY
-    // heated one, which is why the higher energy content narrows the circulation instead of
-    // widening it.
+    // i.e. cells roughly a third as wide — hence the 0.33 default. A hot surface is not a
+    // strongly DIFFERENTIALLY heated one, which is why the higher energy content narrows
+    // the circulation instead of widening it.
     //
-    // The knob exists to test whether the cell decay measured in README item 28 is partly
-    // the model rejecting an over-wide imposed cell, rather than only the residual
-    // meridional force. 1.0 = Earth's latitudes (default, what every run so far used).
-    // The poles are fixed points of the map, so the interpolation still spans [0, jm-1].
-    static double latScale(){
-        static const double s = [](){ const char* e = getenv("ATM_CELL_LAT_SCALE");
-            return e ? atof(e) : 1.0; }();
-        return s;
-    }
+    // Set 1.0 to restore Earth's latitudes, which is what every run before README item 31
+    // used. The poles are fixed points of the map, so the interpolation still spans the
+    // full [0, jm-1]. The measured cell decay and the derivation are in param.py.
+    double latScale() const { return m.cell_lat_scale; }
     int js(int j) const {
         if(j <= 0) return 0;
         if(j >= m.jm - 1) return m.jm - 1;

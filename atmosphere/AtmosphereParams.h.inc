@@ -65,6 +65,7 @@ double L_atm;
 double zeta;
 double tropopause_pole;
 double tropopause_equator;
+double cell_lat_scale;
 double albedo_surface;
 double albedo_cloud;
 double epsilon_equator;

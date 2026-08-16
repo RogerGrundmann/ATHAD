@@ -365,6 +365,55 @@ def main():
             ('tropopause_equator', 'ATHAD: top of the convective column at the equator in m', 'double', 207000.0),
 
 
+            # ATHAD: VelocityInitializer prescribes its circulation cells at EARTH latitudes
+            # — Hadley 15 deg, Ferrel 45, polar 75, with the trade/westerly nodes between.
+            # Those latitudes follow from Earth's thermal Rossby number and are not a
+            # property of rotating atmospheres in general:
+            #
+            #     Ro_T = g*H*(dtheta/theta) / (omega^2 * a^2)
+            #
+            #             scale height   dtheta/theta   omega      Ro_T     Held-Hou edge
+            #     Earth    8.4 km        45/288 = 0.156 7.29e-5    0.0598   18.1 deg
+            #     ATHAD   59.3 km        50/1500 = 0.033 3.17e-4   0.0048    5.1 deg
+            #
+            # Rotation is 4.35x faster (omega^2 18.9x) and the FRACTIONAL equator-pole
+            # contrast 4.7x weaker, only partly offset by a 7x deeper atmosphere. A hot
+            # surface is not a strongly DIFFERENTIALLY heated one, which is why the higher
+            # energy content narrows the circulation instead of widening it — the
+            # giant-planet direction rather than the Venus one. The Rhines scale agrees:
+            # ~2450 km against Earth's ~3490, so ~8 bands pole-to-pole against ~6.
+            #
+            # 5.1/15 = 0.34, hence the default 0.33 (Hadley anchor at 5 deg). Four
+            # 200-iteration runs, mode 2 balance, moist physics from iteration 0, measured
+            # the tropical cell decay against this scale (README item 31):
+            #
+            #     scale  anchor        Psi @20    Psi @200   decay
+            #     1.00   15 deg (Earth) 156 059    138 530   -11.2 %
+            #     0.75   11 deg         148 752    134 937    -9.3 %
+            #     0.50    7 deg         132 100    122 337    -7.4 %
+            #     0.33    5 deg         106 309     98 519    -7.3 %
+            #
+            # The decay falls monotonically as the cell moves to where the regime wants it
+            # and SATURATES between 7 and 5 deg, where Held-Hou puts the edge. The
+            # measurement corroborates 0.33 but does not discriminate it from 0.50; it is
+            # the Ro_T argument that picks the value, and the two agree.
+            #
+            # The 50 K contrast is itself prescribed, but the conclusion is not delicate:
+            # recovering Earth's Ro_T at this rotation rate would need dT ~ 630 K, and even
+            # 200 K still lands near 10 deg.
+            #
+            # Only the HADLEY anchor is a regime question. Earth's Ferrel cell is thermally
+            # indirect and eddy-driven; this flow is axisymmetric to 2 % and neutrally
+            # stratified by construction (cosmo_lapse_fraction = 1.0, N^2 ~ 0), so no
+            # baroclinic eddies exist to drive one in ANY eon in this model. Scaling those
+            # two anchors is meaningless rather than wrong.
+            #
+            # 1.0 restores Earth's latitudes, which is what every run before README item 31
+            # used. The poles are fixed points of the map, so the interpolation still spans
+            # the full [0, jm-1].
+            ('cell_lat_scale', 'ATHAD: prescribed circulation-cell latitudes as a fraction of Earth\'s; 0.33 = Held-Hou edge for this rotation rate, 1.0 = Earth', 'double', 0.33),
+
+
             # ATHAD albedo. These replace the inherited albedo_pole/albedo_equator, which
             # were INERT — MultiLayerRadiation built its own albedo from bare literals and
             # never read them, so the pole/equator pair was configuration theatre.

@@ -126,7 +126,7 @@ the outputs predictions. These are inputs, in rough order of how much they move 
 | `t_skin` | 254.0 K start, relaxes to 262.96 | **Now the prime suspect** (item 25): it is a fixed point of σT⁴ = absorbed, the prescribed profile's top is isothermal at it, and the converged OLR falls onto it |
 | insolation | 0.71 S₀ | Faint young Sun at 4.4 Ga |
 | `omega` | 3.17e-4 (5.5 h day) | Estimates range 4–6 h |
-| prescribed cell latitudes | Hadley 15°, Ferrel 45°, polar 75° | **Earth's, and wrong for this regime**: Ro_T is 12.5× smaller, Held–Hou puts the edge at 5.1°. `ATM_CELL_LAT_SCALE` — item 31 |
+| `cell_lat_scale` | 0.33 → Hadley 5°, Ferrel 15°, polar 25° | Config parameter since item 32; **default was Earth's 1.0 for everything measured before it**. Held–Hou puts the edge at 5.1° because Ro_T is 12.5× Earth's — the derivation picks 0.33, the four-run decay scan only corroborates it (item 31). Only the Hadley anchor has an argument behind it |
 | `cosmo_lapse_fraction` | 1.0 (dry adiabat) | Justified: nothing condenses in the deep column |
 
 A grey scheme also cannot represent the window regions that set the real runaway limit.

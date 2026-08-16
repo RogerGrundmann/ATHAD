@@ -2110,7 +2110,9 @@ the measurement.
     The Rhines scale agrees: ~2450 km against Earth's ~3490, so ~8 bands pole-to-pole
     against ~6.
 
-    Four 200-iteration runs, mode 2 balance, moist physics from iteration 0, `ATM_CELL_LAT_SCALE`:
+    Four 200-iteration runs, mode 2 balance, moist physics from iteration 0, at what is now
+    the `cell_lat_scale` config parameter (it was the `ATM_CELL_LAT_SCALE` environment knob
+    when these were run — see item 32):
 
     | scale | Hadley anchor | Ψ @20 | Ψ @200 | decay |
     |---|---|---|---|---|
@@ -2135,6 +2137,41 @@ the measurement.
     The 50 K contrast is **prescribed**, so this rests on an input — but robustly: recovering
     Earth's `Ro_T` at this rotation rate would need ΔT ≈ 630 K, and even 200 K still lands
     at ~10°.
+
+32. **The cell latitudes become a config parameter and the default stops being Earth's
+    (done).**
+
+    Item 31 left the finding in an environment variable, which is the wrong place for it:
+    an `ATM_*` knob is invisible in the committed configuration, absent from the diff, and
+    silently defaults to the value the item argued against. `ATM_CELL_LAT_SCALE` is now
+    **`cell_lat_scale`** in `param.py`, **default 0.33**, generated into both
+    `config_athad.xml` files like every other parameter. The derivation and the four-run
+    table live in the `param.py` comment, so the number and its justification are in the
+    same place.
+
+    `VelocityInitializer::latScale()` was a function-local `static` reading `getenv` once
+    per process; it is now `m.cell_lat_scale`, which also removes a piece of hidden global
+    state from a class that otherwise takes everything from the model. The anchor line now
+    prints on **every** run rather than only when the scale was non-Earth — with a
+    non-default default, a diagnostic that stays silent at 1.0 would report Earth's
+    latitudes by saying nothing:
+
+    ```
+    cell_lat_scale = 0.330: Hadley anchor at 5 deg, Ferrel at 15 deg, polar at 25 deg
+    cell_lat_scale = 1.000: Hadley anchor at 15 deg, Ferrel at 45 deg, polar at 75 deg   <- Earth's latitudes
+    ```
+
+    Verified at both values on a 1-iteration run: the anchors print as above and the fields
+    genuinely differ (max `w_d` 0.415 against 0.969 m/s, the `v_d` extremum moving from 86°
+    to 75°), so the parameter reaches the dynamics rather than only the printout.
+
+    **Two things this does not settle.** The scaling is applied to all three anchors because
+    it is one map on the latitude index, but only the Hadley one has a regime argument behind
+    it — item 31's point that the Ferrel and polar cells have no maintenance mechanism in this
+    model is unaffected, and scaling their anchors remains meaningless rather than
+    justified. And **the default change rests on a single 200-iteration set**, in which the
+    measurement cannot separate 0.33 from 0.50; the Held–Hou estimate is what chooses. Every
+    number in this file measured before this item used 1.0.
 
 ## Remaining work
 
@@ -2181,10 +2218,13 @@ the measurement.
   perturbation — which `buoyancy_ramp` = 0 at iteration 0 and `densities()`'s overwrite of
   `t` both block. **Same task as the prescribed profile above.** `ATOM_METRIC_CURVATURE` was
   tested as the alternative and changes nothing (0.02–0.4 %).
-- **`ATM_CELL_LAT_SCALE` should probably become a config parameter, not an environment knob**
-  (item 31), and its default is still Earth's 1.0. The regime says ~0.33; the measurement
-  says the decay saturates there. Flipping it is a defensible default change that has been
-  measured over one 200-iteration set.
+- **`cell_lat_scale` is now a config parameter and its default is 0.33, not Earth's 1.0**
+  (item 32). The regime argument (Held–Hou at this rotation rate) and the measurement (the
+  decay saturates below 0.50) agree, but note what each is worth: the Ro_T derivation picks
+  the value, and the measurement only corroborates it — −7.4 % at 0.50 against −7.3 % at 0.33
+  does not discriminate between them. **The default change rests on one 200-iteration set**,
+  and every result in this file from before item 32 was measured at 1.0. Set
+  `<cell_lat_scale>1.0</cell_lat_scale>` to reproduce them.
 - **`ATM_RAD_DIRECT` is written, exact and 10× cheaper than the wrong default, and is still
   off** (item 30). The case for flipping: it changes the standard configuration by 0.15 %,
   it is a closed-form solution rather than an under-iterated one, and it costs less. The case
