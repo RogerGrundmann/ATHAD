@@ -449,6 +449,43 @@ def main():
             # behind it. Modes 1 and 2 exist to supply one.
             ('cell_amp_mode', 'ATHAD: scale the prescribed velocity amplitudes with cell_lat_scale; 0 = off (amplitudes unscaled), 1 = v,w by s (continuity), 2 = v by s and w by s^2 (angular momentum)', 'int', 0),
 
+            # ATHAD: how many circulation cells VelocityInitializer lays down per
+            # hemisphere. Earth has three -- Hadley, Ferrel, polar -- and the inherited
+            # code had that count welded in as ~30 latitude literals plus a hand-written
+            # chain of form_diagonals calls. The anchors are now GENERATED:
+            #
+            #     edges   phi_e(k) = 90*k/n        k = 0..n     (u: ascent/descent branches)
+            #     centres phi_c(k) = 90*(k+0.5)/n  k = 0..n-1   (v, w: cell cores)
+            #
+            # n = 3 returns 0/30/60/90 and 15/45/75, i.e. exactly the inherited anchors.
+            #
+            # WHY MORE THAN THREE. Earth's three cells follow from Earth's Rhines scale,
+            # L_beta = pi*sqrt(2U/beta) with beta = 2*omega*cos(phi)/a. Integrating the
+            # band count over the hemisphere, N = a*int_0^(pi/2) sqrt(cos phi) dphi /
+            # L_beta(0), gives 2.60 for Earth -- which is the check, since Earth has 3 --
+            # and 3.70 here, so ~4. Rotation enters as sqrt(omega) and the wind speed as
+            # 1/sqrt(U), so the soft input is U, not the day length: at U = 10 m/s
+            # (Earth's) it would be 5.4 cells, at the model's own emergent 21 m/s it is
+            # 3.7. Treat "4" as "4 to 5, uncertain in the wind".
+            #
+            # WHAT THE EXTRA CELL IS. The amplitudes do not generalise on their own,
+            # because the inherited polar cell carries the FERREL's sense (v_trop +0.5
+            # against Hadley's -3.0), so the direct/indirect alternation that would let
+            # any n be tiled is not what the table actually contains. The rule chosen is
+            # therefore explicit: cell 0 keeps the Hadley template, cell n-1 keeps the
+            # polar template, and cells 1..n-2 are Ferrel copies -- the extra band is
+            # inserted in mid-latitudes, where the Rhines argument says the deformation
+            # scale shrinks, rather than at the pole. At n = 3 that is Hadley/Ferrel/polar
+            # unchanged.
+            #
+            # CAVEAT, and it is the same one item 31 raised about the Ferrel and polar
+            # anchors: this flow is axisymmetric to 2 % and neutrally stratified by
+            # construction, so there are no baroclinic eddies to maintain ANY indirect
+            # cell. A fourth prescribed cell will decay like the other two. Raising n
+            # tests whether the initial structure matters, not whether the model can
+            # sustain four cells.
+            ('n_cells_hemisphere', 'ATHAD: prescribed circulation cells per hemisphere; 3 = Earth (Hadley/Ferrel/polar), ~4 is what this rotation rate implies', 'int', 3),
+
 
             # ATHAD albedo. These replace the inherited albedo_pole/albedo_equator, which
             # were INERT — MultiLayerRadiation built its own albedo from bare literals and

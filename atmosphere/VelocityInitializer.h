@@ -5,6 +5,8 @@
 
 #include <iostream>
 #include <cmath>
+#include <vector>
+#include <algorithm>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -22,133 +24,36 @@ public:
     {
         using namespace std;
         cout << endl << "      AGCM: init_velocities" << endl;
-        cout << "      cell_lat_scale = " << latScale()
-             << ": Hadley anchor at " << (90 - js(75)) << " deg, Ferrel at "
-             << (90 - js(45)) << " deg, polar at " << (90 - js(15)) << " deg"
-             << (latScale() == 1.0 ? "   <- Earth's latitudes" : "") << endl;
-        cout << "      cell_amp_mode  = " << m.cell_amp_mode << ": v x " << ampScale(m.v)
-             << ", w x " << ampScale(m.w) << ", radial x 1 (continuity)"
-             << (m.cell_amp_mode == 0 && latScale() != 1.0
-                 ? "   <- amplitudes unscaled, meridional shear is 1/s x Earth's" : "")
-             << endl;
+        printCellGeometry();
 
-        // u-component up to tropopause and back on half distance
-        init_u(m.u, 0);
-        init_u(m.u, 30);
-        init_u(m.u, 60);
-        init_u(m.u, 90);
-        init_u(m.u, 120);
-        init_u(m.u, 150);
-        init_u(m.u, 180);
+        const int n = nCells();
 
-        // initialise v: tropopause and surface values per latitude
-        // equator
-        init_v_or_w(m.v, js(90),  0.0,  0.0);                              // lat:   0   j=90
-        // northern polar cell
-        init_v_or_w(m.v, js(0),  0.5,  0.0);                              // lat:  90   j=0
-        init_v_or_w(m.v, js(15),  0.5,  0.6);                              // lat:  75   j=15
-        // southern polar cell
-        init_v_or_w(m.v, js(180),  0.5,  0.0);                              // lat: -90   j=180
-        init_v_or_w(m.v, js(165),  0.5,  0.6);                              // lat: -75   j=165
-        // northern Ferrel cell
-        init_v_or_w(m.v, js(30), -0.2,  0.0);                              // lat:  60   j=30
-        init_v_or_w(m.v, js(45),  4.0, -1.5);                              // lat:  45   j=45
-        // southern Ferrel cell
-        init_v_or_w(m.v, js(150), -0.2,  0.0);                              // lat: -60   j=150
-        init_v_or_w(m.v, js(135),  4.0, -1.5);                              // lat: -45   j=135
-        // Hadley cells — SYMMETRIC about the equator.
-        //
-        // These two carried 4.0 at 15N against 3.0 at 15S (and, before someone swapped
-        // them, 3.0 against 4.0 — the commented-out pair that used to sit here). Every
-        // other mirror pair in this routine is identical, so this was the only asymmetry
-        // in the whole velocity initialisation, and it showed: the meridional
-        // streamfunction came out with the southern cell stronger than the northern by
-        // 366/278 = 1.32 at 15 degrees, against 4.0/3.0 = 1.33, and 11 % antisymmetry
-        // error globally that had not washed out by iteration 100.
-        //
-        // On Earth a north-south Hadley asymmetry is physical: the ITCZ sits north of the
-        // equator because of the land-sea distribution. ATHAD has no land, no topography,
-        // a symmetric prescribed surface temperature, an insolation profile that is
-        // EXPLICITLY mirrored (short_wave_radiation[j] = short_wave_radiation[j_max-j]),
-        // no obliquity and no seasons. Nothing here can sustain a hemispheric asymmetry,
-        // so all of it was inherited from these two numbers.
-        //
-        // 3.5 is their mean, which removes the asymmetry and leaves the total initial
-        // Hadley mass flux unchanged.
-        init_v_or_w(m.v, js(60),  0.0,  0.5);                              // lat:  30   j=60
-        init_v_or_w(m.v, js(75), -3.0,  3.5);                              // lat:  15   j=75
-        init_v_or_w(m.v, js(120),  0.0,  0.5);                              // lat: -30   j=120
-        init_v_or_w(m.v, js(105), -3.0,  3.5);                              // lat: -15   j=105
+        // Radial u lives on the cell EDGES — the ascent/descent branches. Sign
+        // alternates outward from the equator, so cell k is closed by a rising branch
+        // on one side and a sinking branch on the other whatever n is.
+        for(int k = 0; k <= n; k++){
+            const double phi   = edgeLat(k);
+            const double coeff = edgeRadialCoeff(k, phi);
+            init_u(m.u, jN(phi), coeff);
+            if(jS(phi) != jN(phi)) init_u(m.u, jS(phi), coeff);
+        }
 
-        // initialise w: tropopause and surface values per latitude.
-        // w is the ZONAL jet (East+). The SURFACE value (2nd coeff) is what the
-        // atm->ocean transfer hands to the ocean, so it must reproduce the observed
-        // surface wind BANDS: trade EASTERLIES (w<0) through the tropics/subtropics
-        // (0-30deg, peak ~15deg), mid-latitude WESTERLIES (w>0) peaking ~45deg, then
-        // weakening poleward. The wind-stress CURL between the trade easterlies and
-        // the mid-latitude westerlies is what drives the subtropical (anticyclonic)
-        // gyre; the curl between the westerly max and the pole drives the subpolar
-        // (cyclonic) gyre. The tropopause value (1st coeff) keeps the upper-level
-        // westerly jets (subtropical jet strongest at 30deg). See wind-IC diagnosis
-        // in project_hydro_ekman_sh_gyre.
-        // equator
-        init_v_or_w(m.w, js(90), -3.0, -5.0);                             // lat:   0   j=90   easterly (equatorial)
-        // northern polar cell
-        init_v_or_w(m.w, js(0),  0.0,  0.0);                              // lat:  90   j=0
-        // southern polar cell
-        init_v_or_w(m.w, js(180),  0.0,  0.0);                              // lat: -90   j=180
-        // northern Ferrel cell (mid-latitude westerlies, weakening to the pole)
-        init_v_or_w(m.w, js(30), 10.0,  6.0);                             // lat:  60   j=30   westerly
-        // southern Ferrel cell
-        init_v_or_w(m.w, js(150), 10.0,  6.0);                             // lat: -60   j=150  westerly
-        // northern subtropics — horse latitudes (trade/westerly transition, calm)
-        init_v_or_w(m.w, js(60), 30.0, -1.0);                             // lat:  30   j=60   weak easterly
-        // southern subtropics
-        init_v_or_w(m.w, js(120), 30.0, -1.0);                             // lat: -30   j=120  weak easterly
-        // northern westerly max at j=45
-        init_v_or_w(m.w, js(45), 15.0, 10.0);                             // lat:  45   j=45   westerly max
-        // southern westerly max at j=135
-        init_v_or_w(m.w, js(135), 15.0, 10.0);                             // lat: -45   j=135  westerly max
-        // northern trade-easterly max at j=75 (15N)
-        init_v_or_w(m.w, js(75),  5.0, -7.0);                             // lat:  15   j=75   easterly (trade max)
-        // southern trade-easterly max at j=105 (15S)
-        init_v_or_w(m.w, js(105),  5.0, -7.0);                             // lat: -15   j=105  easterly (trade max)
+        // v and w live on the edges AND the cell cores. Both hemispheres take the SAME
+        // coefficients — the southern sign flip happens in the fused pass below, which
+        // is why nothing here is mirrored by hand. The southern index is derived from
+        // the northern one rather than rounded independently, so invariant 1 survives
+        // an n whose anchors do not land on integer indices (n = 4 puts an edge at
+        // 22.5 degrees).
+        for(int k = 0; k <= n; k++) setAnchor(edgeLat(k),   edgeAmp(k, n));
+        for(int k = 0; k <  n; k++) setAnchor(centreLat(k), centreAmp(k, n));
 
-        // forming diagonals — northern hemisphere
-        form_diagonals(m.u, js(0), js(30));
-        form_diagonals(m.w, js(0), js(30));
-        form_diagonals(m.w, js(30), js(45));
-        form_diagonals(m.v, js(0), js(15));
-        form_diagonals(m.v, js(15), js(30));
-
-        form_diagonals(m.u, js(30), js(60));
-        form_diagonals(m.w, js(45), js(60));
-        form_diagonals(m.v, js(30), js(45));
-        form_diagonals(m.v, js(45), js(60));
-
-        form_diagonals(m.u, js(60), js(90));
-        form_diagonals(m.w, js(60), js(75));                                   // 30N->15N (trade node at j=75)
-        form_diagonals(m.w, js(75), js(90));                                   // 15N->0
-        form_diagonals(m.v, js(60), js(75));
-        form_diagonals(m.v, js(75), js(90));
-
-        // forming diagonals — southern hemisphere
-        form_diagonals(m.u, js(90), js(120));
-        form_diagonals(m.w, js(90), js(105));                                  // 0->15S (trade node at j=105)
-        form_diagonals(m.w, js(105), js(120));                                 // 15S->30S
-        form_diagonals(m.w, js(120), js(135));
-        form_diagonals(m.v, js(90), js(105));
-        form_diagonals(m.v, js(105), js(120));
-
-        form_diagonals(m.u, js(120), js(150));
-        form_diagonals(m.w, js(135), js(150));
-        form_diagonals(m.v, js(120), js(135));
-        form_diagonals(m.v, js(135), js(150));
-
-        form_diagonals(m.u, js(150), js(180));
-        form_diagonals(m.w, js(150), js(180));
-        form_diagonals(m.v, js(150), js(165));
-        form_diagonals(m.v, js(165), js(180));
+        // Linear fill between consecutive anchors of each field. The inherited code
+        // wrote these 24 calls out by hand in a fixed order; consecutive-pair chaining
+        // reproduces exactly that set at n = 3, and is the only form that survives a
+        // change of n.
+        formChain(m.u, anchorList(false, false));
+        formChain(m.v, anchorList(true,  false));
+        formChain(m.w, anchorList(true,  true));
 
         // Zero land cells; non-dimensionalise air cells — single fused pass
         const double inv_u_0 = 1.0 / m.u_0;
@@ -245,6 +150,125 @@ private:
     // full [0, jm-1]. The measured cell decay and the derivation are in param.py.
     double latScale() const { return m.cell_lat_scale; }
 
+    // ---- cell geometry ------------------------------------------------------
+    // n cells per hemisphere. Cell k (k = 0 at the equator) runs from edge k to
+    // edge k+1 with its core at centre k:
+    //
+    //     edges   phi_e(k) = 90*k/n        k = 0..n
+    //     centres phi_c(k) = 90*(k+0.5)/n  k = 0..n-1
+    //
+    // n = 3 gives 0/30/60/90 and 15/45/75 — the inherited Earth anchors exactly.
+    //
+    // jN goes THROUGH js() rather than inlining round(90 - phi*s), because js clamps on
+    // its input: js(0) and js(jm-1) return the poles unscaled. The poles are fixed points
+    // of the map, so the prescribed structure still spans the full hemisphere however hard
+    // the cells are compressed. Inlining the scaling instead moves the pole anchor inward
+    // (to 30 deg N at s = 0.33) and leaves everything poleward of it unfilled.
+    int    nCells()          const { return m.n_cells_hemisphere; }
+    double edgeLat(int k)    const { return 90.0 * k / (double)nCells(); }
+    double centreLat(int k)  const { return 90.0 * (k + 0.5) / (double)nCells(); }
+    int    jN(double phi)    const { return js((int)std::lround(90.0 - phi)); }
+    int    jS(double phi)    const { return (m.jm - 1) - jN(phi); }
+
+    // ---- prescribed amplitudes ----------------------------------------------
+    // Earth's inherited table, re-expressed by ROLE rather than by latitude literal.
+    // has_w is false for the polar core, which the inherited code deliberately left
+    // to interpolation rather than anchoring.
+    struct Amp { double v_trop, v_surf, w_trop, w_surf; bool has_w; };
+
+    static Amp edgeEquator()  { return {  0.0,  0.0, -3.0, -5.0, true  }; }
+    static Amp edgeSubtrop()  { return {  0.0,  0.5, 30.0, -1.0, true  }; }
+    static Amp edgeSubpolar() { return { -0.2,  0.0, 10.0,  6.0, true  }; }
+    static Amp edgePole()     { return {  0.5,  0.0,  0.0,  0.0, true  }; }
+    static Amp cellHadley()   { return { -3.0,  3.5,  5.0, -7.0, true  }; }
+    static Amp cellFerrel()   { return {  4.0, -1.5, 15.0, 10.0, true  }; }
+    static Amp cellPolar()    { return {  0.5,  0.6,  0.0,  0.0, false }; }
+
+    // Cell 0 keeps the Hadley template, cell n-1 the polar one, and everything
+    // between is a Ferrel copy — so raising n INSERTS bands in mid-latitudes, where
+    // the Rhines argument says the deformation scale shrinks, instead of at the pole.
+    // At n = 3 this is Hadley / Ferrel / polar, unchanged. See param.py for why the
+    // direct-indirect alternation cannot be used as the rule instead: the inherited
+    // polar cell carries the Ferrel's sense, not the Hadley's.
+    static Amp edgeAmp(int k, int n){
+        if(k == 0) return edgeEquator();
+        if(k == n) return edgePole();
+        if(k == 1) return edgeSubtrop();
+        return edgeSubpolar();
+    }
+    static Amp centreAmp(int k, int n){
+        if(k == 0)     return cellHadley();
+        if(k == n - 1) return cellPolar();
+        return cellFerrel();
+    }
+
+    // The four inherited radial magnitudes are 0.02894*(1 - phi/150) to every figure
+    // they are written with, but they are kept as literals so n = 3 stays bit-identical;
+    // the formula only supplies edges Earth has no value for.
+    static double edgeRadialCoeff(int k, double phi){
+        double mag;
+        if      (phi ==  0.0) mag = 0.02894;
+        else if (phi == 30.0) mag = 0.02315;
+        else if (phi == 60.0) mag = 0.01736;
+        else if (phi == 90.0) mag = 0.011574;
+        else                  mag = 0.02894 * (1.0 - phi / 150.0);
+        return (k % 2 == 0) ? mag : -mag;
+    }
+
+    void setAnchor(double phi, const Amp& a){
+        const int jn = jN(phi), jsouth = jS(phi);
+        init_v_or_w(m.v, jn, a.v_trop, a.v_surf);
+        if(jsouth != jn) init_v_or_w(m.v, jsouth, a.v_trop, a.v_surf);
+        if(a.has_w){
+            init_v_or_w(m.w, jn, a.w_trop, a.w_surf);
+            if(jsouth != jn) init_v_or_w(m.w, jsouth, a.w_trop, a.w_surf);
+        }
+    }
+
+    // Sorted, de-duplicated anchor indices for one field, pole to pole.
+    std::vector<int> anchorList(bool with_centres, bool skip_polar_centre) const {
+        const int n = nCells();
+        std::vector<double> phis;
+        for(int k = 0; k <= n; k++) phis.push_back(edgeLat(k));
+        if(with_centres)
+            for(int k = 0; k < n; k++){
+                if(skip_polar_centre && k == n - 1) continue;
+                phis.push_back(centreLat(k));
+            }
+        std::vector<int> j;
+        for(double p : phis){
+            j.push_back(jN(p));
+            if(jS(p) != jN(p)) j.push_back(jS(p));
+        }
+        std::sort(j.begin(), j.end());
+        j.erase(std::unique(j.begin(), j.end()), j.end());
+        return j;
+    }
+
+    void formChain(Array& a, const std::vector<int>& anchors){
+        for(size_t i = 0; i + 1 < anchors.size(); i++)
+            if(anchors[i + 1] > anchors[i]) form_diagonals(a, anchors[i], anchors[i + 1]);
+    }
+
+    void printCellGeometry() const {
+        using namespace std;
+        const int n = nCells();
+        cout << "      n_cells_hemisphere = " << n << ", cell_lat_scale = " << latScale()
+             << (n == 3 && latScale() == 1.0 ? "   <- Earth's 3-cell layout" : "") << endl;
+        cout << "      cell cores at ";
+        for(int k = 0; k < n; k++)
+            cout << (90 - jN(centreLat(k))) << (k + 1 < n ? " / " : "");
+        cout << " deg N; edges at ";
+        for(int k = 0; k <= n; k++)
+            cout << (90 - jN(edgeLat(k))) << (k < n ? " / " : "");
+        cout << " deg" << endl;
+        cout << "      cell_amp_mode  = " << m.cell_amp_mode << ": v x " << ampScale(m.v)
+             << ", w x " << ampScale(m.w) << ", radial x 1 (continuity)"
+             << (m.cell_amp_mode == 0 && latScale() != 1.0
+                 ? "   <- amplitudes unscaled, meridional shear is 1/s x Earth's" : "")
+             << endl;
+    }
+
     // cell_amp_mode — scale the prescribed AMPLITUDES with the latitude scale.
     //
     // latScale() moves the anchors and nothing else, so at s = 0.33 the same velocity
@@ -281,26 +305,12 @@ private:
     //
     // The write location and the tropopause layer must still use the SCALED index,
     // which is the whole point of the knob: same coefficient, moved in latitude.
-    void init_u(Array& u, int j_earth)
+    // j is the SCALED write index; coeff comes from edgeRadialCoeff, which is keyed to
+    // the cell edge rather than to a grid index. The switch(j) this replaces took Earth's
+    // grid indices as case labels while compute() passed the scaled index, so at
+    // cell_lat_scale != 1 most anchors missed their case entirely — see eaf6e8d.
+    void init_u(Array& u, int j, double coeff)
     {
-        const double ua_00  = 0.02894;
-        const double ua_30  = 0.02315;
-        const double ua_60  = 0.01736;
-        const double ua_90  = 0.011574;
-
-        double coeff;
-        switch (j_earth) {
-            case  90: coeff =  ua_00; break;
-            case  60: coeff = -ua_30; break;
-            case 120: coeff = -ua_30; break;
-            case  30: coeff =  ua_60; break;
-            case 150: coeff =  ua_60; break;
-            case   0: coeff = -ua_90; break;
-            case 180: coeff = -ua_90; break;
-            default:  return;
-        }
-
-        const int    j            = js(j_earth);
         const int    tl           = m.get_tropopause_layer(j);
         const double tropo_h      = m.get_layer_height(tl);
         const double half_tropo_h = tropo_h / 3.0;
