@@ -2328,6 +2328,73 @@ the measurement.
     is unchanged at 3: 100 iterations is a trend, and the extratropical growth is exactly
     the kind of monotone trend this file has twice been caught extrapolating.
 
+
+37. **400 iterations: item 36's boundary finding was a transient and reverses, but n = 5
+    survives on a different argument.**
+
+    Two 400-iteration runs, n = 3 against n = 5, otherwise identical to the 100-iteration
+    pair of item 36 (`cell_lat_scale` 0.33, `cell_amp_mode` 0, moist physics from
+    iteration 0, `checkpoint` 20). Ψ@20…Ψ@100 reproduce item 36 exactly.
+
+    **The tropical cell is linear and n-independent.** Ψ_max falls ~470 per 20 iterations
+    with no turnover anywhere in the trace:
+
+    | | Ψ@20 | Ψ@200 | Ψ@400 | 20→400 |
+    |---|---|---|---|---|
+    | n = 3 | 106 788 | 98 457 | 88 930 | −16.7 % |
+    | n = 5 | 106 511 | 98 393 | 89 245 | −16.2 % |
+
+    The two converge on each other (0.35 % apart at 400). Cell count does not reach the
+    Hadley cell at 20, 100 or 400 iterations.
+
+    **Item 36's boundary claim does not survive.** It reported that n = 5 *deepens* two of
+    three interior boundaries while n = 3 erodes its only one. At 400 every boundary in
+    both layouts has eroded to the same ~3:1 core-to-edge contrast:
+
+    | | edge | 100 iter | 400 iter |
+    |---|---|---|---|
+    | n = 3 | 50° | 10.2 : 1 | **3.2 : 1** |
+    | n = 5 | 30° | 5.3 : 1 | 3.4 : 1 |
+    | n = 5 | 50° | 6.4 : 1 | 3.0 : 1 |
+    | n = 5 | 70° | 6.9 : 1 | 3.2 : 1 |
+
+    The edges fill in faster than the cores grow — +104 to +223 % at the edges against
+    +31 to +48 % at the cores over 100→400. **The deepening was an adjustment and it was
+    extrapolated**, which is the third time this file has recorded that error and the
+    second time in one day. Item 36's own closing sentence named the risk and the write-up
+    made the claim anyway.
+
+    **What replaces it is stronger, because it does not rest on a trend.** Peak |Ψ| by
+    latitude at iteration 400, cores marked:
+
+    ```
+    n=5   20° 56071*  30° 16502   40° 51590*  50° 17470   60° 36193*  70° 11384   80°  6019*
+    n=3   20° 61119   30° 57052*  40° 34952   50° 17634   60° 16243   70° 13563*  80°  4233
+    ```
+
+    n = 5's maxima sit **exactly on its prescribed cores** at 20/40/60°. n = 3's do not:
+    its 30° core is no longer a peak, the maximum having migrated equatorward past 20°. The
+    model keeps the layout n = 5 gives it and rearranges the one n = 3 gives it. That is a
+    statement about position rather than about a rate, so unlike the boundary contrast it
+    is not a quantity still in motion.
+
+    A second signal, common to both: everything equatorward of ~60° intensifies while
+    70–90° weakens by 25–31 %. The circulation concentrates into mid-latitudes whatever the
+    cell count.
+
+    **Controls.** OLR 272.84 and 272.75 — both have relaxed onto σT_lid⁴ = 271.11, the lock
+    of items 25/29/30, and are identical across cell counts. Mean T 809.41 in both. Mean KE
+    29.5 / 29.3, down from ~39 at iteration 100. N–S asymmetry −3.7e-06 and −3.5e-06: inside
+    the 1e-5 tolerance, but ~60× the 20-iteration value, so it **grows with run length** and
+    should be watched rather than assumed.
+
+    **Nothing here is converged and the default stays at 3.** Ψ is still linear at 400, the
+    boundary contrast is still falling, and the mid-latitude intensification is still
+    monotone — all consistent with the standing estimate that geostrophic adjustment is
+    O(10⁴) iterations away. n = 5 is the better-supported layout on three independent
+    grounds now (Rhines band width, the geometric artefact, and core position), none of
+    which is a converged measurement.
+
 ## Remaining work
 
 
@@ -2379,10 +2446,19 @@ the measurement.
   and item 36 showed that scan ran on a layout where narrowing the cells mostly *deleted*
   the outer ones. Every result in this file from before item 32 was measured at 1.0; set
   `<cell_lat_scale>1.0</cell_lat_scale>` to reproduce them.
-- **`n_cells_hemisphere` defaults to 3 and the evidence now favours 5** (item 36). n = 5 is
-  the only layout whose extratropical bands match the Rhines scale (20° against ~22°), and
-  the only one whose interior boundaries the model *deepens* rather than erodes. It is not
-  the default because the supporting run is 100 iterations, which is a trend.
+- **`n_cells_hemisphere` defaults to 3 and the evidence favours 5** (items 36–37), on three
+  grounds: the extratropical bands match the Rhines scale (20° against ~22°), the geometric
+  artefact is gone, and at 400 iterations n = 5's Ψ maxima still sit exactly on its
+  prescribed cores while n = 3's migrate equatorward off theirs. **The interior-boundary
+  argument of item 36 is withdrawn** — it reversed by 400, where every boundary in both
+  layouts erodes to the same ~3:1 contrast. Default unchanged because none of the three is a
+  converged measurement.
+- **The tropical cell decays linearly to 400 iterations with no turnover** (item 37),
+  −16.7 % at n = 3 and −16.2 % at n = 5, converging to within 0.35 %. Cell count does not
+  reach the Hadley cell at any run length tested.
+- **The N–S asymmetry grows with run length** (item 37): ~5e-08 at 20 iterations, −3.7e-06
+  at 400. Still 3× inside the 1e-5 tolerance, but it is a trend and invariant 1 is the one
+  thing this model is not allowed to break. Worth a longer run purely as a check.
 - **Every kinetic-energy figure measured before item 36 was taken with half the circulation
   missing.** Mean KE is 38–40 on the tiled layout against 19.50 on the untiled one. Item 34's
   `u_0` comparison is affected; item 33's mode comparison is internally consistent but its
