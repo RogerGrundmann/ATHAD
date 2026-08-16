@@ -413,6 +413,42 @@ def main():
             # the full [0, jm-1].
             ('cell_lat_scale', 'ATHAD: prescribed circulation-cell latitudes as a fraction of Earth\'s; 0.33 = Held-Hou edge for this rotation rate, 1.0 = Earth', 'double', 0.33),
 
+            # ATHAD: cell_lat_scale moves the ANCHORS and nothing else. Every prescribed
+            # velocity amplitude in VelocityInitializer stays at the value Earth's bands
+            # were tuned to, so the same velocity change is interpolated across a third of
+            # the latitude span and EVERY MERIDIONAL GRADIENT IN THE INITIAL STATE IS 1/s
+            # TIMES EARTH'S — 3x at the 0.33 default. That is not what "the cell is a third
+            # as wide" should mean, and the implied thermal wind goes with it.
+            #
+            # The scaling laws, taking the latitude scale s = cell_lat_scale and noting
+            # that all three modes are a no-op at s = 1:
+            #
+            #   Continuity.  (1/(a cos)) d(v cos)/dphi + du_r/dz = 0. Shrink the latitude
+            #   scale by s and the meridional velocity by s together and dv/dphi is
+            #   unchanged, so du_r/dz is unchanged: v scales by s and the RADIAL amplitudes
+            #   (ua_00 .. ua_90) do not scale at all. Same vertical motion, narrower cell,
+            #   proportionally less meridional flow needed to feed it.
+            #
+            #   Angular momentum.  A parcel leaving the equator at u = 0 and conserving
+            #   angular momentum reaches latitude phi with u = omega*a*sin^2(phi)/cos(phi),
+            #   which is proportional to phi^2 for small phi. The jet amplitude ratio
+            #   between the compressed and the Earth anchor is therefore s^2 — exact value
+            #   at s = 0.33 is 0.110 against s^2 = 0.109, so the small-angle form is good to
+            #   1 % here. Earth's observed jets are well below the AMC limit, so this is
+            #   applied as a RATIO to the inherited amplitude, not as an absolute jet speed.
+            #
+            #   0 = no amplitude scaling. What item 32 committed, and what every run before
+            #       item 33 used. Preserves the amplitudes and multiplies the shear by 1/s.
+            #   1 = v and w by s. Preserves every prescribed meridional gradient exactly:
+            #       the initial field is Earth's, geometrically compressed in latitude.
+            #   2 = v by s (continuity), w by s^2 (angular momentum). The jet weakens faster
+            #       than the overturning, which is what a narrower Hadley cell implies.
+            #
+            # DEFAULT 0 pending measurement, deliberately: flipping it changes the committed
+            # configuration, and this file's own rule is that a default change needs a run
+            # behind it. Modes 1 and 2 exist to supply one.
+            ('cell_amp_mode', 'ATHAD: scale the prescribed velocity amplitudes with cell_lat_scale; 0 = off (amplitudes unscaled), 1 = v,w by s (continuity), 2 = v by s and w by s^2 (angular momentum)', 'int', 0),
+
 
             # ATHAD albedo. These replace the inherited albedo_pole/albedo_equator, which
             # were INERT — MultiLayerRadiation built its own albedo from bare literals and

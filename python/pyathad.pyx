@@ -630,6 +630,15 @@ cdef class Atmosphere:
             self._check_alive()
             self._thisptr.cell_lat_scale = <double> value
     
+    property cell_amp_mode:
+        def __get__(Atmosphere self):
+            self._check_alive()
+            return self._thisptr.cell_amp_mode
+    
+        def __set__(Atmosphere self, value):
+            self._check_alive()
+            self._thisptr.cell_amp_mode = <int> value
+    
     property albedo_surface:
         def __get__(Atmosphere self):
             self._check_alive()

@@ -67,6 +67,7 @@ void cAtmosphereModel::SetDefaultConfig() {
   tropopause_pole = 195000.0;
   tropopause_equator = 207000.0;
   cell_lat_scale = 0.33;
+  cell_amp_mode = 0;
   albedo_surface = 0.08;
   albedo_cloud = 0.5;
   epsilon_equator = 0.48;

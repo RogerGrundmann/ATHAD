@@ -26,6 +26,11 @@ public:
              << ": Hadley anchor at " << (90 - js(75)) << " deg, Ferrel at "
              << (90 - js(45)) << " deg, polar at " << (90 - js(15)) << " deg"
              << (latScale() == 1.0 ? "   <- Earth's latitudes" : "") << endl;
+        cout << "      cell_amp_mode  = " << m.cell_amp_mode << ": v x " << ampScale(m.v)
+             << ", w x " << ampScale(m.w) << ", radial x 1 (continuity)"
+             << (m.cell_amp_mode == 0 && latScale() != 1.0
+                 ? "   <- amplitudes unscaled, meridional shear is 1/s x Earth's" : "")
+             << endl;
 
         // u-component up to tropopause and back on half distance
         init_u(m.u, js(0));
@@ -239,6 +244,25 @@ private:
     // used. The poles are fixed points of the map, so the interpolation still spans the
     // full [0, jm-1]. The measured cell decay and the derivation are in param.py.
     double latScale() const { return m.cell_lat_scale; }
+
+    // cell_amp_mode — scale the prescribed AMPLITUDES with the latitude scale.
+    //
+    // latScale() moves the anchors and nothing else, so at s = 0.33 the same velocity
+    // change is interpolated across a third of the latitude span and every meridional
+    // gradient in the initial state is 3x Earth's. These modes put the amplitudes on the
+    // same footing as the anchors; all of them are a no-op at s = 1. See param.py for the
+    // continuity and angular-momentum derivations.
+    //
+    // The RADIAL amplitudes (ua_00 .. ua_90 in init_u) are deliberately never scaled:
+    // continuity makes du_r/dz invariant when v and the latitude scale shrink together.
+    double ampScale(const Array& a) const {
+        const double s = latScale();
+        switch(m.cell_amp_mode){
+            case 1: return s;                                 // continuity, both components
+            case 2: return (&a == &m.v) ? s : s * s;          // continuity / angular momentum
+            default: return 1.0;                              // off
+        }
+    }
     int js(int j) const {
         if(j <= 0) return 0;
         if(j >= m.jm - 1) return m.jm - 1;
@@ -287,6 +311,12 @@ private:
     {
         const int    tl          = m.get_tropopause_layer(j);
         const double inv_tropo_h = 1.0 / m.get_layer_height(tl);
+
+        // Amplitudes scale with the anchors (cell_amp_mode); the NASA-surface branch below
+        // reads an observed value out of the field instead, so it must not be rescaled.
+        const double amp = ampScale(v_or_w);
+        coeff_trop *= amp;
+        coeff_sl   *= amp;
 
         #pragma omp parallel for schedule(static)
         for (int k = 0; k < m.km; k++) {

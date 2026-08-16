@@ -71,6 +71,7 @@ cdef extern from "cAtmosphereModel.h":
         double tropopause_pole
         double tropopause_equator
         double cell_lat_scale
+        int cell_amp_mode
         double albedo_surface
         double albedo_cloud
         double epsilon_equator
