@@ -229,6 +229,30 @@ def main():
             # solar — it cannot be omitted. ASSUMPTION.
             ('geothermal_flux', 'ATHAD: heat flux from the molten surface into the atmosphere in W/m2', 'double', 150.0),
 
+            # ATHAD: near-surface Rayleigh (boundary-layer) drag, made CONFIGURABLE by
+            # README item 44. Both were constexpr in RHS_Atm_Turb.cpp with comments justifying
+            # them by EARTH'S GEOGRAPHY, which is the pattern this project keeps finding:
+            #
+            #   rayleigh_kf   "baseline 1/day gave ~34 m/s eastward w off W-coast S-America;
+            #                  10x cut the surface to ~28 m/s ... so 10x is the settled strength"
+            #   drag_n_layers "that ~27 m/s max at 27S/71W is an Andes orographic feature"
+            #
+            # ATHAD has no South America and no Andes — invariant 1 makes is_land() false
+            # everywhere. Worse, drag_n_layers is a COUNT OF CELLS, not a length, so its physical
+            # depth is whatever the grid makes it: 5 cells is 236 m on ATOM_Precipitation's grid
+            # and 7152 m here, 30.3x deeper. Same defect shape as init_tropopause_layers'
+            # round(h / L_atm) — a grid index used as a physical length.
+            #
+            # DEFAULTS REPRODUCE THE OLD constexpr EXACTLY, so this change alone is
+            # bit-identical. They exist so the drag can be SCANNED: the tropical cell decays
+            # with no turnover (items 28, 31, 37), drag is the obvious sink, and unlike the
+            # radiative questions this one is blocked by neither t_skin (item 43) nor the thermal
+            # timescale (item 47) — Psi responds to drag directly and ubud_*/vbud_* can attribute
+            # it. Reformulating the depth as a LENGTH in metres is the follow-up; it is kept as a
+            # cell count here so that the default stays exactly the measured baseline.
+            ('rayleigh_kf', 'ATHAD: near-surface Rayleigh drag rate in 1/s (was a constexpr 1/86400; item 44)', 'double', 1.0/86400.0),
+            ('drag_n_layers', 'ATHAD: boundary-layer drag depth in AIR CELLS, not metres (was a constexpr 5.0; item 44 — 5 cells is 7152 m here against 236 m on Earth)', 'double', 5.0),
+
             ('eps_residuum', 'relative error, end of iterations reached, 1% error  allowed', 'double', 1.0e-4),
 
 #            ('turb_model', 'turbulence model: none, k_epsilon, k_omega, k_omega_SST', 'string', 'none'),

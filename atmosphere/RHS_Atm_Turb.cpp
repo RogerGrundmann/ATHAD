@@ -1045,9 +1045,10 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
     // the LOCAL surface (i_topography[j][k]) and ramping to zero over the boundary layer.
     // Scaled in advective time (k_f*L_atm/u_0*dt) to match the laminar RHS_Atm.cpp and the
     // rest of this path's forcing — see the force_nd note above (2026-06-19 fix).
-    constexpr double rayleigh_kf   = 1.0 / 86400.0;   // [EXPERIMENT 2026-06-16: cut 10x to ~1/day H-S to relieve momentum over-damping (T->wind decoupling); orig 1/8640]  surface drag rate ≈ Ekman strength [1/s], 10× the old ≈1/day Held-Suarez baseline. Tuned 2026-06-13: baseline 1/day gave ~34 m/s eastward w off W-coast S-America; 10× cut the surface to ~28 m/s and 20× gained nothing (the jet max sits at ~1 km, above the drag layer), so 10× is the settled strength.
-    constexpr double drag_n_layers = 5.0;             // boundary-layer depth [air cells]. Tried 10 (2026-06-13) to reach the ~1 km coastal-jet max — no effect (that ~27 m/s max at 27°S/71°W is an Andes orographic/pressure-gradient feature, immune to friction), so kept at the physical 5.
-    double drag_profile = 1.0 - (double)(i - i_topography[j][k]) / drag_n_layers;
+    // rayleigh_kf and drag_n_layers are CONFIG PARAMETERS now (README item 44). The Earth
+    // calibration comments that used to live here are in param.py, where the values are.
+
+    double drag_profile = 1.0 - (double)(i - i_topography[j][k]) / drag_n_layers;   // both from config
     if(drag_profile < 0.0) drag_profile = 0.0;
     if(drag_profile > 1.0) drag_profile = 1.0;
     double surf_drag = (rayleigh_kf * L_coeff / u_0 * dt) * drag_profile;

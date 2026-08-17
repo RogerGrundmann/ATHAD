@@ -3147,6 +3147,41 @@ the measurement.
     physics would just make the wrong answer look deliberate.
 
 
+## Queued: the drag scan (configs written, NOT yet run)
+
+Item 44's suspect, now testable because `rayleigh_kf` and `drag_n_layers` are config
+parameters rather than `constexpr`. **The parameter change is bit-identical** — the defaults
+reproduce the old constants exactly (`1.1574074074074073e-05` round-trips to 1/86400).
+
+**The question.** The tropical cell decays with no turnover (items 28, 31, 37) and drag is the
+obvious sink. Unlike every radiative question this one is blocked by **neither** `t_skin`
+(item 43) **nor** the thermal timescale (item 47): Ψ responds to drag directly, and `ubud_*` /
+`vbud_*` can now attribute which term does it.
+
+**Four arms, 200 iterations each** — matching item 31's length so Ψ is comparable to its
+−11 413 → −5 946. Moist physics from iteration 0, `checkpoint = 20` (which is also the Ψ
+cadence, so it sets the trend resolution), `diagnostic_stride = 20`, `restart_stride = 0`.
+Configs are committed-adjacent as `python/config_drag_{base,kf01,kf10,n1}.xml`:
+
+| arm | `rayleigh_kf` | `drag_n_layers` | what it tests |
+|---|---|---|---|
+| `drag_base` | 1.1574074074074073e-05 | 5.0 | the shipped baseline (7152 m deep) |
+| `drag_kf01` | 1.1574074074074073e-06 | 5.0 | drag 10× weaker |
+| `drag_kf10` | 1.1574074074074073e-04 | 5.0 | drag 10× stronger |
+| `drag_n1` | 1.1574074074074073e-05 | 1.0 | depth 1224 m — the shallowest the grid allows, nearest Earth's 236 m |
+
+Run 4 concurrent at `OMP_NUM_THREADS=6` (24 cores, one thread count for all arms so the
+~1e-8 thread dependence cannot confound them). ~50 min.
+
+**Metric**: `Psi_max` / `Psi_min` from the `Psi_max=` log lines, plus the `ubud_*`/`vbud_*`
+splits. **The discriminating outcome**: if a 100× spread in drag moves the decay rate, drag is
+the driver and item 44's Earth calibration matters; if it does not, drag is eliminated and the
+decay is something else. Either way the question closes.
+
+**Sequence the runs after any build** — items 45–46 lost a clean comparison to a binary that
+changed mid-experiment, three times.
+
+
 ## Remaining work
 
 

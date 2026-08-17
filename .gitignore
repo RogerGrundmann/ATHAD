@@ -74,3 +74,6 @@ python/vtk_status.txt
 python/skin400_status.txt
 python/config_prog400.xml
 python/prog400_status.txt
+python/config_drag_*.xml
+python/run_drag_*.log
+python/drag_status.txt
