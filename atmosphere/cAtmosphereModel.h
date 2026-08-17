@@ -283,6 +283,12 @@ public:
     // same length. See the definition for the numbers and the reasoning.
     void checkMetricConsistency() const;
 
+    // Startup check that exp_rm = 1/(rm+1) really is the Jacobian of the radial stretch it is
+    // documented to be (TurbulenceAtm.h). It is not — see README item 39. Must be called AFTER
+    // init_layer_heights(), since it compares against get_layer_height(). One summary line
+    // always; ATM_METRIC_CHECK=1 adds the per-level table.
+    void checkRadialMetric() const;
+
     // ATM_METRIC_RADIUS: reads the knob once and fills m_metric_r0. Call after the coordinates.
     void initMetricRadius();
 

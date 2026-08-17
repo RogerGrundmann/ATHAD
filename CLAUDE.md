@@ -160,6 +160,11 @@ README items 9-11.
   survived item 11's rewrite and merely hid until iteration 20 had passed.
 - **Not grid-converged**: 519 W/m2 at 260 km against 581 at 300 km with `im` fixed at 61
   (both at 100 iterations, both pre-item-22 — the check has to be redone, not just extended).
+  **Item 39 says why, and says the retry should not be a shell-depth or `im` scan.** At the
+  committed `im = 41` the entire photosphere is ONE grid cell of `dtau = 55`: level 35 sits at
+  `tau_above` = 10.8 and level 36 at 0.82, so the column goes opaque-to-transparent inside one
+  layer, and the two-stream sweep is first order in `dtau`. `im = 61` gives 3 photosphere
+  layers and `dtau` = 7.6 — poor, not broken. The lever is `zeta`, not `im`.
 - Mean planetary albedo 0.4981 ≈ `albedo_cloud`; the reflectivity saturates the moment any
   condensate exists, so the model reports that parameter.
 - Insolation is now TOA (mean 241.56 W/m2); `t_skin` is a fixed point against the model's
@@ -207,7 +212,7 @@ C++ class, file and function names are kept **identical to `ATOM_Precipitation`*
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
 `config_athad.xml`, `pyathad`). Preserve that.
 
-**Twenty defects found in the inherited code so far, all latent on Earth and live here.**
+**Twenty-one defects found in the inherited code so far, all latent on Earth and live here.**
 The pattern is consistent and worth expecting: *Earth's numbers as bare literals inside
 physics kernels, each with a comment justifying it by Earth's conditions.* Examples —
 `dr = 0.025` silently tied to `im = 41`; a 333.15 K cap written back into the prognostic
@@ -218,7 +223,7 @@ wrong on a 250 bar one (item 30) — the same pattern in a place nobody thinks t
 since a loop bound does not read like an Earth assumption. When something behaves oddly, look for a
 constant that was true at 1 bar and 288 K.
 
-The three most recent are worth stating because they show the pattern's worst form — an
+The three worst are worth stating because they show the pattern's worst form — an
 Earth-only regime written as a *fallback branch*, so it never runs at home and is never
 tested: `SaturationAdjustment::clampAndFade` returned `q_sat = ep*1e-5` for superheated
 vapour when the correct answer is 1, and so condensed the entire water column in the one
@@ -244,10 +249,32 @@ harmless because `densities()` rebuilds the column afterwards. **The lesson gene
 initialisation defect is not excused by a later overwrite until you have listed everything
 that runs in between.**
 
+**The twenty-first is the newest, and it is not a literal at all — it is a wrong formula
+with a confident comment next to it** (item 39). `exp_rm = 1/(rm+1)` is documented in two
+places as the Jacobian of the radial coordinate transformation (`TurbulenceAtm.h`;
+`PressureSolverAtm.h` writes it as `dp/dr_physical = exp_rm * dp/d(rad.z)`). It is the
+Jacobian of a **quadratic** stretch, `z ~ (rm+1)²/2`, while `init_layer_heights` builds an
+**exponential** one. Every radial derivative in the core is therefore mis-scaled by a factor
+varying **11.8×** across the column — the core's radial length unit is 25 km at the surface
+and 296 km at the top. The test is unit-free (`ratio(i) = [inv_2dr·exp_rm]/[1/(z[i+1]−z[i−1])]`
+must be constant in `i`), so it cannot be argued away as a units convention.
+`checkRadialMetric()` prints the spread at every startup; `ATM_METRIC_CHECK=1` adds the
+per-level table. **The lesson is narrower and worse than "look for Earth constants": the
+comment asserting the invariant was right there, in two files, agreeing with itself, and
+agreeing with the variable's name.**
+
 **Fixes worth porting back upstream** (not yet applied to ATOM_Precipitation as of
 2026-08-11): the `t.x[-1]` out-of-bounds in `MoistConvection::findCloudBaseLFS`; the
 `m_node_weights` OpenMP race in `GetMean_2D/3D`; the UB in `get_temperatures_from_curve`;
 and `-MMD -MP` header dependencies in the Makefile.
+
+**The `exp_rm` metric defect is live in ATOM_Precipitation and ATHAD_COND, and is worse
+upstream** (item 39) — checked, not assumed. ATOM_Precipitation has the identical
+`exp_rm = 1/(rm+1)`, the identical exponential `init_layer_heights`, and `zeta = 3.715`
+hard-coded at `cAtmosphereModel.h:273`, giving a **23.2×** spread against ATHAD's 11.8×;
+ATHAD_COND is at `zeta = 3.0`, so ~12×. ATJUP/ATSAT/ATURAN/ATNEPT have no `exp_rm` at all.
+`checkRadialMetric()` is the diagnostic to port first — it is print-only and self-silencing
+once the spread drops below 1.05, so it costs one startup line and cannot change a result.
 
 **The constant-density meridional streamfunction (`MinMax_Atm.cpp:175`,
 `const double rho = r_air`) is live in ATOM_Precipitation and ATHAD_COND** — checked, not
@@ -267,6 +294,23 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **The dynamics and the radiation do not agree where the levels are** (README item 39).
+  `exp_rm = 1/(rm+1)` is a quadratic-stretch Jacobian applied to an exponentially stretched
+  grid, so the core's radial derivatives are mis-scaled by a factor varying **11.8×** from
+  surface to top, while `get_layer_height()` — which the radiation, `ConvectiveAdjustment`
+  and every diagnostic use — has the true heights. The core's effective bottom layer is
+  ~15 km where the radiation's is 1.2 km. **It is not a function of `im`** (11.8× at 41,
+  12.3× at 61), so do not reach for the level count; `zeta` is the lever and
+  `zeta = ln(1.5) = 0.405` would make `exp_rm` correct by construction. Three independent
+  arguments — photosphere resolution, the diffusive CFL, and this metric — all say cut `zeta`
+  hard, and the CFL one says it is ~13× *cheaper*, not more expensive. **The open decision is
+  which repair**: replacing `exp_rm` is principled but touches ~91 sites across 10 files
+  including the Poisson operator and moves every number in the README, while cutting `zeta`
+  makes the existing metric accidentally correct. Settle that before any further `im` or
+  shell-depth work. `checkRadialMetric()` prints the spread every startup;
+  `ATM_METRIC_CHECK=1` adds the table. What is measured is the *shape*; the absolute
+  consequence (1.6× at the surface, 18.8× at the top against `L_atm`) is indicative only —
+  the full non-dimensionalisation has not been traced.
 - **The profile is still prescribed by default.** `densities()` overwrites `t` with the
   adiabat every iteration, so the OLR is a real integral over a profile the radiation did not
   choose. `ThermoAtm::printPlanetaryBalance` prints the lid temperature and emissivity next

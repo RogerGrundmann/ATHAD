@@ -2425,10 +2425,129 @@ the measurement.
     structure the model is handed. Everything in this file measured before item 38 used
     n = 3.
 
+39. **`exp_rm` is not the Jacobian it is documented to be, and `im` is the wrong question.**
+
+    The question this started from was which vertical resolution is physically right, 41
+    levels like the rest of the family or 61. The answer is that both are being asked about
+    a grid the solver and the radiation do not agree exists.
+
+    **The radiative case first, because it is what `im` actually decides.** Rebuilding the
+    column from the model's own formulas — Shomate `cp_of`, the exact `tau_gas` of
+    `MultiLayerRadiation.h`, hydrostatic on the layer-mean T anchored at `p_0` — and sorting
+    the layers by optical depth measured down from the top:
+
+    ```
+                                          im = 41    im = 61
+    layers with tau_above in [0.1, 10]          1          3
+    dtau of the layer where tau_above = 1     54.8        7.6
+    height of that crossing                 201 km     218 km
+    max dz/H                                  2.19       1.48
+    ```
+
+    At `im = 41` the **entire photosphere is one grid cell**, and that cell has `dtau = 55`:
+    level 35 sits at `tau_above = 10.8` and level 36 at 0.82, so the column goes from opaque
+    to transparent inside one layer. The two-stream sweep is first order in `dtau`, so the
+    escaping flux is computed across a layer whose source function is unresolved. That is
+    very likely what the un-converged OLR of the shell-depth check (519 W/m² at 260 km
+    against 581 at 300 km) is made of. `im = 61` is not converged either — you want
+    `dtau` ≲ 1 at the crossing — but it is poor rather than broken. **ATHAD_COND is the
+    kinder case and its shipped 61 is defensible**: `dtau@tau=1` = 2.9 and 4 photosphere
+    layers, because its 120 km shell is ~8 surface scale heights against ATHAD's 13.7
+    pressure e-folds, so the stretch has far less room to run away.
+
+    **Then the metric, which outranks the count.** `TurbulenceAtm.h` states that
+    `exp_rm = 1/(rm+1)` "is the Jacobian of the radial coordinate transformation", and every
+    radial derivative in the core is an index difference times `inv_2dr` times `exp_rm`.
+    `PressureSolverAtm.h` says the same in equation form: `dp/dr_physical = exp_rm *
+    dp/d(rad.z)`. It is not the Jacobian. `exp_rm = 1/(rm+1)` implies `dz/d(rm) = rm+1`,
+    a **quadratic** stretch `z ~ (rm+1)²/2`, while `init_layer_heights` builds an
+    **exponential** one, `z = (exp(zeta·(rm − rad.z[0])) − 1)·L_atm`. `zeta` appears nowhere
+    in the momentum, continuity or transport differences — only in `init_layer_heights`,
+    `InitValues_Atm.cpp`, `metricShellLength()` and one turbulence `log()`.
+
+    The test is **unit-free**, which is what makes it conclusive rather than a units
+    argument. For `(index difference)·inv_2dr·exp_rm` to be `d/dz_physical` under *one*
+    constant length normalisation — whatever that normalisation is — the quantity
+    `ratio(i) = [inv_2dr·exp_rm(i)] / [1/(z[i+1] − z[i−1])]` must be constant in `i`.
+    Measured at the shipped configuration (`im = 41`, `zeta = 3.0`):
+
+    ```
+      i    rad.z    exp_rm    z[km]   dz_true[km]   J_true[m]   J_code[-]   ratio[m]
+      1   1.0250   0.49383      1.2        1.320        50830       2.025    25124.7
+      9   1.2250   0.44944     15.2        2.404        92618       2.225    41665.1
+     17   1.4250   0.41237     40.5        4.381       168761       2.425    69657.3
+     25   1.6250   0.38095     86.8        7.983       307502       2.625   117253.6
+     33   1.8250   0.35398    171.0       14.546       560306       2.825   198524.2
+     39   1.9750   0.33613    277.2       22.813       878734       2.975   295649.9
+    ```
+
+    `ratio` rises monotonically by **11.77×**. The true `dz/d(rad.z)` spans 17.3× across the
+    shell; `1/exp_rm` spans 1.47×. Physically: **the core's radial length unit is 25 km near
+    the surface and 296 km at the top**, where it should be one number. No choice of `L_unit`
+    can absorb that — the metric has the wrong *shape*, not the wrong scale.
+
+    **It is not a function of `im`, and refining marginally hurts** — 11.77× at 41 levels,
+    12.29× at 61. The spread is set by `zeta` and the `rad.z` span, neither of which the
+    level count touches. So the original question has no good answer in the form it was
+    asked.
+
+    ```
+    spread of ratio(i):   zeta 3.0   2.0    1.5    1.0    0.5   0.405    0.3    0.1
+                 im=41       11.77  4.55   2.83   1.76   1.09    1.02   1.10   1.34
+    ```
+
+    The minimum at `zeta ≈ 0.405` is not a coincidence: it is `ln(1.5)`, where the quadratic
+    form's range over `rad.z ∈ [1,2]` matches the exponential's `exp(zeta)`.
+
+    **Three independent arguments now point the same way — cut `zeta`, do not raise `im`.**
+    Photosphere resolution (`dtau@tau=1` 54.8 → 3.4 at `zeta = 1.0`), the diffusive timestep
+    (the CFL goes as the physical surface spacing squared, so `zeta = 1.0` at `im = 41` buys
+    a **13×** larger `dt` — about 30× less wall clock per unit physical time than `im = 61`
+    at `zeta = 3.0`), and the metric (11.8× → 1.0). The reason they agree is the same in each
+    case: a surface-refining stretch is an **Earth** choice, made to resolve a boundary layer.
+    Here the bottom cells carry `dtau ≈ 9e4` each — radiatively dead, in perfect LTE — and the
+    surface temperature is a *prescribed boundary condition*. `zeta = 3.0` spends the grid
+    where the model has nothing to learn and starves the one region that sets its only output.
+
+    **What is verified and what is not.** The shape is measured and is not in doubt. The
+    *absolute* consequence is not: against the `L_atm = 15719 m` that `RHS_Atm_Turb`'s
+    coefficients divide by, `ratio` is 1.6× at the surface and 18.8× at the top, suggesting
+    radial derivatives are overweighted everywhere and increasingly so with height — but the
+    full non-dimensionalisation has not been traced, so treat that reading as indicative.
+    And the two repairs are **not** equivalent: replacing `exp_rm` with the true Jacobian is
+    the principled fix and makes any `zeta` valid, but it touches ~91 sites across 10 files
+    including the Poisson operator and moves every number this model has produced; cutting
+    `zeta` makes the existing metric accidentally correct and is far cheaper. That decision
+    wants its own measurement.
+
+    **This is inherited, and it is worse upstream.** `ATOM_Precipitation` has the identical
+    `exp_rm = 1/(rm+1)`, the identical exponential `init_layer_heights`, and `zeta = 3.715`
+    hard-coded at `cAtmosphereModel.h:273` — a spread of **23.2×**, about twice ATHAD's.
+    `ATHAD_COND` is at `zeta = 3.0`, so ~12× like ATHAD. ATJUP/ATSAT/ATURAN/ATNEPT have no
+    `exp_rm` at all. Checked, not assumed.
+
+    `cAtmosphereModel::checkRadialMetric()` now prints the spread at every startup and the
+    per-level table under `ATM_METRIC_CHECK=1`. It is print-only: a 1-iteration run against
+    the pre-change binary differs in timestamps, thread-banner order and wall-clock, and in
+    nothing else. The diagnostic exists because this defect was **documented in a comment**
+    and survived anyway — the same lesson as the pressure-solver race, and the reason
+    CLAUDE.md says a cross-reference is not a check.
+
 
 ## Remaining work
 
 
+- **The radial metric is wrong in shape and `zeta` is the lever, not `im`** (item 39).
+  `exp_rm = 1/(rm+1)` is a quadratic-stretch Jacobian applied to an exponential grid, so every
+  radial derivative is mis-scaled by a factor varying **11.8×** across the column — measured,
+  unit-free, and printed at every startup by `checkRadialMetric()`. Three separate arguments
+  (photosphere resolution, diffusive CFL, this metric) all say cut `zeta` hard, toward ~0.4.
+  **The open decision is which repair**: replacing `exp_rm` with the true Jacobian is
+  principled but touches ~91 sites and moves every number here, while cutting `zeta` makes the
+  existing metric accidentally correct for ~30× less wall clock. That wants a measurement, and
+  it should come before any further `im` or shell-depth work, because both are being chosen
+  against a grid the dynamics and the radiation do not agree on. **Worse upstream**:
+  `ATOM_Precipitation` at `zeta = 3.715` has a 23.2× spread.
 - **Every 400-iteration number predates item 22, and every imbalance predates item 25.** The
   composition-ordering fix halved the OLR at 20 iterations, and the 200-iteration runs then
   showed that a 20-iteration imbalance is a transient. Item 18's table is a valid
