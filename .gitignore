@@ -68,3 +68,7 @@ python/zeta_scan_status.txt
 python/config_hc*.xml
 python/run_hc*.log
 python/hcrit*_status.txt
+python/config_skin400.xml
+python/config_vtkfields.xml
+python/vtk_status.txt
+python/skin400_status.txt

@@ -294,6 +294,30 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **The photosphere is measured now, and it is 21 km higher than this file used to say**
+  (item 42). `tau_above` (cumulative LW optical depth from the lid) is a real array; before it
+  the photosphere was computed **nowhere in the model**, and every figure quoted for it came
+  from an offline dry, cloud-free Python column. Measured with moist physics on it is
+  **239.4 km / 325.2 K**, against the reconstruction's 218 km / 402.6 K — clouds add
+  `k_liq·LWP + k_ice·IWP` and push the crossing up. **Re-read item 39's "one grid cell of
+  dtau = 55" with that 21 km in mind.** `printPlanetaryBalance` now prints the height, the
+  temperature there, and the fraction of columns radiating from within 1 K of `t_skin`. New
+  companions: `tau_layer` (per-layer dtau, the resolution measure), `ubud_*` (the **radial**
+  momentum budget, absent while θ and φ both had one — item 28's spurious 293-rms radial
+  acceleration was invisible for exactly this reason), `N2` (measures "neutrally stratified by
+  construction" instead of asserting it, and tests invariant 4), and `Psi` as a field. All in
+  ParaView and Results. **`initCloudIce`'s H_crit is on a fraction of surface pressure now**,
+  which is right but measured as a 0.18 % effect on OLR, not the lever it was billed as: the
+  albedo cannot respond to cloud *amount* at all, because reflectivity saturates on presence.
+- **The radial momentum balance is the pressure gradient and nothing else** (item 42, measured): `ubud_pgf` 1.15 against `ubud_cor` **exactly 0** (non-traditional Coriolis is genuinely off, not just documented off), `ubud_advh` 0.0085, and `ubud_buoy` **1e-6** — item 34's extra `*dt` measured, the buoyancy body force is ~1e6 down and effectively absent. `N2` confirms invariant 4: 0 through the column, 2.74e-4 s⁻² only in the isothermal skin.
+- **The imbalance is not a second number** (item 43). `t_skin` is **262.95 K at every one of ten
+  diagnostics across 200 iterations** while the OLR falls 338.85 → 281.59, so σT_skin⁴ = 271.2 is
+  constant and the reported imbalance is *identically* the OLR's distance from it (281.59 − 271.2
+  = 10.4 against a printed −10.51). **"The energy balance closes" and "the OLR arrives at a number
+  that never moved" are the same event.** Any small imbalance reports only how far the OLR has
+  drifted toward σT_skin⁴. Item 25's mechanism is confirmed in direction — the skin-emission
+  fraction rises 1.1 → 39.2 % as the imbalance closes and the photosphere cools 368 → 270 K — but
+  **39.2 % is not a saturation and is not extrapolated**; both rates are decelerating.
 - **`t_skin` blocks every radiative measurement, and that is the top priority** (item 41).
   `OLR = σT_lid⁴ = absorbed SW + geothermal`, exactly, and the OLR has now failed to respond to
   four separate 6×–500× forcings: κ (64×, 0.10 %), the circulation (500×, 0.03 %), `im`

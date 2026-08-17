@@ -2699,6 +2699,197 @@ the measurement.
     item 39's photosphere question and this one. Three lines of work behind one fixed point.
 
 
+42. **Instruments for the things the model could not see — and the first one corrected a
+    number this file had been quoting from me rather than from the model.**
+
+    Items 39 and 41 both rested on the photosphere: the level where the cumulative optical
+    depth reaches 1, which is where the emission to space originates. **The model computed it
+    nowhere.** `epsilon` is a 3D array of *per-layer* emissivity, `tau` was a local scalar
+    overwritten every cell, and the cumulative value existed only in an offline Python column
+    of mine. Nor could it be recovered after the fact: `epsilon = 1 − exp(−tau)` saturates to
+    exactly 1.0 in double precision at `tau ≳ 37` and the deep column carries `tau ~ 9e4`
+    **per layer**, so the information is destroyed at write time and has to be accumulated
+    where `tau` is still in scope.
+
+    Five diagnostics, all print-only:
+
+    | field | what it is for |
+    |---|---|
+    | `tau_above` | cumulative LW optical depth from the lid down; the photosphere is where it crosses 1 |
+    | `tau_layer` | per-layer `dtau` — the model's own measure of how well it resolves its photosphere (item 39) |
+    | `ubud_*` (6) | the **radial** momentum budget, which did not exist while θ and φ both had one |
+    | `N2` | Brunt–Väisälä frequency squared — measures "neutrally stratified by construction" |
+    | `Psi` | the meridional streamfunction as a field, not just a CSV and a scalar |
+
+    All are in the three ParaView writers and in Results min/max. `printPlanetaryBalance` now
+    prints the `tau_above = 1` height, the temperature there, and the fraction of columns
+    radiating from within 1 K of `t_skin`, flagged past 50 %.
+
+    **The measurement that matters: the photosphere is not where this file said it was.**
+
+    ```
+                          this file (my offline column)     the model
+    photosphere height    218 km  (level 36)                239.4 km
+    temperature there     402.6 K                           325.2 K
+    ```
+
+    **21 km higher and 78 K colder.** The offline column was dry and cloud-free; the runs have
+    moist physics on, and cloud liquid and ice add `k_liq·LWP + k_ice·IWP` to the layer optical
+    depth, pushing the crossing upward. Every photosphere figure quoted before this item came
+    from the reconstruction, not the model, and should be read with that 21 km in mind — item
+    39's "the entire photosphere is one grid cell of `dtau = 55`" included.
+
+    **`initCloudIce`'s H_crit is now on a fraction of surface pressure, and the fix is a
+    correctness cleanup rather than the lever it was billed as.** The inherited parabola used
+    `x = p/1000` hPa with its minimum at 550 hPa — Earth's surface pressure and Earth's
+    mid-troposphere. At 250 bar levels 0–35 have `p > 1000` hPa, so `x > 1`, the parabola goes
+    negative and only the clamp saves `H_crit` → 1.0; then at level 36 it hits its minimum of
+    0.8010. Rescaled, the minimum moves to ~36 km — deep in the supercritical column where
+    nothing can condense — and `H_crit ≥ 0.9926` everywhere condensation is possible, so the
+    Earth profile goes inert here **by derivation** rather than by fiat. Exactly equivalent on
+    Earth, so it ports upstream. `ATM_HCRIT_ABS=1` restores the old form.
+
+    Two 100-iteration arms, moist physics from iteration 0, 24 threads, one binary:
+
+    ```
+                       fixed      inherited      delta
+    albedo             0.4987     0.4987         0
+    absorbed SW        121.07     121.07         0
+    OLR                299.04     298.49         +0.55 W/m2  (0.18 %)
+    max cloud water    13.556493  13.557265      -0.006 %
+    T at photosphere   325.20 K   322.56 K       +2.64 K
+    ```
+
+    **The predicted mechanism failed, twice over, and both failures were caught by
+    instruments added after the prediction.** The chain proposed was: higher threshold at the
+    photosphere → less cloud → lower albedo → more absorbed SW → higher `t_skin` → higher OLR.
+    The albedo did not move **at all**, because reflectivity saturates on the *presence* of
+    condensate and not its amount — so that chain is structurally impossible in the shipped
+    configuration, whatever the cloud amount does. And the perturbation was mis-sized because
+    of the 21 km above: at the real photosphere (~239 km, levels 37–38) the inherited `H_crit`
+    was **0.917–0.985**, a 2–8 % effect, not the 20 % the parabola's minimum at 218 km implied.
+    An order of magnitude of the ~200× shortfall is accounted for by my own misplacement of
+    the level. The sign held; nothing else did.
+
+    This also leaves item 41 owing an explanation: if cloud *amount* cannot move the albedo,
+    then whatever moved it across the `zeta` scan (0.4986 → 0.4945) was cloud **coverage** —
+    which levels hold any condensate at all — and that attribution is unverified.
+
+    **An unexpected result, and the first testable prediction this session has produced that
+    is not blocked behind `t_skin` — because it is a measurement of `t_skin`.** At iteration
+    100 only **17.1 %** of columns radiate from within 1 K of `t_skin`; the flag needs 50 % and
+    did not fire. So the pinning is not yet dominant at 100 iterations. But these runs are
+    28 W/m² from balance, and item 41 showed that convergence drives the OLR down onto
+    `σT_lid⁴` exactly. If item 25's mechanism is right, the skin fraction must **rise toward
+    100 % as the imbalance closes** — the radiating level migrating into the isothermal top is
+    precisely what item 25 claims. That is now falsifiable rather than inferred. See item 43.
+
+    **The fields validate against independent references, which is why they were checked before
+    being trusted.** At the first populated checkpoint: `tau_above` max **2 196 033** at the
+    surface against the offline column's 2.28e6 (3.6 %); `tau_layer` max **111 181** at 12.9 km,
+    peaking above the surface as the offline `dtau` profile also does; `ubud_pgf` **+1.19 / −1.26**
+    nd at 18°S/94.8 km and 7°N/72.5 km; and `Psi` max **1.0651e14 kg/s** against the existing CSV
+    writer's own `Psi_max = 106510.84 (1e9 kg/s)` — an **exact** match, which is the check that the
+    replication across `k` is right.
+
+    **`N2` is the one that earns its place immediately: it confirms invariant 4 by measurement
+    for the first time.** It is 0.000000 through the column and reaches **2.74e-4 s⁻² only at
+    277 km** — neutral exactly where the adiabat is imposed, stably stratified only in the
+    isothermal skin. An isothermal layer gives `N² = g²/(cp·T) ≈ 2e-4` at 263 K, so the magnitude
+    is right as well as the shape. "Neutrally stratified by construction" is no longer an
+    assertion.
+
+    **`ubud_*`'s first result measures two things this file had only asserted.** All six terms
+    from a single capture, max |value| in nondimensional tendency:
+
+    ```
+    ubud_pgf    1.153554     <- dominates the next term by 136x
+    ubud_cor    0.000000     <- identically zero
+    ubud_advv   0.000840
+    ubud_advh   0.008502
+    ubud_diff   0.000071
+    ubud_buoy   0.000001     <- 1.15e6 times smaller than the pressure gradient
+    ```
+
+    `ubud_cor` is **exactly** zero in the same capture in which `ubud_pgf` is 1.15, which confirms
+    `coriolis_nontraditional()` is genuinely off rather than merely documented as off — the check
+    CLAUDE.md asks for ("read the switches, not just the RHS") now runs itself.
+
+    And `ubud_buoy` at 1e-6 against a 1.15 pressure gradient is **item 34 measured**: the
+    buoyancy body force carries an extra `*dt`, so with `dt = 1e-4` it enters ~1e-4 too weak and
+    is effectively absent from the radial balance. That makes item 28's claim quantitative — with
+    the default switches `rhs_u` really is the radial pressure gradient *and nothing else*: no
+    non-traditional Coriolis, no curvature, and a buoyancy term six orders of magnitude down.
+
+    **Two ordering caveats in the new fields, from the run loop rather than the wiring** — both
+    now confirmed empirically: the first checkpoint reports `ubud_*` and `Psi` as identically
+    zero and the second reports the values above.
+    `ubud_*` in the **vtk lags one checkpoint interval**: the vtk is written at
+    `cAtmosphereModel.cpp:1632` and `ubudget_capture` is set at 1671, after it, so iteration
+    20's file carries the split captured during iteration 0's RK4. `vbud_*`/`wbud_*` escape this
+    because their CSV is written at 1748, after capture. And `Psi`'s **Results min/max is one
+    checkpoint stale** (zero on the first), because `print_min_max_atm()` runs at 1630, one line
+    before the fill at 1631 — the vtk value itself is current. Both are fixed by moving the
+    capture flags ahead of the checkpoint block; not done, to avoid reordering the run loop
+    while a measurement was being taken on it.
+
+43. **The prediction of item 42 is confirmed in direction and unsettled in magnitude — and the
+    imbalance turns out not to be an independent quantity at all.**
+
+    Item 42 predicted that if item 25's mechanism is right, the fraction of columns radiating
+    from within 1 K of `t_skin` must rise as the imbalance closes. Tested on the shipped
+    configuration, moist physics from iteration 0, 24 threads, **stopped at iteration 200 once
+    the trend could be judged** rather than run to 400:
+
+    ```
+    iter   z_ph    T_ph  skin%    imbal      OLR   t_skin
+      20   237.4  368.41    1.1    -67.78   338.85   262.95
+      40   237.4  368.00    1.1    -52.70   323.77   262.95
+      60   237.5  358.01    1.1    -42.54   313.61   262.95
+      80   238.2  339.10    7.2    -33.98   305.05   262.95
+     100   239.4  324.17   17.1    -27.63   298.70   262.95
+     120   240.9  305.03   20.4    -22.98   294.06   262.95
+     140   242.2  294.99   20.4    -18.85   289.92   262.95
+     160   243.4  282.04   30.3    -15.49   286.56   262.95
+     180   244.7  273.24   37.0    -12.79   283.86   262.95
+     200   245.9  270.36   39.2    -10.51   281.59   262.95
+    ```
+
+    **Confirmed, in direction.** The skin fraction rises 1.1 → 39.2 % while the imbalance closes
+    −67.78 → −10.51 and the photosphere descends from 368 K to 270 K against a `t_skin` of
+    262.95. The radiating level migrating into the isothermal top is exactly item 25's claim, and
+    it is now observed rather than inferred. The stair-stepping (plateaus at 1.1 and at 20.4) is
+    what a threshold diagnostic does on a hemispherically symmetric field: the surface
+    temperature is a smooth parabola in latitude, so whole bands cross "within 1 K" together.
+
+    **Not settled, and this file's own rule applies.** 39.2 % is not near 100 %, and both rates
+    are decelerating — the photosphere cooled 8.8 K over iterations 160–180 and only 2.9 K over
+    180–200, and the imbalance decrements decay 15.1, 10.2, 8.6, 6.4, 4.7, 4.1, 3.4, 2.7, 2.3.
+    **Where the skin fraction saturates is unknown and is not extrapolated here.** A monotone
+    trend is not a limit; this file has been caught on that twice on radiation numbers already.
+
+    **The sharper result, which was not the thing being tested.** `t_skin` is **262.95 K at
+    every one of the ten diagnostics** — constant to five significant figures across a run in
+    which the OLR fell by 57 W/m². Since the absorbed flux is the `t_skin` fixed point,
+    σT_skin⁴ = 271.2 W/m², and the imbalance is therefore *identically* the OLR's distance from
+    that constant: 281.59 − 271.2 = 10.4 against a reported −10.51. **"The energy balance
+    closes" and "the OLR arrives at a number that never moved" are the same event, not two
+    agreeing measurements.** Item 25 said the converged imbalance was the least trustworthy
+    number in the file; this shows it is not really a second number at all. Any future run
+    reporting a small imbalance is reporting how close the OLR has drifted to σT_skin⁴, and
+    nothing else, until the fixed point is broken.
+
+    **One incidental observation.** The photosphere *rises* 237.4 → 245.9 km, 8.5 km, while
+    cooling 98 K. It is not descending through a fixed profile; the profile is cooling underneath
+    it and the optical depth is redistributing. Worth remembering when reading item 39's
+    resolution argument, which treated the crossing height as a property of the grid.
+
+    **Method note.** The run was stopped at 200 deliberately. It also produced no usable vtk —
+    `checkpoint` was set to 400 to cut I/O, so only the iteration-0 file was written, where
+    `tau_above` is identically zero because radiation has not yet run. A separate short run with
+    `checkpoint = 20` was needed to get the new fields into ParaView at a meaningful state.
+
+
 ## Remaining work
 
 
