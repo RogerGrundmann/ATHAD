@@ -318,6 +318,17 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   drifted toward σT_skin⁴. Item 25's mechanism is confirmed in direction — the skin-emission
   fraction rises 1.1 → 39.2 % as the imbalance closes and the photosphere cools 368 → 270 K — but
   **39.2 % is not a saturation and is not extrapolated**; both rates are decelerating.
+- **The `t_skin` pinning belongs to the PRESCRIBED profile and is escapable** (item 45). With
+  `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1` there is no isothermal top for the radiating level to
+  migrate into, and `skin%` is **0.0 at all twenty diagnostics** over 400 iterations — the
+  mechanism item 43 measured cannot operate. **But what escapes it radiates 2927 W/m², 10.8x the
+  271 absorbed, and is still falling at 400** (extends item 30: 6211 at 200 was not a floor, it
+  fell a further 53 %; 2927 is not claimed as one either). `t_skin` is still 262.93 throughout,
+  because it is a fixed point of the ABSORBED flux and independent of the column — so the
+  imbalance is again exactly the OLR's distance from a constant, in a regime 10x different.
+  **Open**: the effective emission temperature is 476 K against 368 K at `tau_above = 1`, so
+  emission comes from deeper and hotter than the photosphere. Understand that before spending
+  more integration. Also: `restart_stride = 0` did NOT disable the restart dump.
 - **`t_skin` blocks every radiative measurement, and that is the top priority** (item 41).
   `OLR = σT_lid⁴ = absorbed SW + geothermal`, exactly, and the OLR has now failed to respond to
   four separate 6×–500× forcings: κ (64×, 0.10 %), the circulation (500×, 0.03 %), `im`

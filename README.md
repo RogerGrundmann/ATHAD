@@ -2933,6 +2933,57 @@ the measurement.
     scan is possible at all.
 
 
+45. **The `t_skin` fixed point does break under prognostic temperature — and what escapes it
+    radiates away eleven times what it absorbs.**
+
+    Items 41–43 established that every radiative measurement was pinned: `OLR = σT_skin⁴ =
+    absorbed`. This is the run that tests whether the pinning is a property of the *model* or of
+    the *prescribed profile*. `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1`, shipped config otherwise,
+    moist physics from iteration 0, 24 threads, 400 iterations, `checkpoint = 20`. Completed
+    rc = 0, no NaN, 21 vtk checkpoints.
+
+    ```
+    iter         OLR       imbal     z_ph     T_ph   skin%   t_skin
+      20    21239.70   -20968.72    240.4   459.83     0.0   262.92
+     100     8700.29    -8429.29    249.6   397.08     0.0   262.93
+     200     6254.32    -5983.31    252.4   385.70     0.0   262.93
+     300     3930.43    -3659.41    254.0   374.55     0.0   262.93
+     400     2926.65    -2655.63    254.8   368.05     0.0   262.93
+    ```
+
+    **The pinning is a property of the prescribed profile, not of the model.** `skin%` is
+    **0.0 at every one of twenty diagnostics** — not one column radiates from within 1 K of
+    `t_skin`, and the photosphere sits at 368 K against a `t_skin` of 263. With the adiabat no
+    longer re-imposed there is no isothermal top for the radiating level to migrate into, so the
+    mechanism item 43 measured cannot operate. That answers the question items 29/39/41 were
+    blocked on: the fixed point *can* be escaped.
+
+    **But what escapes it is not a steady state.** The OLR is **2927 W/m², 10.8× the 271 W/m²
+    absorbed**, and still falling at iteration 400, with the first non-monotonicity in the series
+    at 360 → 380 (3217 → 3244).
+
+    **This extends item 30 and vindicates its own warning.** Item 30 measured 15 764 → 8 542 →
+    6 211 over 200 iterations and said explicitly that a monotone trend is not a limit. This run
+    reproduces it closely (8 700 at 100, 6 254 at 200) and then falls a further **53 %** by 400.
+    So 6 211 was nowhere near a floor — and **2 927 is not claimed to be one either.**
+
+    **Item 43's result survives into a regime ten times different.** `t_skin` is 262.93 K at all
+    twenty diagnostics here too, because it is a fixed point of σT⁴ = absorbed SW + geothermal and
+    depends on the albedo and insolation, not on the column. So the imbalance is *again* exactly
+    the OLR's distance from a constant: 271.02 − 2926.65 = −2655.63, matching the printed value to
+    the last digit. **The imbalance is never an independent measurement, in either configuration.**
+
+    **The open question this creates.** The effective emission temperature at 400 iterations is
+    (2927/σ)^¼ = **476 K**, well above the **368 K** at `tau_above = 1`. Emission is therefore
+    coming from deeper and hotter than the photosphere, which should not happen in a grey
+    two-stream column unless the opacity is letting deep hot layers leak out. That wants
+    understanding before more integration is spent — `tau_layer` is now the instrument for it.
+
+    **Method notes.** A restart dump `atm_restart_0Ma_300.bin` was written **despite
+    `restart_stride = 0`**, which is supposed to disable it; useful here, but the knob does not
+    do what it says. The run is being continued from that checkpoint rather than recomputed.
+
+
 ## Remaining work
 
 
