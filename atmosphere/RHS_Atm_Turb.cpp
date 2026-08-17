@@ -363,13 +363,30 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
     double buoyancy = 1.0;
 
     double coeff_buoy     = r_air * g;
+    // ATM_COEFF_SHELL — put the forcing/damping coefficients on the SAME length as the
+    // metric, which is what the note further down ("STILL ON L_atm, and therefore still 40x
+    // too weak") says they need. force_nd was already converted to metricShellLength(); these
+    // were not, so the nondimensionalisation is split across two lengths that differ by 1/dr.
+    //
+    // WHY THIS IS A KNOB AND NOT A FIX: it moves every damping and forcing term by ~1/dr = 40,
+    // so every number in the README shifts. Default OFF, bit-identical when unset.
+    //
+    // WHAT IT UNBLOCKS (README item 41): L_atm is the stretch AMPLITUDE, so holding the shell
+    // at 300 km while varying zeta drives L_atm 15.7 km -> 462 km, a 29x swing, and drags all
+    // of these with it. metricShellLength() is the SHELL, which is invariant under exactly that
+    // scan. So with this on, a zeta scan varies the grid and nothing else — which is the only
+    // way the diffusive-CFL half of item 39's argument can be measured at all.
+    static const bool coeff_shell = [](){
+        const char* e = getenv("ATM_COEFF_SHELL"); return e && atoi(e) != 0; }();
+    const double L_coeff = coeff_shell ? metricShellLength() : L_atm;
+
     double coeff_energy_p = u_0 * u_0 / (cp_l * t_0);
     double coeff_energy   = 1.0 / (c_0 * cp_l * t_0);
-    double coeff_u_p      = 0.5 * r_air * u_0 * u_0 / L_atm;
+    double coeff_u_p      = 0.5 * r_air * u_0 * u_0 / L_coeff;
     double coeff_trans    = 1.0;
-    double coeff_MC_vel   = L_atm / (u_0 * u_0);
-    double coeff_MC_q     = L_atm / (u_0 * c_0);
-    double coeff_MC_t     = L_atm / (u_0 * t_0);
+    double coeff_MC_vel   = L_coeff / (u_0 * u_0);
+    double coeff_MC_q     = L_coeff / (u_0 * c_0);
+    double coeff_MC_t     = L_coeff / (u_0 * t_0);
 
     // Coriolis
     double coriolis = 1.0;
@@ -470,8 +487,8 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
                                                           M_other_ijk);
     double Q_Latent_Ice = 0.0;
 
-    double coeff_S = lamda * t_0 / L_atm;
-    double coeff_L = r_air * c_0 * lv * u_0 / L_atm;
+    double coeff_S = lamda * t_0 / L_coeff;
+    double coeff_L = r_air * c_0 * lv * u_0 / L_coeff;
 
     if(c.x[i][j][k] >= 0.85 * q_Rain){
         Q_Latent.x[i][j][k] = u_ijk * dclouddr
@@ -540,7 +557,7 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
 
         const double dis_here = std::max(dis.x[i][j][k], dis_min_loc);
         const double tke_here = std::max(tke.x[i][j][k], 0.0);
-        const double nue_max  = 1000.0 / (u_0 * L_atm);
+        const double nue_max  = 1000.0 / (u_0 * L_coeff);
         double cnue = use_k_epsilon_turbulence_model
                     ? C_nue_loc * tke_here * tke_here / dis_here
                     : tke_here / dis_here;
@@ -988,7 +1005,7 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
         // relaxation is k_T*L_atm/u_0 (dimensionless), integrated by RK4's own *dt like every
         // other rhs_t term (advection/diffusion/latent, all dt^1). The extra *dt made HS enter
         // as dt^2 = ~1e-4 too weak -> inert (t_eq shift never reached T; CO2 forcing invisible).
-        rhs_t.x[i][j][k] -= (k_T * L_atm / u_0) * (t.x[i][j][k] - t_eq.x[i][j][k]);
+        rhs_t.x[i][j][k] -= (k_T * L_coeff / u_0) * (t.x[i][j][k] - t_eq.x[i][j][k]);
     }
 
 
@@ -1033,7 +1050,7 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
     double drag_profile = 1.0 - (double)(i - i_topography[j][k]) / drag_n_layers;
     if(drag_profile < 0.0) drag_profile = 0.0;
     if(drag_profile > 1.0) drag_profile = 1.0;
-    double surf_drag = (rayleigh_kf * L_atm / u_0 * dt) * drag_profile;
+    double surf_drag = (rayleigh_kf * L_coeff / u_0 * dt) * drag_profile;
 
     rhs_v.x[i][j][k] = -dpdthe_invrm - transport_v + diffusion_v
         + coriolis * force_nd * coriolis_the

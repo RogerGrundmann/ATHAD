@@ -1627,8 +1627,12 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
             }
 
             if(iter_n % checkpoint == 0){
-                print_min_max_atm();
+                // Psi is FILLED here and READ by print_min_max_atm, so the fill goes first.
+                // It used to run after, which left the reported Psi min/max one checkpoint
+                // stale and zero on the first (README item 42). The vtk written below was
+                // always correct; only the printed extrema were behind.
                 write_meridional_streamfunction(iter_n);   // Hadley/Ferrel cell strength (zonal-mean v + Ψ) per vtk checkpoint
+                print_min_max_atm();
                 UtilsAtm(*this).writeFile(bathymetry_name, output_path, false);
                 cout << endl << "      AGCM: write_file in run_3D_loop atm ......................." << endl;
             }
@@ -1668,7 +1672,13 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
             zonal_mean_w(wb_prev);   // wbar before RK4
         }
 
-        ubudget_capture = do_vbudget;     // have rhs_u store its per-term split this RK4 (turbulent path)
+        // ubud_* is read by the ParaView/Results block at the TOP of a checkpoint iteration,
+        // which runs before this RK4 — so capturing only on checkpoint iterations left the
+        // written field one whole checkpoint interval stale (item 42: identically zero at the
+        // first checkpoint). Capturing on the PRE-checkpoint iteration as well makes what the
+        // vtk carries one iteration old instead. vbudget/wbudget deliberately keep the
+        // checkpoint-only condition: their CSV is written after this RK4, so it is current.
+        ubudget_capture = do_vbudget || ((iter_n + 1) % checkpoint == 0);
         vbudget_capture = do_vbudget;     // have rhs_v store its per-term split this RK4 (turbulent path)
         wbudget_capture = do_vbudget;     // have rhs_w store its per-term split this RK4 (turbulent path)
         // Single dynamical core (2026-07-08): the turbulent RHS reduces to LAMINAR when

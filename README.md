@@ -2890,6 +2890,49 @@ the measurement.
     `checkpoint = 20` was needed to get the new fields into ParaView at a meaningful state.
 
 
+44. **The surface drag is Earth's, twice over: its strength was fitted to a jet off Chile and
+    its depth is a cell count, which makes it 30× deeper here.**
+
+    Neither is a config parameter. Both are `constexpr` in `RHS_Atm_Turb.cpp`, and both carry
+    comments justifying them by Earth's geography — the pattern CLAUDE.md catalogues, in a file
+    nobody has re-read since the fork.
+
+    **The strength.** `rayleigh_kf = 1.0/86400.0`, with the comment: *"baseline 1/day gave ~34 m/s
+    eastward w off W-coast S-America; 10× cut the surface to ~28 m/s and 20× gained nothing (the
+    jet max sits at ~1 km, above the drag layer), so 10× is the settled strength."* ATHAD has no
+    South America. Invariant 1 guarantees it: `h ≡ 0`, `is_land()` false everywhere.
+
+    **The depth, and this is the part that bites.** `drag_n_layers = 5.0` is a count of **air
+    cells**, not a length, so its physical depth is whatever the grid makes it:
+
+    ```
+    ATOM_Precipitation (Earth, L_atm = 400 m, zeta = 3.715)   5 cells =   236 m
+    ATHAD              (L_atm = 15719 m, zeta = 3.0)          5 cells =  7152 m
+                                                              ratio   =  30.3x
+    ```
+
+    The comment calls 5 "the physical 5" and defends it against a 10-cell test by noting the
+    coastal jet max at ~1 km sits *above* the drag layer — true when the layer is 236 m. Here the
+    same constant applies a momentum sink through **7.2 km** of the column. It is the same defect
+    shape as `init_tropopause_layers`' `round(h / L_atm)`: a grid index treated as a physical
+    length, which is only a length on the grid it was written for.
+
+    **It is live, and it carries two other known defects.**
+    `surf_drag = (rayleigh_kf * L_atm / u_0 * dt) * drag_profile` multiplies `rhs_v` and `rhs_w`
+    (not `rhs_u` — deliberately). The `* dt` inside it is item 34's extra factor, so the drag
+    enters as dt² like the buoyancy term; and it divides by `L_atm`, so it is on item 41's list of
+    coefficients that a shell-preserving `zeta` change moves by 29×. Three separate recorded
+    problems meet in one expression.
+
+    **Why this matters now rather than as bookkeeping.** The open question about the dynamics is
+    the tropical cell decaying with no turnover (items 28, 31, 37), and drag is the obvious sink.
+    A momentum sink 30× deeper than intended, entering at dt² and riding on `L_atm`, is a
+    first-order suspect that has never been varied. **Unlike the radiative questions this one is
+    not blocked behind `t_skin`** — Ψ responds to drag directly, and `ubud_*`/`vbud_*` can now
+    attribute it. Nothing is changed here; both constants should become parameters first, so the
+    scan is possible at all.
+
+
 ## Remaining work
 
 

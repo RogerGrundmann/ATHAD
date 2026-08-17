@@ -72,3 +72,5 @@ python/config_skin400.xml
 python/config_vtkfields.xml
 python/vtk_status.txt
 python/skin400_status.txt
+python/config_prog400.xml
+python/prog400_status.txt
