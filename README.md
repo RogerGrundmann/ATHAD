@@ -2984,6 +2984,68 @@ the measurement.
     do what it says. The run is being continued from that checkpoint rather than recomputed.
 
 
+46. **The prognostic OLR does stop falling — at 5.2× the absorbed flux, because the prescribed
+    surface is an infinite reservoir.**
+
+    Item 45 left the endpoint unknown and refused to extrapolate. Continued from the
+    iteration-300 restart to **901** with the same knobs (`ATM_PROGNOSTIC_T=1
+    ATM_RAD_DIRECT=1`, moist from 0, 24 threads, `checkpoint = 20`). Completed rc = 0, no NaN.
+
+    ```
+    iter      OLR    T_ph    z_ph        iter      OLR    T_ph    z_ph
+     401  2900.29  367.92   254.6         661  1332.21  357.89   255.5   <- minimum
+     501  2190.19  364.16   255.1         701  1422.79  358.49   255.5
+     601  1673.70  361.07   255.3         801  1360.07  359.42   255.7
+     641  1477.96  359.47   255.3         901  1429.75  360.23   255.8
+    ```
+
+    **There is a genuine turning point near iteration 660–680.** The OLR bottoms out around
+    1300 and then flattens at **~1400 W/m², scattering ±6 % with no further trend** — mean 1363
+    over 661–781 against 1425 over 801–901, i.e. flat to slightly *rising*. `T_ph` turns at the
+    same place: a minimum of **357.89 K at 661**, back to 360.23 by 901. `z_ph` saturates at
+    255.7–255.8 km. So the answer to item 45's question is **no** — it does not approach
+    σT_skin⁴ = 271, and it does not keep falling either.
+
+    **Why it lands there, and this is the part that matters.** 1400 W/m² is **5.2× the 271 W/m²
+    absorbed**, with a persistent imbalance of ≈ −1130 W/m². That is not an energy-conserving
+    steady state, and it cannot be: **`t_surf_equator` = 1500 K is prescribed**, so the surface
+    is an infinite reservoir. The column drains heat from that boundary and radiates it away, and
+    the steady state is set by how much flux the prescribed surface can drive through the column,
+    not by a top-of-atmosphere balance. The TOA imbalance does not close because the boundary
+    condition supplies it indefinitely.
+
+    So this run converged to a real fixed point *of the model as posed*. CLAUDE.md's standing
+    caveat — "the surface temperature is prescribed, not solved; every result is conditional on
+    it" — is not a footnote to prognostic mode, it **is** prognostic mode's answer. Freeing the
+    column from the adiabat (item 45) removes one prescribed profile and leaves the model pinned
+    to another, one layer down. **A genuine radiative equilibrium needs the surface temperature
+    solved, not just the column freed.**
+
+    **Item 45's "first non-monotonicity" was over-read, and this corrects it.** I flagged
+    360 → 380 (3217 → 3244) as if a single reversal might signal an approaching floor. It did
+    not. The series carries ±5–6 % scatter throughout, with reversals at 361, 421, 481, 581, 701
+    and after. The real floor arrived **280 iterations later** and announced itself as a turning
+    point in `T_ph`, not as a reversal in a noisy OLR. One reversal in a scattered series is not
+    a signal — the same lesson as "a monotone trend is not a limit", in the opposite direction.
+
+    **Item 45's open question is shrinking on its own.** The gap between the effective emission
+    temperature and the photosphere narrows from **476 K vs 368 K (108 K)** at iteration 400 to
+    **398 K vs 360 K (38 K)** at 901, consistent with the column approaching a self-consistent
+    profile rather than with a leak. Worth re-checking with `tau_layer` but no longer alarming.
+
+    **Restart fidelity: attempted, INCONCLUSIVE, and the design is why.** Recomputed iterations
+    against the original differ by ±5–6 %, but the series' own scatter between diagnostics is
+    ±5 %, so the comparison cannot discriminate a faithful restart from a mildly unfaithful one.
+    Two further confounds: the restart shifts the diagnostic phase by one iteration (321 rather
+    than 320), so an equality check matches nothing and any comparison needs interpolation across
+    a 20-iteration gap in a noisy series; and the binary differed between the two runs (12:20
+    against 12:25 build — items 2 and 4, physics-neutral by construction but not proven).
+    What *is* established: `t_skin` is 262.93 in both, and the 29 serialized arrays are the full
+    prognostic set including the RK4 `n` copies. Evidence favours fidelity; it is not verified.
+    The decisive test is a from-scratch rerun to 401 on the current binary, which would settle
+    the rebuild question at the same time. **Sequence runs after builds, not before.**
+
+
 ## Remaining work
 
 

@@ -318,6 +318,18 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   drifted toward σT_skin⁴. Item 25's mechanism is confirmed in direction — the skin-emission
   fraction rises 1.1 → 39.2 % as the imbalance closes and the photosphere cools 368 → 270 K — but
   **39.2 % is not a saturation and is not extrapolated**; both rates are decelerating.
+- **Freeing the column does not free the model: the prescribed SURFACE is the next pin down**
+  (item 46). Continued to 901 iterations, the prognostic OLR **stops falling** — a turning point
+  near 660-680, then a plateau at **~1400 W/m2 (+-6 %, flat to slightly rising)**, with `T_ph`
+  bottoming at 357.89 K and returning to 360.2. That is **5.2x the 271 absorbed**, a persistent
+  -1130 W/m2 imbalance that *cannot* close: `t_surf_equator` = 1500 K is prescribed, so the
+  surface is an infinite reservoir and the steady state is the flux it drives through the column,
+  not a TOA balance. **A genuine radiative equilibrium needs the surface temperature SOLVED, not
+  just the column freed.** Restart fidelity was attempted and is INCONCLUSIVE (+-5-6 % deltas
+  against +-5 % intrinsic scatter, a one-iteration diagnostic phase shift, and a binary that
+  differed between runs); `t_skin` matched exactly and the 29 serialized arrays are the full
+  prognostic set, so evidence favours fidelity without verifying it. **Sequence runs after
+  builds.**
 - **The `t_skin` pinning belongs to the PRESCRIBED profile and is escapable** (item 45). With
   `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1` there is no isothermal top for the radiating level to
   migrate into, and `skin%` is **0.0 at all twenty diagnostics** over 400 iterations — the
