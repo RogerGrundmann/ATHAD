@@ -318,8 +318,30 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   drifted toward σT_skin⁴. Item 25's mechanism is confirmed in direction — the skin-emission
   fraction rises 1.1 → 39.2 % as the imbalance closes and the photosphere cools 368 → 270 K — but
   **39.2 % is not a saturation and is not extrapolated**; both rates are decelerating.
+- **The model cannot reach radiative equilibrium by integration, and that reframes invariant 3**
+  (item 47). Column heat capacity `p/g*cp` = 5.20e9 J/m2/K, so the measured -1130 W/m2 net drains
+  it at **6.85 K per YEAR** — 100 K takes 14.6 years. A 901-iteration run covers **under an hour**
+  of physical time (177 s or 3375 s depending on which L the time unit uses — see below), i.e.
+  **5-7 orders of magnitude short**. So item 46's "plateau" is a transient, not an endpoint, and
+  its mechanism was wrong: **the surface is NOT prescribed during a run.**
+  `MultiLayerRadiation.h:452` already floats it via a surface energy balance and it settles at
+  1498.7 K, radiatively locked to a column that radiates 280 kW/m2 down onto it (suppression
+  x236). The reservoir is the 250 bar of gas. **Invariant 3 treats the prescribed adiabat as a
+  deficiency; it is in fact the only equilibrium obtainable here** — the alternatives are
+  operator-splitting the thermal equation, cutting the column heat capacity during spin-up, or
+  solving the RC column directly. A Neumann `p_stat` BC would NOT help: `p_s` is the weight of the
+  air above, not a free value, and item 19 pinned it for exactly that reason.
+- **No run in this file has a stated physical duration** (item 47). The time unit is "L/u_0" and
+  which L is ambiguous — `L_atm` (15.7 km) against `metricShellLength` (300 km), a **19x**
+  difference. Item 41's defect in the time coordinate. Every "N iterations" is a count, not a time.
+- **There is no functioning surface boundary-condition layer** (item 48). All three sites --
+  `BC_Atm.h:433`, `BC_Atm.h:1108`, `ThermoAtm.h:1540` -- are written as "copy from
+  `i_topography`", which invariant 1 fixes at 0, so all are identities `x[0] = x[0]`. Surface
+  values are whatever the last physics routine wrote (MLR for `t`, `densities()` for
+  `p_stat`/`r_dry`/`r_humid`) — chosen by call order, not by design. **Any surface condition must
+  be written, not enabled.** The dead-land-branch pattern at the scale of a whole layer.
 - **Freeing the column does not free the model: the prescribed SURFACE is the next pin down**
-  (item 46). Continued to 901 iterations, the prognostic OLR **stops falling** — a turning point
+  (item 46 — mechanism SUPERSEDED by item 47; the plateau is real, the explanation was not). Continued to 901 iterations, the prognostic OLR **stops falling** — a turning point
   near 660-680, then a plateau at **~1400 W/m2 (+-6 %, flat to slightly rising)**, with `T_ph`
   bottoming at 357.89 K and returning to 360.2. That is **5.2x the 271 absorbed**, a persistent
   -1130 W/m2 imbalance that *cannot* close: `t_surf_equator` = 1500 K is prescribed, so the

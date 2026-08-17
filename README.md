@@ -3046,6 +3046,107 @@ the measurement.
     the rebuild question at the same time. **Sequence runs after builds, not before.**
 
 
+47. **The reservoir is 250 bar of gas, not a boundary condition — and items 45–46 are corrected
+    by that. The model cannot reach radiative equilibrium by integration.**
+
+    Item 46 concluded that the prognostic OLR plateaus at 5.2× the absorbed flux "because
+    `t_surf_equator` = 1500 K is prescribed, so the surface is an infinite reservoir." **That
+    mechanism is wrong.** The surface is not prescribed during the run.
+
+    **The surface already floats.** `MultiLayerRadiation.h:452` solves a linearised surface
+    balance — absorbed SW + geothermal + downwelling LW − σT_s⁴ + sensible exchange with the
+    first air level — and writes `m.t.x[i_mount][j][k]` directly, with `i_mount` = 0. Under
+    `ATM_PROGNOSTIC_T=1` nothing overwrites it, so it was floating throughout items 45 and 46.
+    It settles at **1498.7 K** (min 1449.0, mean 1481.9) because the column immediately above
+    radiates ~280 kW/m² downward onto it: `σT_surf⁴ = 280 258 W/m²` against an OLR of ~1190, a
+    suppression of **×236**. Surface and first air layer are radiatively locked, so floating the
+    surface changes nothing while the air above it is hot.
+
+    **The decisive number, which no item before this one computed.**
+
+    ```
+    column heat capacity   p/g·cp            = 5.20e9 J/m²/K
+    at the measured -1130 W/m² net           = 6.85 K per YEAR
+                                             -> 100 K of cooling takes 14.6 years
+
+    simulated time, 901 iterations at dt=1e-4:
+        time unit L_atm/u_0     (15.7 km)    =  177 s   (0.05 h)
+        time unit shell/u_0     (300 km)     = 3375 s   (0.94 h)
+    ```
+
+    **Under an hour of physical time, against a multi-decade radiative timescale — 5 to 7 orders
+    of magnitude short.** The surface cooled 1500 → 1498.7 K, which is exactly what 6.85 K/yr
+    predicts. There was never a paradox in item 46's persistent −1130 W/m²: the column *is*
+    draining at precisely that rate, and will be for decades.
+
+    **So item 46's plateau is not a converged state.** 1400 W/m² is the quasi-steady flux from a
+    reservoir that has cooled by ~1 K. The turning point near iteration 660 is a fast local
+    adjustment of the thin upper column against a deep reservoir that has barely moved, not
+    thermal equilibrium. **Item 45's refusal to extrapolate was right; item 46's claim to have
+    found the endpoint was not.**
+
+    **A new defect: no run in this README has a stated physical duration.** The two candidate
+    time units differ by **19×** because the non-dimensionalisation divides by "L/u_0" and it is
+    ambiguous which L — `L_atm` (the stretch amplitude) or `metricShellLength` (the shell). That
+    is item 41's exact defect appearing in the *time* coordinate, where nobody had looked. Until
+    it is settled, every "N iterations" in this file is a count and not a duration.
+
+    **This reframes invariant 3.** That invariant treats the prescribed adiabat plus the `t_skin`
+    fixed point as a deficiency to be removed — "radiation must *set* the profile, not nudge it
+    toward a prescribed one." But integration cannot set it: reaching equilibrium needs of order
+    10⁸ iterations. **The prescribed profile is not laziness, it is the only equilibrium this
+    model can currently obtain.** The honest alternatives are to operator-split the thermal
+    equation and relax temperature implicitly at a far larger effective step, to reduce the
+    column heat capacity during spin-up and restore it afterwards, or to solve the
+    radiative-convective column directly — which is what the prescribed profile already is.
+
+    **And a Neumann condition on `p_stat` at the surface would not help either.** The surface
+    pressure of a hydrostatic atmosphere is not a free boundary value; it *is* the weight of the
+    air above, `p_s = g·M/A`. A zero-gradient condition asserts `dp/dz = 0` exactly where the
+    true gradient is largest in the domain (`−ρg` = −421 Pa/m), contradicting the hydrostatic
+    integration `densities()` performs immediately afterwards. There is no pressure reservoir to
+    release: the thermal inertia is `p_s/g·cp` = column MASS × cp, so letting `p_s` drift would
+    create or destroy air rather than reduce the heat capacity. Item 19 already established this
+    and pinned `p_prev = m.p_0` (`ThermoAtm.h:1467`), cutting the mass drift from −0.2128 % to
+    −0.0011 %. A cooling column contracts at constant mass: `p_s` stays 250 bar and the shell
+    gets shallower, which is already the behaviour.
+
+48. **ATHAD has no functioning surface boundary-condition layer. Every surface BC is an
+    identity.**
+
+    Found while checking whether a different surface condition could be substituted. Three
+    separate sites impose surface values, and all three are exact no-ops:
+
+    | site | writes | reduces to |
+    |---|---|---|
+    | `BC_Atm.h:433` (`bcSolidGround`) | `t`, `radiation` | `t.x[0] = t.x[0]` |
+    | `BC_Atm.h:1108` (`bcScalarSurfSur`) | `t`, `radiation`, `c`, `cloud`, `ice` | identity |
+    | `ThermoAtm.h:1540` (`densities`) | `p_stat`, `r_dry`, `r_humid` | identity |
+
+    Every one is written as "copy from the topography level" — `x.x[0][j][k] =
+    x.x[i_topography[j][k]][j][k]` — and invariant 1 fixes `i_topography ≡ 0`, so each is
+    `x[0] = x[0]`.
+
+    **So the surface values are simply whatever the last physics routine happened to write**:
+    `MultiLayerRadiation` for `t` (its surface energy balance, item 47), `densities()` for
+    `p_stat`, `r_dry` and `r_humid`. Nothing *chooses* the surface condition; it is a side effect
+    of call order. That is why "make the surface float" turned out to be already in effect
+    without anyone having decided it.
+
+    **This is the dead-land-branch pattern at structural scale.** CLAUDE.md catalogues it as
+    individual Earth-only fallbacks that never run at home and are never tested — `clampAndFade`,
+    the dilute Newton loop, `M_nonwater`. Here it is not one constant or one branch but an entire
+    boundary-condition layer, dead for the same reason: it is keyed to topography, and on Earth
+    it is only non-trivial *over* topography, so it is barely exercised there either.
+
+    **Consequence for any future work on the surface.** There is currently no place to impose a
+    surface condition even if one were wanted — a surface energy balance, a prescribed flux, a
+    fixed temperature — because the sites that look like they do it do nothing. Any such
+    condition has to be *written*, not enabled. Not repaired here, because which condition is
+    correct depends on item 47's open question, and repairing the plumbing before deciding the
+    physics would just make the wrong answer look deliberate.
+
+
 ## Remaining work
 
 
