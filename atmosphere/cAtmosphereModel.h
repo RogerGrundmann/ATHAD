@@ -165,8 +165,10 @@ public:
     // goes 0.0000 -> 0.0068 and the cloud deck is located only to +-11 km, so a final
     // absolute OLR should still be re-measured at 61. It also restores dt_visc = 1e-4
     // (item 24): the explicit diffusion limit goes as the physical surface spacing squared,
-    // 1.22 km here against 0.81 km at im = 61. NOTE the config default is still 4e-5, which
-    // is safe but 2.5x more expensive than this grid allows.
+    // 1.22 km here against 0.81 km at im = 61. The config ships that 1e-4 (param.py, both
+    // config_athad.xml) — an earlier note here said it was still on 4e-5, which stopped being
+    // true when the value was restored. IT REMAINS TIED TO THE GRID: at im = 61 this is ~2.2x
+    // over the limit, so raising im means lowering dt_visc with it.
     // See param.py (L_atm, zeta) for the sizing and lib/Array.cpp MAXI for the assertion bound.
     static const int im = 41, jm = 181, km = 361;
 
@@ -331,6 +333,7 @@ private:
     int total_iter_count = 0;
     double diffusion_ramp = 1.0;
     bool inviscid_phase = false;
+    bool ubudget_capture = false;   // when true, rhs_u stores its per-term split into ubud_* (set on checkpoint iters)
     bool vbudget_capture = false;   // when true, rhs_v stores its per-term split into vbud_* (set on checkpoint iters)
     bool wbudget_capture = false;   // when true, rhs_w stores its per-term split into wbud_* (set on checkpoint iters)
 
@@ -615,6 +618,23 @@ public:
     // Zonal-mean v momentum-budget term capture (diagnostic): per-cell rhs_v
     // contributions, stored when vbudget_capture is set so write_v_momentum_budget
     // can attribute the Hadley/Ferrel spin-down to a specific dynamical term.
+    // RADIAL momentum budget. The θ and φ components below have had per-term splits since
+    // the v/w spin-down work; the radial one had none, and that was a real blind spot:
+    // README item 28's one-component balance created a radial acceleration of 293 rms where
+    // the model had none, drove the vertical wind 0.11 -> 11 m/s over 200 iterations with the
+    // tropics sinking over a 1500 K equator, and "Ψ_max never saw it". Nothing could see it.
+    //
+    // Terms mirror vbud_*/wbud_* except the last: rhs_u carries NO surface drag (deliberately
+    // — see the Rayleigh block in RHS_Atm_Turb.cpp) and no moist-convection momentum, but it
+    // does carry the buoyancy body force, which item 34 flags as entering with an extra *dt.
+    // So the sixth slot is `buoy` rather than `other`, which puts the suspect term under its
+    // own diagnostic. Stored when ubudget_capture is set. See README item 42.
+    Array ubud_pgf;                                                     // -∂p/∂r ·exp_rm (radial pressure gradient)
+    Array ubud_cor;                                                     // Coriolis (non-traditional; off by default)
+    Array ubud_advv;                                                    // vertical advection  -u·∂u/∂r
+    Array ubud_advh;                                                    // horizontal advection
+    Array ubud_diff;                                                    // diffusion (molecular + turbulent, + metric)
+    Array ubud_buoy;                                                    // buoyancy body force (item 34: carries an extra *dt)
     Array vbud_pgf;                                                     // -∂p/∂θ /rm (meridional pressure gradient)
     Array vbud_cor;                                                     // Coriolis term (2·cosθ·w coupling to zonal wind)
     Array vbud_advv;                                                    // vertical advection  -u·∂v/∂r
@@ -631,6 +651,40 @@ public:
     Array wbud_diff;                                                    // diffusion (molecular + turbulent, + metric terms)
     Array wbud_other;                                                   // surface drag + moist-convection momentum
     Array epsilon;                                                      // emissivity/ absorptivity
+    // Cumulative long-wave optical depth measured DOWNWARD FROM THE TOP of the domain:
+    // tau_above[i] = sum of the layer optical depths above level i, so it is 0 at the lid and
+    // ~2.3e6 at the surface. The level where it crosses 1 is the effective radiating level —
+    // the photosphere — which is where the OLR is actually set.
+    //
+    // WHY THIS IS A SEPARATE ARRAY AND NOT DERIVED FROM epsilon: epsilon = 1 - exp(-tau)
+    // saturates to exactly 1.0 in double precision for tau > ~37, and the deep column carries
+    // tau ~ 9e4 PER LAYER, so tau = -ln(1 - eps) is unrecoverable below the top few levels.
+    // The information is destroyed at write time; it has to be accumulated where tau is still
+    // in scope. See README item 42.
+    Array tau_above;                                                    // cumulative LW optical depth from the lid down
+    // Per-LAYER long-wave optical depth, the quantity tau_above is the running sum of. Kept
+    // because it is the model's own measure of how well it resolves its photosphere: README
+    // item 39 found the tau_above = 1 crossing spanned by a SINGLE cell of dtau = 55 at
+    // im = 41, and that figure came from an offline reconstruction because the model threw
+    // this away. dtau >~ 1 anywhere near the crossing means the two-stream sweep, which is
+    // first order in dtau, is integrating across an unresolved source function.
+    Array tau_layer;                                                    // per-layer LW optical depth
+    // Brunt-Vaisala frequency squared, N^2 = (g/theta) d(theta)/dz [1/s^2]. Computed nowhere
+    // in this model until now, which mattered because CLAUDE.md's justification for the
+    // item-38 caveat is that the flow is "neutrally stratified BY CONSTRUCTION, so no
+    // baroclinic eddies exist to maintain an indirect cell" — an assertion with no instrument
+    // behind it. Two uses: it measures that claim, and it is a direct test of invariant 4,
+    // since a column genuinely on its own integrated adiabat must have N^2 ~ 0 through the
+    // convective part. Any departure there is an adiabat-integration defect, not weather.
+    Array N2;                                                           // Brunt-Vaisala frequency squared [1/s2]
+    // Zonal-mean meridional mass streamfunction [kg/s], replicated across k so the existing
+    // 3D writers can emit it. Psi is genuinely 2D (a streamfunction needs non-divergent 2D
+    // flow) and the replication wastes memory, but it buys the thing that was missing: the
+    // single most-discussed quantity in the README — items 13, 27, 31, 33, 36, 37, 38 all
+    // turn on it — existed only as a CSV of zonal means and the scalar Psi_max, so the cells
+    // could not be looked at. Item 28 also found the u-v-Cell glyph drawn in the wrong metric,
+    // so the meridional circulation was invisible in ParaView by two independent routes.
+    Array Psi;                                                          // meridional mass streamfunction [kg/s]
     Array radiation;                                                    // radiation
     Array P_rain;                                                       // rain precipitation mass rate
     Array P_snow;                                                       // snow precipitation mass rate

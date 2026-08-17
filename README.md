@@ -2835,8 +2835,13 @@ the measurement.
 - **The tropical return branch still erodes** — −11 969 → −8 689 over 200 iterations, and
   marginally faster with the balance on than without it. The drift that used to mask this is
   gone, so this is now the open question about the cell itself.
-- **`dt_visc` no longer matches the committed grid.** The config ships 4e-5, validated for
-  `im = 61`; item 24 validated 1e-4 at the `im = 41` that is now the default, worth 2.5×.
+- **`dt_visc` is tied to the grid, and raising `im` means lowering it.** The config ships
+  1e-4, which is the value item 24 validated at the committed `im = 41`; at `im = 61` the same
+  value is ~2.2× over the explicit diffusion limit, which goes as the physical surface spacing
+  squared (1.22 km at 41 levels against 0.81 km at 61). *This bullet previously said the config
+  still shipped 4e-5 and was stale — the 1e-4 restoration landed with the `im` default. Item 39
+  is the live version of this concern: it argues the lever is `zeta`, not `im`, and cutting
+  `zeta` loosens this limit rather than tightening it.*
 - **The run is not converged, and 400 iterations is not close** (item 18). The meridional
   wind is in free acceleration under an unopposed Coriolis torque — the pressure gradient
   that should balance it is at 1.8 % of it after 400 iterations and growing linearly, which

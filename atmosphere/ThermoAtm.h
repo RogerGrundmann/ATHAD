@@ -1319,6 +1319,64 @@ public:
             cout << "   <-- the OLR above IS this: the lid is opaque, so the model"
                  << " reports a prescribed temperature, not a computed flux";
         cout << endl;
+
+        // ---- Where the emission actually escapes from: the photosphere ------------------
+        //
+        // The effective radiating level, tau_above = 1, measured from the model's own
+        // cumulative optical depth rather than assumed. This is the quantity that decides
+        // whether the OLR is a column integral or a restatement of t_skin: once the
+        // radiating level migrates INTO the isothermal skin, OLR = sigma*T_skin^4 = absorbed
+        // is arithmetic, not a result (README item 25). Until this diagnostic existed the
+        // pinning had to be inferred from OLR == absorbed; now it can be seen directly.
+        //
+        // Reported as a cos(latitude)-weighted mean over columns that bracket the crossing,
+        // with the temperature there and how far it sits below the isothermal top.
+        {
+            double w_sum = 0.0, z_sum = 0.0, t_sum = 0.0;
+            int    n_iso = 0, n_cols = 0;
+            for (int j = 0; j < m.jm; j++) {
+                const double w = fabs(cos(m.the.z[j]));
+                for (int k = 0; k < m.km; k++) {
+                    // Walk down from the lid to the first level with tau_above >= 1.
+                    int i_ph = -1;
+                    for (int i = m.im-1; i >= 0; i--) {
+                        if (m.tau_above.x[i][j][k] >= 1.0) { i_ph = i; break; }
+                    }
+                    if (i_ph < 0 || i_ph >= m.im-1) continue;   // never reaches tau=1 in-domain
+                    // Linear interpolation in tau between i_ph and the level above it.
+                    const double t_lo = m.tau_above.x[i_ph][j][k];
+                    const double t_hi = m.tau_above.x[i_ph+1][j][k];
+                    const double z_lo = m.get_layer_height(i_ph);
+                    const double z_hi = m.get_layer_height(i_ph+1);
+                    const double f    = (t_lo > t_hi) ? (1.0 - t_hi) / (t_lo - t_hi) : 0.0;
+                    const double z_ph = z_hi + f * (z_lo - z_hi);
+                    z_sum += w * z_ph;
+                    t_sum += w * m.t.x[i_ph][j][k] * m.t_0;
+                    w_sum += w;
+                    n_cols++;
+                    // Is the emission coming out of the isothermal skin? If the temperature
+                    // there is within 1 K of t_skin, the OLR is t_skin restated.
+                    if (fabs(m.t.x[i_ph][j][k] * m.t_0 - m.t_skin) < 1.0) n_iso++;
+                }
+            }
+            if (w_sum > 0.0) {
+                const double z_ph_mean = z_sum / w_sum;
+                const double t_ph_mean = t_sum / w_sum;
+                const double frac_iso  = (n_cols > 0) ? (double)n_iso / (double)n_cols : 0.0;
+                cout << "        photosphere (tau_above = 1) ...... = " << setprecision(1)
+                     << z_ph_mean / 1000.0 << " km,  T there = " << setprecision(2)
+                     << t_ph_mean << " K" << endl;
+                cout << "        emission from isothermal skin .... = " << setprecision(1)
+                     << 100.0 * frac_iso << " % of columns";
+                if (frac_iso > 0.5)
+                    cout << "   <-- the OLR is t_skin restated: the radiating level sits in"
+                         << " the isothermal top, so OLR = absorbed is arithmetic";
+                cout << endl;
+            } else {
+                cout << "        photosphere (tau_above = 1) ...... = not reached inside the"
+                     << " domain (column is optically thin throughout)" << endl;
+            }
+        }
         cout << endl;
     }
 
@@ -1528,6 +1586,46 @@ public:
             if (m.im > 1) {
                 m.m_dlnrho_dr[0]        = (lnrho[1] - lnrho[0]) * inv_dr;
                 m.m_dlnrho_dr[m.im - 1] = (lnrho[m.im-1] - lnrho[m.im-2]) * inv_dr;
+            }
+        }
+
+        // ---- Brunt-Vaisala frequency squared -------------------------------------------
+        //
+        // N^2 = (g/theta) d(theta)/dz, with potential temperature theta = T*(p0/p)^(R/cp)
+        // built from the LOCAL mixture R and cp — a constant kappa would be wrong by the same
+        // margin cp varies, ~2x across 300-1500 K here.
+        //
+        // Why this exists: the model is asserted to be neutrally stratified by construction
+        // (the adiabat is imposed), and that assertion carries the argument that no baroclinic
+        // eddies can maintain an indirect cell. It had no instrument. It is also a direct test
+        // of invariant 4 — an integrated adiabat must give N^2 ~ 0 through the convective
+        // column, so a departure there is an integration defect. Centred difference inside,
+        // one-sided at the ends.
+        {
+            #pragma omp parallel for collapse(2) schedule(static)
+            for (int j = 0; j < m.jm; j++) {
+                for (int k = 0; k < m.km; k++) {
+                    std::vector<double> theta(m.im, 0.0);
+                    for (int i = 0; i < m.im; i++) {
+                        const double T_i = m.t.x[i][j][k] * m.t_0;
+                        const double p_i = m.p_stat.x[i][j][k];
+                        if (!(T_i > 0.0) || !(p_i > 0.0)) { theta[i] = 0.0; continue; }
+                        const double R_i  = AtmMixture::R_of(m.c.x[i][j][k], m.co2.x[i][j][k],
+                                                             m.m_comp.R_bg);
+                        const double cp_i = AtmMixture::cp_of(m.c.x[i][j][k], m.co2.x[i][j][k],
+                                                              T_i, m.m_comp.M_bg);
+                        const double kap  = (cp_i > 0.0) ? R_i / cp_i : 0.0;
+                        theta[i] = T_i * pow(m.p_0 / p_i, kap);
+                    }
+                    for (int i = 0; i < m.im; i++) {
+                        const int il = (i > 0)        ? i - 1 : i;
+                        const int iu = (i < m.im - 1) ? i + 1 : i;
+                        const double dz = m.get_layer_height(iu) - m.get_layer_height(il);
+                        const double th = theta[i];
+                        m.N2.x[i][j][k] = (dz > 0.0 && th > 0.0)
+                                        ? (m.g / th) * (theta[iu] - theta[il]) / dz : 0.0;
+                    }
+                }
             }
         }
 

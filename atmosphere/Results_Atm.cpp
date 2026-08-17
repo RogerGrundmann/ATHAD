@@ -39,6 +39,26 @@ void cAtmosphereModel::print_min_max_atm(){
         " deg", radiation, 1.0);
     searchMinMax_3D(" max epsilon ", " min epsilon ", 
         " deg", epsilon, 1.0);
+    searchMinMax_3D(" max tau_above ", " min tau_above ", 
+        " 1 ", tau_above, 1.0);
+    searchMinMax_3D(" max tau_layer ", " min tau_layer ", 
+        " 1 ", tau_layer, 1.0);
+    searchMinMax_3D(" max N2 ", " min N2 ", 
+        " 1/s2 ", N2, 1.0);
+    searchMinMax_3D(" max Psi ", " min Psi ", 
+        " kg/s ", Psi, 1.0);
+    searchMinMax_3D(" max ubud_pgf ", " min ubud_pgf ", 
+        " nd ", ubud_pgf, 1.0);
+    searchMinMax_3D(" max ubud_cor ", " min ubud_cor ", 
+        " nd ", ubud_cor, 1.0);
+    searchMinMax_3D(" max ubud_advv ", " min ubud_advv ", 
+        " nd ", ubud_advv, 1.0);
+    searchMinMax_3D(" max ubud_advh ", " min ubud_advh ", 
+        " nd ", ubud_advh, 1.0);
+    searchMinMax_3D(" max ubud_diff ", " min ubud_diff ", 
+        " nd ", ubud_diff, 1.0);
+    searchMinMax_3D(" max ubud_buoy ", " min ubud_buoy ", 
+        " nd ", ubud_buoy, 1.0);
     searchMinMax_2D(" max epsilon_2D ", " min epsilon_2D ", 
          " ppm ", epsilon_2D, 1.0);
     searchMinMax_2D(" max albedo ", " min albedo ", 
@@ -180,6 +200,7 @@ void cAtmosphereModel::print_min_max_atm(){
     cout << endl << endl << endl << " greenhouse gas: " << endl;
     searchMinMax_3D(" max co2 ", " min co2 ", "kg/kg", co2, 1.0);
     searchMinMax_3D(" max epsilon ",  " min epsilon ", "%", epsilon, 1.0);
+    searchMinMax_3D(" max tau_above ",  " min tau_above ", "1", tau_above, 1.0);
 
 
     cout << endl << endl << endl << " forces per unit volume: " << endl;

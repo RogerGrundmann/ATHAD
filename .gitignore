@@ -63,3 +63,8 @@ Reaction_Papers/
 python/config_zeta_*.xml
 python/run_z*.log
 python/zeta_scan_status.txt
+
+# H_crit A/B experiment artefacts
+python/config_hc*.xml
+python/run_hc*.log
+python/hcrit*_status.txt

@@ -911,13 +911,45 @@ void cAtmosphereModel::initCloudIce() {
     const double Hu_diff   = Hu_cr_max - Hu_cr_mid;
 //    const double det_T_0   = t_0 - 3.0;
     const double det_T_0   = t_0;
-    // Parabola H_crit(p): roots at p=0 and p=p_crit, minimum Hu_cr_mid at p=p_mid.
-    // H_crit = Hu_cr_max - Hu_curv * x * (1 - x),  x = p / p_crit
-    const double p_crit     = 1000.0;
-    const double p_mid      = 550.0;
-    const double x_mid      = p_mid / p_crit;                           // 0.55
-    const double Hu_curv    = Hu_diff / (x_mid * (1.0 - x_mid));        // ~0.808
-    const double inv_p_crit = 1.0 / p_crit;
+    // Parabola H_crit(p): roots at x=0 and x=1, minimum Hu_cr_mid at x = x_mid.
+    // H_crit = Hu_cr_max - Hu_curv * x * (1 - x)
+    //
+    // x IS A FRACTION OF THE LOCAL SURFACE PRESSURE, not an absolute pressure. The inherited
+    // form was x = p/1000 hPa with the minimum at 550 hPa — Earth's surface pressure and
+    // Earth's mid-troposphere. Both are Earth constants, and at 250 bar they do something
+    // much worse than going inert:
+    //
+    //   levels 0-35 (0-201 km)   p > 1000 hPa, so x > 1, the parabola goes NEGATIVE and
+    //                            H_crit is saved only by the clamp below -> 1.0 exactly
+    //   level 36    (218 km)     p = 439 hPa, x = 0.44 -> H_crit = 0.8010, the parabola's
+    //                            MINIMUM, landing inside the condensable band (T < 647 K
+    //                            only above level 34) and on the level where tau_above
+    //                            crosses 1 -- the photosphere (README items 39, 41)
+    //   levels 37-40             H_crit recovers 0.917 -> 0.9998
+    //
+    // So Earth's mid-troposphere cloud-threshold minimum was being applied at 218 km, making
+    // cloud 20 % easier to form on precisely the level that sets the outgoing flux. That is
+    // why initCloudIce was measured as the only live path from the grid to the OLR (item 41):
+    // max cloud water moved 37.3 -> 49.9 g/kg with a change of grid and moist physics off.
+    //
+    // Rescaled, x = p/p_surface, the parabola's minimum moves to ~36 km — deep in the
+    // supercritical column where nothing can condense — and H_crit >= 0.9926 everywhere
+    // condensation IS possible. The Earth profile becomes inert here BY DERIVATION rather
+    // than by fiat, which is the honest answer: a critical-relative-humidity fit to Earth's
+    // cloud climatology has no analogue in a 250 bar steam shell whose condensable region is
+    // a thin band at 185-300 km.
+    //
+    // EXACTLY EQUIVALENT ON EARTH, where p_surface = 1000 hPa, so this is portable upstream.
+    // ATM_HCRIT_ABS=1 restores the inherited absolute-pressure form for A/B.
+    const double x_mid   = 0.55;                                        // 550/1000 hPa on Earth
+    const double Hu_curv = Hu_diff / (x_mid * (1.0 - x_mid));           // ~0.808
+
+    static const bool hcrit_abs = [](){
+        const char* e = getenv("ATM_HCRIT_ABS"); return e && atoi(e) != 0; }();
+    if(hcrit_abs){
+        std::cout << "      AGCM: initCloudIce - ATM_HCRIT_ABS set, H_crit on ABSOLUTE"
+                  << " pressure (inherited Earth form, minimum at 550 hPa)" << std::endl;
+    }
 
     // ========================================================================
     // Pass 1: cloud_max[i] — parallel over i, sum thread-local
@@ -985,6 +1017,14 @@ void cAtmosphereModel::initCloudIce() {
     #pragma omp parallel for collapse(2) schedule(static)
     for (int j = 0; j < jm; j++) {
         for (int k = 0; k < km; k++) {
+            // Normaliser for the H_crit parabola, once per column. p_stat.x[0] is the surface
+            // and is p_0 everywhere (no topography, and item 19 pinned it), but read it rather
+            // than assume it so a future column-varying surface pressure stays correct.
+            const double p_surf_jk  = p_stat.x[0][j][k];
+            const double inv_p_norm = hcrit_abs
+                                    ? (1.0 / 1000.0)                    // inherited Earth form
+                                    : ((p_surf_jk > 0.0) ? 1.0 / p_surf_jk : 1.0 / 1000.0);
+
             for (int i = 0; i < im; i++) {
                 const double t_u = t.x[i][j][k] * t_0;
                 const double p_u = p_stat.x[i][j][k];
@@ -1014,7 +1054,7 @@ void cAtmosphereModel::initCloudIce() {
                     E_sat, p_u, AtmMixture::M_nonwater(c.x[i][j][k], co2.x[i][j][k],
                                                        m_comp.M_bg));
 
-                const double x_norm = p_u * inv_p_crit;
+                const double x_norm = p_u * inv_p_norm;
                 double H_crit = Hu_cr_max - Hu_curv * x_norm * (1.0 - x_norm);
                 if (H_crit > 1.0)  H_crit = 1.0;
 
