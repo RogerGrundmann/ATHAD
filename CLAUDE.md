@@ -125,9 +125,9 @@ the outputs predictions. These are inputs, in rough order of how much they move 
 | `t_surf_equator` / `t_surf_pole` | 1500 / 1450 K | **Prescribed, not solved** |
 | `t_skin` | 254.0 K start, relaxes to 262.96 | **Now the prime suspect** (item 25): it is a fixed point of σT⁴ = absorbed, the prescribed profile's top is isothermal at it, and the converged OLR falls onto it |
 | insolation | 0.71 S₀ | Faint young Sun at 4.4 Ga |
-| `omega` | 3.17e-4 (5.5 h day) | Estimates range 4–6 h |
-| `cell_lat_scale` | 0.33, scaling the **Hadley edge only** | Config parameter since item 32; **default was Earth's 1.0 for everything measured before it**. Held–Hou puts the edge at 5.1° because Ro_T is 12.5× Earth's. Item 36: scaling every anchor left cells 10/40/40° wide with the extratropics a bare ramp, so item 31's scan compared layouts that differed in more than width |
-| `n_cells_hemisphere` | **5** (Earth is 3) | Default since item 38; **everything measured before it used 3**. Three unconverged arguments: 20° bands against the Rhines ~22°, no 40°-wide-cell artefact, and Ψ maxima still on their prescribed cores at 400 iterations where n = 3's migrate off. Not a claim the model *sustains* five cells — nothing maintains an indirect cell here |
+| `omega` | 3.17e-4 (5.5 h day) | Earth–Moon angular-momentum inversion (item 40): 5.5 h **is** the Moon at 5.95 R_E, 4.35× modern. Robust for a good reason — the Moon from 3 to 10 R_E spans only 5.0–6.1 h, so the bracket needs no tidal chronology. **Two Hadean-specific torques are omitted and neither is bounded**: thermal atmospheric tides on ~250× Earth's air mass (on Venus they spin the planet the *other* way) and dissipation in a molten surface. And the high-angular-momentum impact scenarios (Ćuk & Stewart 2012, Canup 2012) break conservation outright, toward a *shorter* day. Nothing observational reaches 4.4 Ga |
+| `cell_lat_scale` | 0.33, scaling the **Hadley edge only** | Config parameter since item 32; **default was Earth's 1.0 for everything measured before it**. Held–Hou puts the edge at 5.1° because Ro_T is **1/12.5 of** Earth's (0.0048 against 0.0598) — smaller, so the cells are narrower; read the other way the argument inverts. Item 36: scaling every anchor left cells 10/40/40° wide with the extratropics a bare ramp, so item 31's scan compared layouts that differed in more than width |
+| `n_cells_hemisphere` | **5** (Earth is 3) | Default since item 38; **everything measured before it used 3**. Three unconverged arguments: 20° bands against the Rhines ~22°, no 40°-wide-cell artefact, and Ψ maxima still on their prescribed cores at 400 iterations where n = 3's migrate off. **The Rhines argument rests on `omega`** (item 40): at the nominal 5.5 h the estimate is 4.5 cells/hemisphere, selecting 4 or 5 equally, and only the short end of the 4–6 h range makes 5 clear. So n = 5 is inside the rotation uncertainty, not selected by it; the other two grounds are the stronger pair. Not a claim the model *sustains* five cells — nothing maintains an indirect cell here |
 | `cell_amp_mode` | 0 (off) | Item 33. Scaling latitudes without amplitudes multiplies the initial meridional shear by 1/s. The decay tracks the **zonal jet**, not the overturning |
 | `cosmo_lapse_fraction` | 1.0 (dry adiabat) | Justified: nothing condenses in the deep column |
 
@@ -294,6 +294,17 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **`t_skin` blocks every radiative measurement, and that is the top priority** (item 41).
+  `OLR = σT_lid⁴ = absorbed SW + geothermal`, exactly, and the OLR has now failed to respond to
+  four separate 6×–500× forcings: κ (64×, 0.10 %), the circulation (500×, 0.03 %), `im`
+  (analytically) and the grid stretch (6×, 0.36 % — and that driven by albedo, not resolution).
+  Items 29, 39 and 41 are all unanswerable until this is broken. **Do not spend runs on opacity
+  or grid questions first; they re-measure `t_skin`.** Corollary from item 41: the famous
+  **−1.26 W/m² residual is a `zeta = 3.0` artefact** — at `zeta ≤ 1.5` the imbalance closes to
+  0.00 exactly, so the shipped grid simply fails to reach its own fixed point in 200 iterations.
+  And `initCloudIce`'s pressure-keyed deck (`p_crit = 1000` hPa, Earth's surface pressure) is
+  the **only** live path from the grid to the OLR: max cloud water moves 37.3 → 49.9 g/kg
+  between `zeta` 3.0 and 2.0, with moist physics off.
 - **The dynamics and the radiation do not agree where the levels are** (README item 39).
   `exp_rm = 1/(rm+1)` is a quadratic-stretch Jacobian applied to an exponentially stretched
   grid, so the core's radial derivatives are mis-scaled by a factor varying **11.8×** from

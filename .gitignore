@@ -58,3 +58,8 @@ Reaction_Papers/
 
 # vim/editor swap files
 .*.swp
+
+# zeta-scan experiment artefacts (regenerate with python/mkzeta.py)
+python/config_zeta_*.xml
+python/run_z*.log
+python/zeta_scan_status.txt

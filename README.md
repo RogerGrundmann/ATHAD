@@ -2533,15 +2533,196 @@ the measurement.
     and survived anyway — the same lesson as the pressure-solver race, and the reason
     CLAUDE.md says a cross-reference is not a check.
 
+40. **Where the 5.5 h day comes from, and what it is worth (documentation).**
+
+    `omega = 3.17e-4 rad/s` has been in `param.py` since item 8 with a two-line note calling it
+    an assumption inside a 4–6 h literature range. The argument is worth more than that note
+    carries, and weaker in one respect the note omits. Nothing here changes a parameter; this
+    records the derivation so the number can be argued with.
+
+    **The argument is angular-momentum conservation of the Earth–Moon system.** Tidal friction
+    moves angular momentum from Earth's spin into the Moon's orbit — the Moon recedes 3.8 cm/yr
+    by laser ranging, the day lengthens ~2 ms/century. The total is very nearly conserved, so
+    the relation inverts: a closer Moon is a faster Earth.
+
+    ```
+    I_earth      = 8.016e+37 kg m^2      (0.3307 M R^2)
+    L_spin(now)  = 5.845e+33   (17 %)
+    L_orbit(now) = 2.856e+34   (83 %)
+    L_total      = 3.441e+34 kg m^2/s
+    ```
+
+    Placing the Moon at a given distance and giving Earth the remainder:
+
+    ```
+      a [R_E]      day [h]
+          3.0         4.99
+          5.0         5.34
+          5.9         5.49
+         10.0         6.14
+         20.0         7.79
+         60.3        23.90     <- today, a check on the arithmetic
+    ```
+
+    **A 5.5 h day is the Moon at 5.95 R_E**, giving ω = 3.173e-4 rad/s = 4.35× modern, which is
+    the configured value.
+
+    **Why the number survives the Hadean being unconstrained.** The useful property is that
+    table's flatness. Moving the Moon from 3 to 10 R_E — a factor 3.3 in distance, and an
+    enormous span of tidal-evolution time — moves the day only from 5.0 to 6.1 h, because once
+    the Moon is close Earth's spin holds most of the angular momentum and the split changes
+    slowly. Dating *when* the Moon was where is therefore not required to bracket the day
+    length; it is enough that the Moon was within a few tens of Earth radii, which it was for
+    the whole Hadean. That is why 4–6 h is robust and 5.5 h a defensible midpoint — a better
+    argument than "estimates range 4–6 h" was carrying.
+
+    **What would break it, in order of seriousness.**
+
+    - **The high-angular-momentum impact scenarios.** Ćuk & Stewart (2012) and Canup (2012)
+      proposed Moon-forming impacts leaving Earth spinning at ~2–3 h with substantially more
+      angular momentum than the system now has, the excess later shed through the evection
+      resonance with the Sun. If that is right `L_total` was *not* conserved across the Hadean
+      and the inversion above is invalid — in the direction of a **shorter** day.
+    - **Nothing measures this.** Tidal rhythmites and cyclostratigraphy reach ~2.5 Ga
+      (~18–19 h); at 4.4 Ga the record is essentially Jack Hills zircons. The 4–6 h range is
+      theory, not observation.
+    - **The timescale problem cuts the other way.** Extrapolating today's recession rate
+      linearly backwards puts the Moon at Earth's surface ~1.5 Ga, far too recent, so present
+      dissipation is anomalously high (ocean tides near a basin resonance) and past averages
+      were lower. That *supports* a still-short day at 4.4 Ga.
+
+    **Two torques specific to this model that the bookkeeping omits — the part the generic
+    4–6 h range hides.** A 250 bar atmosphere is ~250× Earth's air mass, so thermally driven
+    atmospheric tides are not a negligible torque; on Venus they drive the rotation the *other*
+    way. And tidal dissipation in a molten or quenching surface is not that of solid Earth or
+    of an ocean. Both act during precisely ATHAD's epoch and neither is in the angular-momentum
+    inversion, so `omega`'s justification is weaker **here** than the literature range implies.
+    Neither is quantified — flagging them is not bounding them.
+
+    **What the uncertainty costs the model.** Rotation enters as `f = 2Ω sinφ`, so it sets the
+    cell geometry. Item 31's table is confirmed independently (Earth `Ro_T` = 0.0596, Held–Hou
+    edge 18.1°; ATHAD 0.00474 and 5.09°). Propagating the range:
+
+    ```
+     day[h]      Ro_T   HH edge   Rhines band   n_cells/hemi
+        4.0   0.00251     3.70d         17.0d            5.3
+        4.5   0.00317     4.17d         18.1d            5.0
+        5.0   0.00392     4.63d         19.1d            4.7
+        5.5   0.00474     5.09d         20.0d            4.5
+        6.0   0.00564     5.56d         20.9d            4.3
+    ```
+
+    The two estimates degrade differently, as item 36 noted: the Held–Hou edge goes as 1/Ω and
+    the Rhines band only as 1/√Ω. Over 4–6 h the Hadley edge spans 3.7–5.6° and the
+    extratropical bands 17–21°.
+
+    **This is a caveat on item 38 that item 38 does not carry.** Its Rhines argument — 20° bands
+    against ~22° — is one of the three grounds for `n_cells_hemisphere = 5`, and that ground
+    moves with `omega`. At the nominal 5.5 h the Rhines estimate is **4.5 cells per hemisphere**,
+    which selects 4 or 5 equally; it takes the short end of the rotation range to make 5 the
+    clear answer. So n = 5 is *inside* the rotation uncertainty but is not *selected* by it, and
+    the layout is structurally reasonable rather than derived. Item 38's other two grounds — the
+    removal of the 40°-wide-cell artefact, and Ψ maxima still on their prescribed cores at 400
+    iterations — are untouched by this and remain the stronger pair.
+
+41. **The `zeta` scan: the OLR does not respond to the grid either, and the −1.26 W/m²
+    residual is a `zeta = 3.0` artefact.**
+
+    Item 39 gave three converging arguments for cutting the stretch. This tested them. Five
+    runs at `im = 41`, shell held at 300 km, `dt_visc` fixed at 1e-4, 200 iterations,
+    `zeta` ∈ {3.0, 2.0, 1.5, 1.0, 0.5}. All five completed at 200, rc = 0, no NaN.
+
+    **Two design constraints, both forced and both worth stating.** Holding the shell at
+    300 km forces `L_atm = 300000/(exp(zeta)−1)`, which runs 15.7 km → 462 km, a **29×**
+    swing. `L_atm` is the length normalisation for the Held–Suarez relaxation, the Rayleigh
+    drag, `coeff_MC_*`, `coeff_S`, `coeff_L`, `nue_max` and `coeff_u_p` — `RHS_Atm_Turb.cpp:441`
+    already says so and calls them "STILL ON L_atm, and therefore still 40x too weak".
+    `force_nd` is exempt, having been moved to `metricShellLength()`, which returns 300 km for
+    every run here. So **the dynamical half of the scan is confounded and the radiative half is
+    not**: under the default prescribed `t`, `densities()` re-imposes the adiabat over the grid
+    every iteration, so the OLR depends on the grid and not on those coefficients — provided
+    moist physics is off, since `coeff_MC_*` and `coeff_L` feed the clouds that feed the
+    radiation. Hence `moist_phys_start_iter > nm`. This is item 39's defect in another place:
+    `L_atm`, an exponential-stretch amplitude, used as though it were a grid length.
+
+    ```
+    run    zeta  spread   albedo   absSW      OLR   imbalance   t_skin   lid eps
+    z3      3.0  11.77x   0.4986  271.11   272.37     -1.25     262.96    0.0069
+    z2      2.0   4.55x   0.4975  271.37   271.64     -0.27     263.02    0.0434
+    z1p5    1.5   2.83x   0.4974  271.38   271.38     -0.00     263.02    0.0000
+    z1      1.0   1.76x   0.4961  271.74   271.74      0.00     263.11    0.0000
+    z0p5    0.5   1.09x   0.4945  272.13   272.13      0.00     263.20    0.0002
+    ```
+
+    The measured metric spreads reproduce item 39's analytic table digit for digit, which is an
+    independent check on `checkRadialMetric()` and on the offline reconstruction both.
+
+    **The scan cannot answer its primary question.** `OLR = absorbed SW + geothermal =
+    σT_lid⁴` exactly, to the last printed digit, in the three low-`zeta` runs. Total OLR
+    spread over a 6× change in stretch is **0.99 W/m², 0.36 %** — and that is not a radiative
+    response to resolution. The chain runs the other way: albedo falls 0.4986 → 0.4945,
+    absorbed SW rises 271.11 → 272.13, `t_skin` rises 262.96 → 263.20, and the OLR tracks
+    absorbed SW penny for penny. **`zeta` → cloud deck → albedo → absorbed SW → `t_skin` → OLR**,
+    with the photosphere playing no part. This is item 25's fixed point, not the opaque-lid
+    failure: lid emissivities are ~0 in every run and the diagnostic's opaque-lid flag never
+    fired. **So item 39's photosphere argument is not confirmed, and could not have been** —
+    nothing moves the OLR while `t_skin` pins it. That `dtau@tau=1` falls 54.8 → 2.8 across
+    this range remains a computed property of the grid, not a measured improvement in output.
+
+    **This is the fifth non-response.** κ 64× → 0.10 % (item 29), circulation 500× → 0.03 %
+    (item 27), `im` analytically (item 39), and now stretch 6× → 0.36 %, albedo-driven.
+
+    **The −1.26 W/m² residual is a grid artefact.** CLAUDE.md calls it the least trustworthy
+    number in the file; it is worse than that. At `zeta = 3.0` it reproduces exactly (−1.25,
+    and still falling at 200 iterations). At `zeta ≤ 1.5` the imbalance closes to **0.00
+    exactly**. It is not physics — it is the shipped grid failing to reach its own fixed point
+    within 200 iterations while the finer-topped grids land on it. The convergence behaviour
+    agrees: z3's OLR is still falling monotonically at 200 (276.50 → 272.37, −0.52 per 20
+    iterations), z2 falling slowly, z1p5 flat, z1 and z0p5 slowly *rising*. **This is an
+    argument for cutting `zeta` that does not depend on the photosphere at all**, and it
+    confirms item 25's diagnosis by an independent route.
+
+    **`initCloudIce`'s grid dependence is now measured, and it is the only live path to the
+    OLR in this model.** Max cloud water jumps 37.3 → 49.9 g/kg between `zeta` 3.0 and 2.0.
+    Moist physics was off, so this is purely the initialisation deck, laid by a parabola keyed
+    to `p_crit = 1000` hPa and `p_mid = 550` — Earth surface pressures — landing on different
+    levels for different grids. This README has listed that as an open item with the note that
+    it "has a path to the OLR". It does, and in this scan it is the only thing that used it.
+
+    **What this does not test.** The 13×-timestep claim: `dt_visc` was held fixed, and the
+    clean completion of `zeta = 0.5` is weak evidence at best, since that run also carried 29×
+    shifted drag, relaxation and viscosity. The diffusive CFL remains untested and remains
+    blocked behind moving those coefficients onto `metricShellLength()`.
+
+    **The headline is not "cut `zeta`".** It is that **`t_skin` has to be broken before any
+    grid or opacity question can be measured at all** — it now blocks item 29's κ question,
+    item 39's photosphere question and this one. Three lines of work behind one fixed point.
+
 
 ## Remaining work
 
 
+- **`t_skin` blocks three separate lines of work, and that is now the top priority** (item 41).
+  The OLR equals `σT_lid⁴` equals absorbed SW + geothermal, exactly, and it has now failed to
+  respond to κ (64×, 0.10 %), the circulation (500×, 0.03 %), `im` (analytically) and the grid
+  stretch (6×, 0.36 % and that albedo-driven). Item 29's opacity question, item 39's photosphere
+  question and item 41's grid question are all unanswerable until the fixed point is broken.
+  **Measuring anything radiative before then is spending runs to re-measure `t_skin`.**
 - **The radial metric is wrong in shape and `zeta` is the lever, not `im`** (item 39).
   `exp_rm = 1/(rm+1)` is a quadratic-stretch Jacobian applied to an exponential grid, so every
   radial derivative is mis-scaled by a factor varying **11.8×** across the column — measured,
-  unit-free, and printed at every startup by `checkRadialMetric()`. Three separate arguments
-  (photosphere resolution, diffusive CFL, this metric) all say cut `zeta` hard, toward ~0.4.
+  unit-free, and printed at every startup by `checkRadialMetric()`. Of the three arguments for
+  cutting `zeta` hard toward ~0.4, item 41 leaves **one standing and one untested**: the metric
+  itself stands, joined by the new finding that only `zeta ≤ 1.5` reaches its own energy fixed
+  point within 200 iterations; the photosphere argument is unconfirmed (the OLR cannot respond
+  while `t_skin` pins it) and the diffusive-CFL argument is untested (blocked behind the `L_atm`
+  normalisation below).
+- **The `L_atm` normalisation blocks the CFL half of the `zeta` question** (item 41). The
+  Held–Suarez relaxation, Rayleigh drag, `coeff_MC_*`, `coeff_S`, `coeff_L`, `nue_max` and
+  `coeff_u_p` all divide by `L_atm`, which a shell-preserving `zeta` scan moves by 29×, so a
+  raised-`dt` run cannot attribute a blow-up. `RHS_Atm_Turb.cpp:441` already documents these as
+  wrong and names the fix — move them onto `metricShellLength()`, as `force_nd` already was.
+  Same category error as item 39: a stretch amplitude used as a grid length.
   **The open decision is which repair**: replacing `exp_rm` with the true Jacobian is
   principled but touches ~91 sites and moves every number here, while cutting `zeta` makes the
   existing metric accidentally correct for ~30× less wall clock. That wants a measurement, and
