@@ -326,6 +326,24 @@ private:
                     // Scalar fields driven by s = cp_l*T/s_0.
                     // s must be computed from current t before any other function reads it;
                     // if left stale, downdraftRecurrence propagates the error downward.
+                    // THE REMAINING cp_l USES IN THIS FILE ARE THE s <-> T NORMALISATION AND
+                    // MUST NOT BE MADE LOCAL. s = cp_l*T/s_0 and T = s*s_0/cp_l are an exact
+                    // inverse pair, so cp_l CANCELS and never reaches a result; replacing it
+                    // with cp_of(T) on one side would break the round trip and make s an
+                    // implicit function of T. The genuine cp uses in this file — the ones that
+                    // convert ENERGY to TEMPERATURE and do not cancel — are cp_sfc, cp_b, cp_e,
+                    // cp_u and cp_mc, and those are local now.
+                    //
+                    // SEPARATE INHERITED DEFECT, recorded here because this is where it shows:
+                    // s_0 = 274515.75 = 1005 * t_0, i.e. it carries EARTH'S DRY-AIR cp, not
+                    // ATHAD's cp_l = 2040 (which would give 557226). param.py's own comment
+                    // calls s_0 "cp_l * t_0", so it reads as derived and is not. The only
+                    // consequence is that s is T/134.57 rather than the intended T/273.15 —
+                    // 2.03x off as a "non-dimensional temperature" — and because cp_l cancels
+                    // this changes no result. The one place the scale WOULD matter, s = 1.0 as
+                    // a boundary value (BC_Atm.h:219,368), sits behind `if(!is_land) continue`
+                    // and is dead under invariant 1. Left alone deliberately; fixing s_0 and
+                    // the s definition together is a separate job with no measurable payoff.
                     m.s.x[i][j][k]      = m.cp_l * m.t.x[i][j][k] * m.t_0 / m.s_0;
 
                     // Mass-flux fields — reset so cells outside the active [i_base..i_lfs]
@@ -409,6 +427,14 @@ private:
                 // Surface state (i = 0 is the lowest model level), shared by all branches.
                 double T_sfc   = m.t.x[0][j][k] * m.t_0;             // [K]
                 double rho_sfc = safe_r_humid(m.r_humid.x[0][j][k]); // [kg/m³]
+                // LOCAL mixture cp, not the constant cp_l. cp_l = 2040 is the mixture cp at
+                // ~1101 K; AtmMixture::cp_of runs 1563 (top, clamped at 298 K) to 2341 at the
+                // 1500 K surface, so a single constant is wrong by +30 % at the top and -13 %
+                // at the bottom. See README. (H_s is Q_sensible_2D, which nothing writes, so
+                // these two surface uses are currently multiplying zero — converted anyway so
+                // the file has one rule.)
+                const double cp_sfc = AtmMixture::cp_of(m.c.x[0][j][k], m.co2.x[0][j][k],
+                                                        T_sfc, m.m_comp.M_bg);
 
                 // Part B — Clausius-Clapeyron ceiling for the moisture perturbation.
                 // The old fixed cap q_v_u_add clipped away the warming signal (q_sat
@@ -453,7 +479,7 @@ private:
                 // heat flux B = g/T·[H_s/(ρ·c_p) + 0.61·T·E/ρ], so moisture-driven
                 // convection is captured even when the sensible flux is unavailable.
                 double B_sfc  = (m.g / T_sfc)
-                    * (H_s / (rho_sfc * m.cp_l) + 0.61 * T_sfc * E / rho_sfc);  // [m²/s³]
+                    * (H_s / (rho_sfc * cp_sfc) + 0.61 * T_sfc * E / rho_sfc);  // [m²/s³]
                 double w_star = std::cbrt(std::max(0.0, B_sfc * z_BL));          // [m/s]
                 if(w_star <= 0.0) continue;
 
@@ -461,7 +487,7 @@ private:
                 // Cap at the CC-scaled ceiling: Bechtold gives smaller values for strong
                 // BL (w* ~ 2 m/s → δq ~ 5e-6 kg/kg); the cap prevents blow-up when w* is
                 // near zero but positive (weak-flux edge case).
-                delta_T_sfp[j][k] = std::min(alpha_sfp * H_s * inv_rho_w / m.cp_l, t_add_u);
+                delta_T_sfp[j][k] = std::min(alpha_sfp * H_s * inv_rho_w / cp_sfc, t_add_u);
                 delta_q_sfp[j][k] = std::min(alpha_sfp * E  * inv_rho_w, q_cap);
             }
         }
@@ -709,10 +735,15 @@ void findCloudBaseLFS() {
                                                                T_b, m.m_comp.M_bg);
                         const double p_b   = m.p_stat.x[i_base_col][j][k];
                         const double qsb   = q_sat_col[i_base_col];
+                        // Local cp at the parcel's base level. kappa two lines above already
+                        // uses AtmMixture::cp_of; this exponent used the constant cp_l, so the
+                        // same theta_e expression mixed a local and a global cp.
+                        const double cp_b  = AtmMixture::cp_of(m.c.x[i_base_col][j][k],
+                                                 m.co2.x[i_base_col][j][k], T_b, m.m_comp.M_bg);
                         const double L_b   = (T_b >= m.t_0) ? m.lv : m.ls;
                         const double thetae_parcel =
                             T_b * std::pow(p0 / p_b, kappa)
-                                * std::exp(L_b * qsb / (m.cp_l * T_b));
+                                * std::exp(L_b * qsb / (cp_b * T_b));
 
                         bool became_buoyant = false;
                         int  i_top = i_base_col;                              // never buoyant → shallow
@@ -721,10 +752,12 @@ void findCloudBaseLFS() {
                             const double T_e = m.t.x[i][j][k] * m.t_0;
                             const double p_e = m.p_stat.x[i][j][k];
                             const double qse = q_sat_col[i];
+                            const double cp_e = AtmMixture::cp_of(m.c.x[i][j][k],
+                                                    m.co2.x[i][j][k], T_e, m.m_comp.M_bg);
                             const double L_e = (T_e >= m.t_0) ? m.lv : m.ls;
                             const double thetaes_env =
                                 T_e * std::pow(p0 / p_e, kappa)
-                                    * std::exp(L_e * qse / (m.cp_l * T_e));
+                                    * std::exp(L_e * qse / (cp_e * T_e));
                             if (thetae_parcel - thetaes_env > 0.0) {
                                 became_buoyant = true;
                                 i_top = i;                                    // raise the LNB
@@ -1100,13 +1133,17 @@ void findCloudBaseLFS() {
                             const double q_sat_u = safe_q_sat(E_s, p_u, m.c.x[i][j][k]);
                             const double dq      = m.q_v_u.x[i][j][k] - q_sat_u;
                             if(dq <= 0.0) break;
+                            // Local cp at the PARCEL temperature, refreshed each pass because
+                            // T_u moves with the latent heating below.
+                            const double cp_u  = AtmMixture::cp_of(m.c.x[i][j][k],
+                                                    m.co2.x[i][j][k], T_u, m.m_comp.M_bg);
                             const double L_u   = (T_u >= m.t_0) ? m.lv : m.ls;
                             const double dqsdT = SaturationH2O::dqSatdT(q_sat_u, T_u);
-                            const double G     = (L_u / m.cp_l) * dqsdT;        // latent gain
+                            const double G     = (L_u / cp_u) * dqsdT;          // latent gain
                             const double dcond = dq / (1.0 + G);               // damped condensation
                             m.q_v_u.x[i][j][k] -= dcond;
                             m.q_c_u.x[i][j][k] += dcond;
-                            T_u                += (L_u / m.cp_l) * dcond;       // latent heating (sole source)
+                            T_u                += (L_u / cp_u) * dcond;         // latent heating (sole source)
                             dcond_tot          += dcond;
                         }
                         m.s_u.x[i][j][k] = m.cp_l * T_u / m.s_0;
@@ -1353,9 +1390,11 @@ void findCloudBaseLFS() {
                     double conv_src = m.c_u.x[i][j][k] - m.e_d.x[i][j][k]                               // (kg/kg)/s
                                   - m.e_l.x[i][j][k] - m.e_p.x[i][j][k];
 
+                    const double cp_mc = AtmMixture::cp_of(m.c.x[i][j][k], m.co2.x[i][j][k],
+                                             m.t.x[i][j][k] * m.t_0, m.m_comp.M_bg);
                     m.MC_t.x[i][j][k] = safe_cap(
                         -(flux_s_ip1 - flux_s_i) * inv_step_rh * m.t_0                                  // K/s
-                        + (L_latent / m.cp_l) * conv_src* m.t_0, MCt_max);                              // K/s
+                        + (L_latent / cp_mc) * conv_src* m.t_0, MCt_max);                               // K/s
 
 
 
