@@ -1015,8 +1015,77 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
     // buoyancy/Coriolis RATIO, but that combined with this path's over-hot Ω-time Coriolis to
     // drive a polar vertical runaway — see the force_nd note above. Using g*dt/u_0 (and
     // force_nd on Coriolis) makes the whole RHS share the laminar scaling.
+    //
+    // ATM_BUOY_CONSISTENT (2026-08-18): item 34's OTHER extra-*dt term, the half the
+    // surf_drag fix (item 49) did NOT touch. This one is behind a knob and the drag one was
+    // not, for a reason that is arithmetic rather than caution:
+    //
+    //   current      g*dt/u_0   = 1.2263e-04
+    //   consistent   g*L/u_0^2  = 2409.4        -> 1.96e+07x  the current coefficient
+    //
+    // The drag repair was 1/dt = 1e4 on a DAMPING term, where a larger coefficient is
+    // stabilising. This is 2e7 on a BODY FORCE, and the largest value ever run on this term
+    // was the intermediate 336, which drove the polar vertical runaway the comment above
+    // records. The consistent value is 7.2x LARGER THAN THAT. It should be expected to be
+    // unstable, and if it is, that is a Boussinesq result (see CLAUDE.md open risks: density
+    // spans ~2 orders of magnitude here and the solver rests on Boussinesq), not a bug in
+    // this line.
+    //
+    // NOTE ALSO that the "336" in the comment above is EARTH'S: g/(omega*L_atm) is 336 at
+    // ATOM_Precipitation's omega=7.29e-5 and L_atm=400, and 1.97 here. It is a coefficient
+    // VALUE, not a multiplier — README item 34 called it "a merely 336x larger coefficient",
+    // which understates the gap, because against today's coefficient 336 is already 2.7e6x.
+    //
+    // Default OFF, so unset is bit-identical. L_coeff so it follows ATM_COEFF_SHELL like the
+    // other forcing coefficients.
+    // BIT-IDENTITY BY CONSTRUCTION, not by compiler goodwill. The first version of this knob
+    // hoisted a buoy_coeff and used it in BOTH branches. That is NOT bit-identical to the
+    // original when the knob is off: `*` and `/` are left-associative, so the original is
+    // ((((ramp*buoyancy)*g)*dt)/u_0)*X while the hoisted form is ((ramp*buoyancy)*((g*dt)/u_0))*X.
+    // `buoyancy` is a literal 1.0 and u_0 = 8.0 is a power of two so that division is exact,
+    // which reduces the difference to (A*g)*dt against A*(g*dt) — and floating-point
+    // multiplication is not associative. -ffast-math MAY reassociate the two into agreement,
+    // but that is an optimiser decision, not a guarantee, and this file states its
+    // reproducibility to the last digit. So the OFF branch is the original expression verbatim.
+    static const bool buoy_consistent = [](){
+        const char* e = getenv("ATM_BUOY_CONSISTENT"); return e && atoi(e) != 0; }();
+
+    // THE ON BRANCH CORRECTS THREE THINGS, NOT ONE. All three are wrong in the shipped form
+    // and all three are inseparable — fixing the dt without the others just rescales an
+    // incorrect force.
+    //
+    //  (a) THE NON-DIMENSIONALISATION (item 34). g*dt/u_0 -> g*L/u_0^2. RK4 supplies the dt.
+    //
+    //  (b) THE BOUSSINESQ REFERENCE TEMPERATURE. The anomaly (t - t_ref_level[i]) is
+    //      (T - T_ref)/t_0, because t is T/t_0 — so the shipped term divides by t_0 = 273.15 K.
+    //      Boussinesq buoyancy is g*(T - T_ref)/T_REF, not /t_0. In non-dimensional variables
+    //      that relative anomaly is simply (t - t_ref)/t_ref, since the t_0 cancels. The
+    //      shipped form therefore overstates the buoyancy by T_ref/t_0 — a factor of ~5.5 near
+    //      the 1500 K surface, falling to ~0.96 at a 263 K top, so it is not even a constant
+    //      rescaling: it is a height-dependent distortion of the body force, strongest exactly
+    //      where the convection is. t_ref_level[i] is the horizontal mean at each level
+    //      (RungeKutta_Atm_Turb.cpp:24), which is the right base state; only the divisor was
+    //      wrong.
+    //
+    //  (c) L_atm, NOT L_coeff. ATM_COEFF_SHELL is an EXPERIMENT on the damping and forcing
+    //      COEFFICIENTS (item 4), worth ~29x. Letting a body force join that experiment would
+    //      mean flipping the test knob changes the dynamics by 29x, which is precisely the
+    //      confound ATM_COEFF_SHELL was created to remove. The buoyancy length is the one the
+    //      momentum equation is non-dimensionalised with, so it is L_atm and does not move
+    //      with a diagnostic switch.
+    //
+    // The OFF branch is the original expression verbatim, so all of this is inert unless the
+    // knob is set, and every existing result stands.
+    const double t_ref_i   = t_ref_level[i];
+    const double buoy_rel  = (t_ref_i > 0.0)
+                           ? (t.x[i][j][k] - t_ref_i) / t_ref_i     // (T - T_ref)/T_ref
+                           : 0.0;
+    const double buoy_term = buoy_consistent
+        ? buoyancy_ramp * buoyancy * (g * L_atm / (u_0 * u_0)) * buoy_rel
+        : buoyancy_ramp * buoyancy * g * dt / u_0 * (t.x[i][j][k] - t_ref_level[i]);
+
     rhs_u.x[i][j][k] = -dpdr_exp - transport_u + diffusion_u
-        + buoyancy_ramp * buoyancy * g * dt / u_0 * (t.x[i][j][k] - t_ref_level[i])
+        + buoy_term
         + coriolis * force_nd * coriolis_rad;
 
     // ---- RADIAL momentum-budget term capture (checkpoint iters only) ----
@@ -1032,8 +1101,7 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
         ubud_advv.x[i][j][k] = -(u_exp * dudr_adv);
         ubud_advh.x[i][j][k] = -(v_invrm * dudthe_adv + w_invrs * dudphi_adv);
         ubud_diff.x[i][j][k] =  diffusion_u;
-        ubud_buoy.x[i][j][k] =  buoyancy_ramp * buoyancy * g * dt / u_0
-                             * (t.x[i][j][k] - t_ref_level[i]);
+        ubud_buoy.x[i][j][k] =  buoy_term;   // exactly what rhs_u received, either branch
     }
 
     // ----- Near-surface Rayleigh (boundary-layer) drag on the horizontal wind -----
