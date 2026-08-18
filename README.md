@@ -2893,6 +2893,13 @@ the measurement.
 44. **The surface drag is Earth's, twice over: its strength was fitted to a jet off Chile and
     its depth is a cell count, which makes it 30× deeper here.**
 
+    **CLOSED by item 49: both defects are real and neither matters.** The scan ran, and a
+    correctly-scaled drag accounts for 0.034 % of the Ψ decay (0.31 % at ten times the rate).
+    The paragraph below arguing this is "a first-order suspect" was right that it had never
+    been varied and wrong that varying it would explain anything — and the scan as first
+    written could not have shown either way, because the drag entered as dt². Read item 49
+    before using anything here.
+
     Neither is a config parameter. Both are `constexpr` in `RHS_Atm_Turb.cpp`, and both carry
     comments justifying them by Earth's geography — the pattern CLAUDE.md catalogues, in a file
     nobody has re-read since the fork.
@@ -3147,44 +3154,106 @@ the measurement.
     physics would just make the wrong answer look deliberate.
 
 
-## Queued: the drag scan (configs written, NOT yet run)
+49. **The drag scan ran, and it measured the reproducibility noise floor. Drag is eliminated
+    as the cell-decay driver — but only after a defect was found that made the scan incapable
+    of measuring anything.**
 
-Item 44's suspect, now testable because `rayleigh_kf` and `drag_n_layers` are config
-parameters rather than `constexpr`. **The parameter change is bit-identical** — the defaults
-reproduce the old constants exactly (`1.1574074074074073e-05` round-trips to 1/86400).
+    **What the four arms returned.** 200 iterations, `rayleigh_kf` × 0.1 / 1 / 10 and
+    `drag_n_layers` 5 → 1, one thread count throughout:
 
-**The question.** The tropical cell decays with no turnover (items 28, 31, 37) and drag is the
-obvious sink. Unlike every radiative question this one is blocked by **neither** `t_skin`
-(item 43) **nor** the thermal timescale (item 47): Ψ responds to drag directly, and `ubud_*` /
-`vbud_*` can now attribute which term does it.
+    | iter | `base` | `kf01` | `kf10` | `n1` |
+    |---|---|---|---|---|
+    | 20 | 106510.84 | 106510.84 | 106510.84 | 106510.84 |
+    | 100 | 102879.15 | 102879.15 | 102879.15 | 102879.15 |
+    | 200 | 98393.19 | 98393.19 | 98393.18 | 98393.18 |
 
-**Four arms, 200 iterations each** — matching item 31's length so Ψ is comparable to its
-−11 413 → −5 946. Moist physics from iteration 0, `checkpoint = 20` (which is also the Ψ
-cadence, so it sets the trend resolution), `diagnostic_stride = 20`, `restart_stride = 0`.
-Configs are committed-adjacent as `python/config_drag_{base,kf01,kf10,n1}.xml`:
+    **Eight significant figures across a 100× spread in drag.** The obvious reading — drag is
+    irrelevant — is not available, because the arms agree to within the ~1e-8 thread-order
+    noise this file already documents. **A null at the noise floor is not a measurement.**
 
-| arm | `rayleigh_kf` | `drag_n_layers` | what it tests |
-|---|---|---|---|
-| `drag_base` | 1.1574074074074073e-05 | 5.0 | the shipped baseline (7152 m deep) |
-| `drag_kf01` | 1.1574074074074073e-06 | 5.0 | drag 10× weaker |
-| `drag_kf10` | 1.1574074074074073e-04 | 5.0 | drag 10× stronger |
-| `drag_n1` | 1.1574074074074073e-05 | 1.0 | depth 1224 m — the shallowest the grid allows, nearest Earth's 236 m |
+    **Why: the drag entered as dt², so the scan varied a term ~7 orders of magnitude too weak.**
+    `surf_drag` carried its own `* dt` and RK4 multiplies every RHS by `dt` again
+    (`RungeKutta_Atm_Turb.cpp:169,201,228,255`). This is the second half of item 34's pair, and
+    the Held–Suarez block thirty lines above had made exactly this repair on 2026-07-04, with
+    the note that the extra `*dt` made it *"enter as dt² = ~1e-4 too weak → inert"*. The two
+    have been inconsistent inside one file ever since.
 
-Run 4 concurrent at `OMP_NUM_THREADS=6` (24 cores, one thread count for all arms so the
-~1e-8 thread dependence cannot confound them). ~50 min.
+    ```
+    surf_drag                = 2.2742e-06   (already carried *dt)
+    RK4's own *dt -> per step = 2.2742e-10
+    over 200 iterations       = 4.5e-08     <- AT the ~1e-8 reproducibility floor
+    ```
 
-**Metric**: `Psi_max` / `Psi_min` from the `Psi_max=` log lines, plus the `ubud_*`/`vbud_*`
-splits. **The discriminating outcome**: if a 100× spread in drag moves the decay rate, drag is
-the driver and item 44's Earth calibration matters; if it does not, drag is eliminated and the
-decay is something else. Either way the question closes.
+    100× of 1e-10 is still below the floor, so **the four arms could not have differed.**
 
-**Sequence the runs after any build** — items 45–46 lost a clean comparison to a binary that
-changed mid-experiment, three times.
+    **The term is connected, which was checked rather than assumed.** Forcing `kf` = 1.0
+    (86400×) moved `Psi_max` 106510.84 → 106507.38 at 20 iterations. Structurally, `surf_drag`
+    sits at top-level indentation with no enclosing conditional and no early `return` before
+    it, and `turb_model = k_omega_SST` with a single RHS file, so the laminar branch at
+    `RHS_Atm_Turb.cpp:740` is not in play. *This check exists because the same day's
+    `waterVapourEvaporation` claim was retracted in ATHAD_COND for exactly the opposite
+    error — liveness inferred from a grep instead of read from the control flow.*
+
+    **The answer, on a real measurement.** Two 200-iteration arms emulating the fix by
+    pre-multiplying `kf` by 1/dt, against the shipped baseline:
+
+    | | `Psi_max` @ 200 | drag costs | share of the decay |
+    |---|---|---|---|
+    | shipped (dt², drag inert) | 98393.19 | — | — |
+    | correctly scaled, shipped `kf` | 98390.43 | 2.76 (0.0028 %) | **0.034 %** |
+    | correctly scaled, 10× `kf` | 98367.67 | 25.52 (0.0259 %) | **0.314 %** |
+
+    The two effects stand in a ratio of 9.25, against 10 expected — linear in `kf`, as a
+    Rayleigh damping must be, which is the check that the emulation is doing what it claims.
+    Ψ falls 7.62 % over those 200 iterations, and **the correctly-scaled drag accounts for
+    0.034 % of it. Even at ten times the shipped rate it accounts for 0.31 %.**
+
+    **So drag is eliminated — and item 44's Earth calibration does not matter.** Both halves
+    of it, the strength fitted to a jet off Chile and the depth that is 30× too deep because
+    it is a cell count, are real defects and neither is capable of driving this decay.
+
+    **The reason is a timescale, and it generalises past drag.** `rayleigh_kf` = 1/86400 s⁻¹,
+    while 200 iterations is **39 s to 12.5 min** of physical time depending on which `L` the
+    time unit uses (item 47). A friction with a one-day e-folding time cannot do anything to a
+    circulation observed for twelve minutes. **Anything with a timescale longer than minutes is
+    disqualified as an explanation of a decay that completes inside 200 iterations** — which
+    removes drag, radiative relaxation and surface exchange together, and points the remaining
+    search at the initialisation transient and geostrophic adjustment (items 26–28), which act
+    on the advective time the model actually integrates.
+
+    **Fixed in `3e2d78f`, and ported to ATHAD_COND in its `a609d2b`.** The repair is safe
+    against item 34's caveats for a reason specific to this half of the pair: drag is a
+    *damping* term, so a larger coefficient is stabilising, and the "336× drove a polar
+    vertical runaway" caveat recorded there is about buoyancy, a body force, which is **not**
+    touched. It also removes a `dt` pathology rather than adding one — under dt² the effective
+    drag scaled as dt², so item 24's `dt_visc` 4e-5 → 1e-4 had silently changed it by 6.25×,
+    and ATHAD and ATHAD_COND differed in real drag strength by that same 6.25× purely through
+    timesteps neither chose as a physics setting.
+
+    **Verified in ATHAD_COND to the printed precision** (its numbers, 20 iterations): pre-fix
+    42212.38, pre-fix at `kf` = 1.0 42212.33, post-fix at the shipped `kf` **42212.37** against
+    a linear-scaling prediction of 42212.366, with the coefficient rising by exactly
+    25000 = 1/`dt`. `make test` passes there, 0 failures.
+
+    **THIS CHANGES RESULTS. Every Ψ, KE and wind number in this file predates the fix.**
+
+    **What the scan does not settle.** It measured Ψ, and Ψ is built from `v` alone — item 28's
+    warning that a radial failure is invisible to it still stands. `vbud_*`/`wbud_*` are written
+    to CSV and were not analysed here; the attribution of *which* term does drive the decay is
+    still open, and is now the question worth spending runs on.
 
 
 ## Remaining work
 
 
+- **Drag is eliminated as the cell-decay driver, and the timescale argument that eliminates it
+  disqualifies more than drag** (item 49). A correctly-scaled surface drag explains 0.034 % of
+  the Ψ decay. The reason is that 200 iterations is 39 s – 12.5 min of physical time (item 47),
+  so **nothing with a timescale longer than minutes can explain a decay that completes inside
+  200 iterations** — that removes drag, radiative relaxation and surface exchange together. The
+  remaining search is the initialisation transient and geostrophic adjustment (items 26–28).
+  **The attribution is the open part**: `vbud_*`/`wbud_*` are written to CSV and have not been
+  analysed, and Ψ is built from `v` alone so it cannot see a radial failure (item 28).
 - **`t_skin` blocks three separate lines of work, and that is now the top priority** (item 41).
   The OLR equals `σT_lid⁴` equals absorbed SW + geothermal, exactly, and it has now failed to
   respond to κ (64×, 0.10 %), the circulation (500×, 0.03 %), `im` (analytically) and the grid

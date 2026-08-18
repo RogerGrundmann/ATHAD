@@ -294,6 +294,23 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **Drag is eliminated as the cell-decay driver, and the argument that eliminates it removes
+  more than drag** (item 49). The four-arm scan returned `Psi_max` agreeing to **eight
+  significant figures** across 100× in `rayleigh_kf` — which was the **reproducibility noise
+  floor, not a result**: `surf_drag` carried its own `*dt` and RK4 multiplies every RHS by `dt`
+  again, so the drag entered as **dt²**, 4.5e-08 over a 200-iteration run. Item 34's pair, and
+  the Held–Suarez block thirty lines above had made the identical repair in 2026-07. Fixed in
+  `3e2d78f` (ATHAD_COND `a609d2b`); **every Ψ, KE and wind number in these files predates it.**
+  Correctly scaled, drag explains **0.034 %** of the Ψ decay, 0.31 % at ten times the rate,
+  linear in `kf` to 9.25 against 10. **The reason is a timescale**: `rayleigh_kf` is 1/86400 s⁻¹
+  and 200 iterations is 39 s – 12.5 min of physical time (item 47), so **nothing slower than
+  minutes can explain a decay that completes in 200 iterations** — drag, radiative relaxation
+  and surface exchange all go together, leaving the initialisation transient and geostrophic
+  adjustment. **Two method notes worth more than the result.** A null at the noise floor is not
+  a measurement, and the scan had to be diagnosed before it could be read. And the term was
+  checked to be *connected* — `kf` = 1.0 moved Ψ, `surf_drag` has no enclosing conditional —
+  because the same day a claim in ATHAD_COND was retracted for the opposite error, liveness
+  inferred from a grep instead of read from the control flow.
 - **The photosphere is measured now, and it is 21 km higher than this file used to say**
   (item 42). `tau_above` (cumulative LW optical depth from the lid) is a real array; before it
   the photosphere was computed **nowhere in the model**, and every figure quoted for it came
