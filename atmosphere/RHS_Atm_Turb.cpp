@@ -1043,15 +1043,45 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
     // coasts (Antarctic Peninsula / Baffin / Norway / Sea of Okhotsk). Held-Suarez-style
     // linear drag on v,w only (NOT radial u), full strength at the first air cell above
     // the LOCAL surface (i_topography[j][k]) and ramping to zero over the boundary layer.
-    // Scaled in advective time (k_f*L_atm/u_0*dt) to match the laminar RHS_Atm.cpp and the
-    // rest of this path's forcing — see the force_nd note above (2026-06-19 fix).
     // rayleigh_kf and drag_n_layers are CONFIG PARAMETERS now (README item 44). The Earth
     // calibration comments that used to live here are in param.py, where the values are.
+    //
+    // DRAG-dt FIX (2026-08-18): removed the extra *dt, exactly as the Held-Suarez block
+    // above did on 2026-07-04 and for the identical reason. The advective-time
+    // non-dimensionalisation of a linear (Rayleigh) damping rate is k_f*L/u_0, which is
+    // already dimensionless; RK4 then integrates it with its OWN *dt like every other term
+    // in rhs_v/rhs_w (advection, diffusion, Coriolis, all dt^1). The extra *dt made the drag
+    // enter as dt^2.
+    //
+    // MEASURED BEFORE THE FIX, which is why this is not a cosmetic change. With dt = 1e-4:
+    //     surf_drag                     = 2.2742e-06   (already carried *dt)
+    //     RK4's own *dt -> per step      = 2.2742e-10
+    //     over a 200-iteration run       = 4.5e-08     <- AT the ~1e-8 reproducibility floor
+    // A four-arm scan spanning 100x in rayleigh_kf and 5x in drag_n_layers returned
+    // Psi_max agreeing to 8 significant figures at every checkpoint from 20 to 200, because
+    // 100x of 1e-10 is still below the noise. That scan measured the noise floor, not the
+    // drag. Confirmed by forcing kf = 1.0 (86400x): Psi_max moved 106510.84 -> 106507.38,
+    // i.e. the term IS connected and was simply ~7 orders of magnitude too weak.
+    //
+    // The fix multiplies the effective coefficient by 1/dt = 1e4, taking the baseline
+    // damping to 2.27e-6 per step and ~4.5e-4 over 200 iterations. That is still a SMALL
+    // number and this is a correctness fix, not a regime change: a 1/day drag simply cannot
+    // do much in the 39 s - 12.5 min of physical time a 200-iteration run covers (README
+    // item 47 on the ambiguous time unit).
+    //
+    // It is also strictly safer than the same repair on the buoyancy term, which item 34
+    // pairs it with: drag is a DAMPING term, so a larger coefficient is stabilising, and
+    // the "336x drove a polar vertical runaway" caveat recorded there is about buoyancy, a
+    // body force. And it REMOVES a dt pathology rather than adding one — under the dt^2
+    // form the effective drag went as dt^2, so item 24's dt_visc 4e-5 -> 1e-4 had silently
+    // changed it by 6.25x. It is now independent of dt, as a physical rate should be.
+    //
+    // THIS CHANGES RESULTS. Every Psi, KE and wind number in the README predates it.
 
     double drag_profile = 1.0 - (double)(i - i_topography[j][k]) / drag_n_layers;   // both from config
     if(drag_profile < 0.0) drag_profile = 0.0;
     if(drag_profile > 1.0) drag_profile = 1.0;
-    double surf_drag = (rayleigh_kf * L_coeff / u_0 * dt) * drag_profile;
+    double surf_drag = (rayleigh_kf * L_coeff / u_0) * drag_profile;
 
     rhs_v.x[i][j][k] = -dpdthe_invrm - transport_v + diffusion_v
         + coriolis * force_nd * coriolis_the

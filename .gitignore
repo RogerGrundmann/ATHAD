@@ -77,3 +77,6 @@ python/prog400_status.txt
 python/config_drag_*.xml
 python/run_drag_*.log
 python/drag_status.txt
+
+# per-run working directories for concurrent A/B arms (see README)
+python/run_*/
