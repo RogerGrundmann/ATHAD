@@ -84,6 +84,16 @@ namespace AtmMixture {
     //
     // The reference carrier fraction 1 - q_H2O_ref, set once by resolve(). 0 means unset,
     // which selects the pre-2026-08-19 behaviour so nothing can depend on call order.
+    // Set ONCE by cAtmosphereModel::initComposition(), from c_0 — the water mass fraction the
+    // stored co2 value is quoted at, which is what makes q_CO2_of an identity at the reference.
+    // 0 = unset, which selects the legacy no-dilution path rather than a wrong number.
+    //
+    // IT IS NOT SET INSIDE resolve(), AND THE COND SELF-TEST IS WHY. It was, briefly: resolve()
+    // is the one function that knows the configured composition, so it looked like the natural
+    // home. But resolve() is a pure function that any caller may invoke with any composition,
+    // and cond_column_selftest.cpp calls it with a near-dry one — which left carrierRef() at
+    // 0.9957 instead of 0.6536 and moved M_nonwater from 42.88 to 36.27 g/mol. A global written
+    // by whoever called last is not a reference. The test caught it on the first run.
     inline double& carrierRef() { static double v = 0.0; return v; }
 
     // ATM_CO2_DILUTE=0 restores the old split, where the BACKGROUND absorbed every change
@@ -151,11 +161,10 @@ namespace AtmMixture {
         C.M_bg = (x_bg > 0.0) ? (m_bg / x_bg) : M_N2;
         C.R_bg = R_STAR / C.M_bg;
 
-        // The reference non-water carrier, for q_CO2_of below. Set here because this is the
-        // one function that knows the configured composition and it runs once, before any
-        // physics; leaving it at 0 anywhere else selects the legacy no-dilution path rather
-        // than a wrong number.
-        carrierRef() = 1.0 - C.q_H2O;
+        // NOTE: carrierRef() is deliberately NOT set here. See its declaration above — it is
+        // set once by cAtmosphereModel::initComposition() from c_0, because resolve() is a
+        // pure function that anything may call with any composition, and a global written by
+        // "whoever called last" is not a reference.
 
         return C;
     }

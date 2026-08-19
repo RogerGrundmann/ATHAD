@@ -137,6 +137,11 @@ void cAtmosphereModel::initComposition(){
     m_comp = AtmMixture::resolve(x_H2O, x_CO2, x_N2, x_CH4,
                                  x_NH3, x_H2,  x_CO, x_SO2);
 
+    // The reference non-water carrier for AtmMixture::q_CO2_of, from c_0 — the water mass
+    // fraction that co2_0 is quoted at. Set here, once, and NOT inside resolve(): see the
+    // note at carrierRef() for what happened when it lived there.
+    AtmMixture::carrierRef() = 1.0 - c_0;
+
     cout << endl << endl << "      AGCM: atmospheric composition (ATHAD)" << endl << endl;
     cout.precision(6);
     cout << "        species    mole frac.    mass frac." << endl;
