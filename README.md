@@ -3640,6 +3640,26 @@ the measurement.
     **0.000083 at iteration 10 — `run_s_fix`'s value to the digit** — so it is the consistent
     denominator, not the boundary condition and not `MC_t`'s `t_0`.
 
+    **The square closes** (`max MC_t` at iteration 10, all other repairs present in both
+    right-hand runs):
+
+    | | legacy denominator | consistent denominator |
+    |---|---|---|
+    | i=0 cubic | 0.000083 (`run_s_fix`) | **0.010000** (`run_s_all`) |
+    | i=0 copy | 0.000083 (`run_s_attrib`) | **0.010000** (`run_s_final`) |
+
+    — and outside that transient the two denominators agree exactly: `max MC_t` is 0.001050 at
+    iteration 20 and 0.000420 at iteration 40 in *both* `run_s_attrib` and `run_s_all`. So the
+    difference is confined to the spin-up, measured across two builds rather than inferred from
+    one.
+
+    **The i=0 half of the BC repair is confirmed and costs one number.** `run_s_final` — every
+    repair, including the surface copy — is identical to `run_s_all` at iteration 40 in the OLR
+    (323.76), `Psi_max`, albedo, photosphere, `S_r`, `S_s`, `q_v_u` and `s_u`, and differs in
+    exactly one place: **`max s_d` 11.099406 → 11.085196 at 0 m**, i.e. the surface downdraft
+    value goes from a cubic extrapolation (1493.7 K) to a copy of the level above it (1491.8 K),
+    a 0.13 % change in the one quantity the surface boundary condition actually sets.
+
     **And that reframes it: nothing got worse, an Earth-calibrated ceiling started binding.**
     With the denominator consistent, `s_u` is a bounded, physically meaningful parcel value that
     genuinely differs from its environment, so the flux divergence it produces is a real
