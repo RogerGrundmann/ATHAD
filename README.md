@@ -3243,9 +3243,170 @@ the measurement.
     still open, and is now the question worth spending runs on.
 
 
+50. **The buoyancy body force is item 34's other half, and it is wrong in three ways at once.
+    A knob corrects all three, and it is shipped OFF — the arithmetic says so.**
+
+    Item 49 fixed the Rayleigh drag's extra `*dt`. The buoyancy body force carries the same
+    defect and was left alone, deliberately, and the reason is worth stating because it is the
+    opposite of the drag's:
+
+    ```
+    current      g*dt/u_0   = 1.2263e-04
+    consistent   g*L/u_0^2  = 2409.4          -> 1.96e+07x the current coefficient
+    ```
+
+    The drag repair multiplied a **damping** term by 1/dt = 1e4, where a larger coefficient is
+    stabilising. This is 2e7 on a **body force**. The largest value ever run on this term is the
+    intermediate 336 recorded in the comment above it, which drove a polar vertical runaway; the
+    consistent value is **7.2× larger than that**. Shipping it on would not be a fix, it would be
+    an experiment, and one with a recorded failure mode.
+
+    *That "336" is itself Earth's*: `g/(omega*L_atm)` is 336 at `ATOM_Precipitation`'s
+    `omega` = 7.29e-5 and `L_atm` = 400, and **1.97 here**. Item 34 described it as "a merely 336×
+    larger coefficient", which understates the gap — against today's coefficient, 336 is already
+    2.7e6×.
+
+    **The knob corrects three things and they are inseparable.** Rescaling an incorrect force is
+    not a repair, so `ATM_BUOY_CONSISTENT=1` changes all of:
+
+    - **(a) the non-dimensionalisation** (item 34): `g*dt/u_0` → `g*L/u_0²`, RK4 supplying the `dt`.
+    - **(b) the Boussinesq reference temperature — which is new, and is not a `dt` question at
+      all.** The anomaly `(t − t_ref_level[i])` is `(T − T_ref)/t_0`, because `t` is `T/t_0`, so
+      the shipped term divides the buoyancy by **`t_0` = 273.15 K**. Boussinesq buoyancy is
+      `g·(T − T_ref)/T_ref`; non-dimensionally that is `(t − t_ref)/t_ref`, the `t_0` cancelling.
+      The shipped form therefore overstates the force by `T_ref/t_0`: **5.49× at a 1500 K surface,
+      0.96× at a 263 K top.** That is not a rescaling, it is a height-dependent distortion of a
+      body force, strongest exactly where the convection is. `t_ref_level[i]` is the horizontal
+      mean at each level and is the right base state; only the divisor was wrong. **This is the
+      Earth-constant pattern in its purest form — `t_0` = 273.15 K is a non-dimensionalisation
+      constant standing where a physical reference temperature belongs, and on a 288 K planet the
+      two are within 5 % of each other.**
+    - **(c) `L_atm`, not `L_coeff`.** `ATM_COEFF_SHELL` is an experiment on the damping and
+      forcing *coefficients*, worth ~29×. Letting a body force join it would mean flipping a
+      diagnostic switch changes the dynamics by 29× — precisely the confound that switch exists
+      to remove.
+
+    **Measured, 20 iterations, with (a) alone** (`run_buoy_off` / `run_buoy_on`):
+
+    | | off | on (a only) | |
+    |---|---|---|---|
+    | max `ubud_buoy` | 0.000000 | 6.250198 | absent → present |
+    | min `ubud_buoy` | −0.000002 | −34.569365 | ~4× the pressure gradient |
+    | max `ubud_pgf` | 1.198185 | 10.575467 | grows 7× to oppose it |
+    | max radial wind | 0.297520 m/s | 0.355395 m/s | **+19.5 %** |
+    | `Psi_max` @ 20 | 106510.42 | 106510.62 | **+0.0002 %** |
+
+    So the term goes from absent to dominant in the radial budget, the pressure gradient absorbs
+    most of it, and the meridional overturning does not notice. **No runaway at that length — and
+    that is not evidence of stability**: `buoyancy_ramp` was still 0.067 at iteration 20, so the
+    force was at 6.7 % of its final strength. The measurement also predates (b), which cuts the
+    near-surface term ~5.5×, so **it should not be quoted as the consistent term's behaviour.**
+
+    **If the consistent form does blow up, that is a Boussinesq result, not a bug in this line.**
+    CLAUDE.md's open risk stands: density spans ~2 orders of magnitude across this column and the
+    solver rests on Boussinesq. A body force 2e7 larger is the first thing that would find out.
+
+    **Bit-identity when off: NOT achieved, and stated rather than rounded away.** The off branch
+    is the original expression verbatim — the first version of the knob hoisted a shared
+    `buoy_coeff`, which is *not* bit-identical, because `*` and `/` are left-associative and
+    `(A*g)*dt` ≠ `A*(g*dt)` in floating point unless `-ffast-math` chooses to reassociate. Even
+    with the verbatim off branch, hoisting the result into a named `buoy_term` changes which
+    `a*b+c` pairs may fuse into an FMA. Measured against the pre-knob binary at matched thread
+    count over 200 iterations: **6 of 10 checkpoints identical, 4 differing in the last printed
+    digit of Ψ (1e-7 relative)**, `residuum_atm` identical to 8 digits and the wind extrema to 6.
+    For calibration, that is **smaller than the 1.2e-6 this file measures between 12 and 24
+    threads.** True bit-identity is available by duplicating the whole `rhs_u` assignment under
+    `if/else`; not done, because the duplication costs more than the 1e-7 buys.
+
+    **Open**: a long run with the knob on, and the decision of what `buoyancy_ramp` should reach
+    when the coefficient is 2e7 larger. Committed in `daaddf2`, default off, so every existing
+    result stands.
+
+51. **`cp_l` = 2040 J/(kg·K) is the mixture cp at ~1101 K, and the moist convection ran on it
+    everywhere. Correcting it moves rain production by −18 % and nothing downstream at all.**
+
+    `MoistConvection.h` used the constant `cp_l` throughout. Measured against the model's own
+    `AtmMixture::cp_of` at the configured composition:
+
+    | where | T | `cp_of` | `cp_l` is |
+    |---|---|---|---|
+    | isothermal skin — **where all condensation happens** | 263 K | 1562.8 | **1.305×** |
+    | 218 km | 378.7 K | 1597.8 | 1.277× |
+    | 186 km | 569.0 K | 1699.4 | 1.200× |
+    | surface | 1500 K | 2341.2 | 0.871× |
+
+    So the constant is **+30.5 % wrong exactly where the moist physics runs** and −12.9 % at the
+    surface, and no single value can be right across a column that spans 1563–2341. (`cp_of` is
+    clamped below 298 K, so the +30.5 % is a lower bound.)
+
+    **Converted: the five sites where cp converts energy to temperature and does not cancel** —
+    the surface buoyancy flux and `delta_T_sfp`, both θ_e exponents, the updraft moist adjustment
+    (`G` and the latent heating, with `cp_u` refreshed each pass as `T_u` moves), and the `MC_t`
+    tendency. The θ_e case was **already self-inconsistent**: `kappa` two lines above it used
+    `AtmMixture::cp_of` while the exponent used the constant, in the same expression.
+
+    **Not converted, deliberately: the nine `s ↔ T` sites.** `s = cp_l·T/s_0` and
+    `T = s·s_0/cp_l` are an exact inverse pair, so `cp_l` **cancels** and never reaches a result.
+    Making one side local would break the round trip and turn `s` into an implicit function of
+    `T`. Documented in place, so the file has one rule and a stated exception rather than a mix.
+
+    **Measured, 200 iterations, moist physics from iteration 0, 24 threads**, against a baseline
+    differing *only* in this change (`run_drag_fixed` → `run_cplocal`):
+
+    | | baseline | local cp | |
+    |---|---|---|---|
+    | max `S_r` (rain) | 2.692884 | 2.201288 | **×0.817** |
+    | max `S_s` (snow) | 0.898367 | 0.734446 | **×0.818** |
+    | max `S_v` | 0.157471 | 0.158541 | ×1.007 |
+    | max `Q_Latent` | 0.218706 | 0.218709 | ×1.0000 |
+    | cloud water | 15.198408 | 15.227884 | ×1.002 |
+    | albedo | 0.4987 | 0.4987 | unchanged |
+    | OLR | 281.55 | 281.61 W/m² | **+0.02 %** |
+    | photosphere | 245.9 km / 270.36 K | identical | |
+    | `Psi_max` | 98390.55 | identical | |
+
+    **A −18 % correction to rain and snow production changes nothing integrated.** The albedo
+    absorbs it, exactly as it absorbed `initCloudIce`'s H_crit repair (0.18 % on OLR, item 42):
+    **the reflectivity saturates on the *presence* of condensate**, so how fast condensate is
+    produced cannot reach the radiation. That is now three separate microphysical corrections
+    that die at the same wall, and it is a statement about the albedo parameterisation, not about
+    the microphysics.
+
+    **A note on method, because the first answer was wrong.** The first comparison used
+    `run_drag_base` and was confounded: that run predates `3e2d78f` and used 6 threads, and it
+    made the cp change look like **+3 % on OLR** (273.33 → 281.61). Almost all of that was the
+    **drag fix** (273.33 → 281.55). Same trap as items 45–46 — *a binary that changed
+    mid-experiment*. What identified the correct baseline was `Psi_max` being bit-identical
+    between `run_cplocal` and `run_drag_fixed`: a quantity the change cannot touch is the label
+    that tells you which run you are actually comparing against.
+
+    **Also found, documented not fixed**: `s_0` = 274515.75 = 1005 × `t_0` carries **Earth's
+    dry-air cp**, not ATHAD's 2040 (which would give 557226), while `param.py` calls it
+    "`cp_l * t_0`" so it reads as derived. It changes no result *precisely because* `cp_l`
+    cancels; the one place the scale would matter, `s` = 1.0 as a boundary value
+    (`BC_Atm.h:219,368`), sits behind `if(!is_land) continue` and is dead under invariant 1 —
+    **the dead-Earth-branch pattern again, this time protecting a defect instead of hiding one.**
+    And two of the five converted sites currently multiply zero, because `Q_sensible_2D` is
+    declared, reset, read and output but **never written**; converted anyway so the file has one
+    rule. Committed in `e7bd455`.
+
 ## Remaining work
 
 
+- **Three microphysical corrections have now died at the same wall, and the wall is the
+  albedo** (item 51). Making `cp` local in `MoistConvection` moves rain and snow production by
+  **−18 %** and the OLR by **+0.02 %**, with Ψ, the photosphere and the albedo bit-identical or
+  unchanged; `initCloudIce`'s H_crit repair was 0.18 % (item 42). The reflectivity saturates on
+  the **presence** of condensate, so nothing about condensate *amount or rate* can reach the
+  radiation. **`albedo_cloud` is not merely the biggest lever after the opacities — it is the
+  only path condensate has to the OLR**, and any further microphysics work should expect to be
+  unmeasurable until that parameterisation responds to something.
+- **`s_0` carries Earth's dry-air cp and is dead-code-protected** (item 51). `s_0` = 274515.75
+  = 1005 × `t_0`, not ATHAD's 2040 × `t_0` = 557226, while `param.py` calls it "`cp_l * t_0`".
+  It changes no result because `cp_l` cancels in the `s ↔ T` pair, and the one place the scale
+  would matter (`s` = 1.0 at `BC_Atm.h:219,368`) is behind `if(!is_land) continue`, dead under
+  invariant 1. Fixing `s_0` and the `s` definition together is a separate job with no measurable
+  payoff — recorded so it is not rediscovered as a live defect.
 - **Drag is eliminated as the cell-decay driver, and the timescale argument that eliminates it
   disqualifies more than drag** (item 49). A correctly-scaled surface drag explains 0.034 % of
   the Ψ decay. The reason is that 200 iterations is 39 s – 12.5 min of physical time (item 47),
@@ -3350,12 +3511,16 @@ the measurement.
   the prescribed **zonal jet**, not the overturning: modes 0 and 1 differ 3× in every
   amplitude and decay identically, while mode 2 changes only the jet and halves the decay.
   That is the first handle on item 28's residual force.
-- **The buoyancy body force and the Rayleigh drag still carry an extra `*dt`** (item 34), so
-  both enter as dt² where everything else is dt¹ — the exact defect the Held–Suarez block
-  above them documents having fixed. For buoyancy that is ~2e7 below the consistent
-  coefficient, and it makes both terms `dt_visc`-dependent, so item 24's timestep change
-  silently moved them by 6.25×. Not a one-line fix: a merely 336× larger coefficient is
-  recorded as having driven a polar vertical runaway.
+- **The buoyancy body force still carries an extra `*dt`, and now it also has a knob**
+  (items 34, 50). The drag half was fixed in `3e2d78f`; this half is `ATM_BUOY_CONSISTENT`
+  and is **default off**, because the consistent coefficient is **2e7×** the shipped one and
+  **7.2× larger than the 336 that is recorded as having driven a polar vertical runaway** — on
+  a body force, where the drag's "larger is stabilising" argument does not apply. The knob also
+  repairs the Boussinesq reference temperature, which is the bigger surprise: the shipped term
+  divides the anomaly by `t_0` = 273.15 K instead of `T_ref`, overstating the force **5.49× at
+  the surface and 0.96× at the top** — a height-dependent distortion, not a rescaling. The open
+  work is a long run with it on, and deciding what `buoyancy_ramp` should reach; a 20-iteration
+  test at 6.7 % ramp and without the `T_ref` half is **not** evidence of stability.
 - **`ATM_RAD_DIRECT` is written, exact and 10× cheaper than the wrong default, and is still
   off** (item 30). The case for flipping: it changes the standard configuration by 0.15 %,
   it is a closed-form solution rather than an under-iterated one, and it costs less. The case
