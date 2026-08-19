@@ -775,41 +775,12 @@ public:
     }
 
     // ------------------------------------------------------------------
-    // ATHAD: CO2 is a well-mixed MASS FRACTION, uniform in the vertical.
-    //
-    // The Earth version built a ppm profile — a surface value scaled by local
-    // temperature plus a paleo increment, decaying parabolically to a fixed tropopause
-    // concentration, with separate vegetation / ocean / land ppm budgets and an Earth
-    // regression in t_equat_modern for the "mean CO2 at modern times".
-    //
-    // None of that has a subject in the Hadean: there is no biosphere to draw CO2 down,
-    // no carbonate-silicate ocean sink to absorb it, and no land. CO2 is simply 10 % of
-    // the atmosphere by mole (20.5 % by mass) and stays where it is put. The vertical
-    // gradient the parabola imposed encoded Earth's surface sources and stratospheric
-    // depletion, so imposing it here would be inventing structure.
-    //
-    // Units: the field is now kg/kg, not ppm. At 20.5 % by mass ppm is meaningless, and
-    // every consumer (the mixture properties, the radiative optical depth) wants a
-    // fraction. co2_scale still multiplies the field for sensitivity experiments.
-    void co2Atmosphere()
-    {
-        using namespace std;
-        cout << endl << endl << endl << "      AGCM: co2_atmosphere" << endl;
-
-        const double co2_ref = m.co2_0 * m.co2_scale;                   // [kg/kg]
-
-        #pragma omp parallel for collapse(2) schedule(static)
-        for (int j = 0; j < m.jm; j++)
-            for (int k = 0; k < m.km; k++)
-                for (int i = 0; i < m.im; i++)
-                    m.co2.x[i][j][k] = co2_ref;
-
-        cout.precision(6);
-        cout << "      AGCM: co2 well mixed at " << co2_ref
-             << " kg/kg (co2_0 = " << m.co2_0
-             << ", co2_scale = " << m.co2_scale << ")" << endl;
-        cout << "      AGCM: co2_atmosphere ended" << endl;
-    }
+    // co2Atmosphere() REMOVED 2026-08-19: the CO2 initial condition is
+    // cAtmosphereModel::initCO2(), in InitValues_Atm.cpp with the other initialisers.
+    // It never belonged here — it is an initial condition, not a thermodynamic routine, and
+    // keeping it in ThermoAtm is what made it easy to call from inside the time loop, which
+    // is precisely the defect item 12 had to remove.
+    // ------------------------------------------------------------------
 
     // ------------------------------------------------------------------
     // Global TOTAL-water conservation check.
@@ -970,12 +941,12 @@ public:
     // ------------------------------------------------------------------
     // Column CO2 mass path [kg/m2] and the global CO2 mass-conservation check.
     //
-    // This replaces the in-loop call to co2Atmosphere(). CO2 has a full transport
+    // This replaces the in-loop call to the old co2Atmosphere(). CO2 has a full transport
     // equation — RHS_Atm_Turb builds rhs_co2 and RungeKutta_Atm_Turb carries it through
-    // all four stages — and co2Atmosphere() was overwriting the result with a uniform
+    // all four stages — and that call was overwriting the result with a uniform
     // field every iteration, so the CO2 in the output was exactly constant (min = max =
     // 0.205300 in every cell) and the "prognostic CO2" of CLAUDE.md was diagnostic.
-    // co2Atmosphere() is now the INITIAL CONDITION only: the field starts well mixed, as
+    // initCO2() is now the INITIAL CONDITION only: the field starts well mixed, as
     // a non-condensable gas below the homopause should be, and is then transported.
     //
     // Because there is no CO2 source or sink anywhere in the model, the global
@@ -1007,7 +978,10 @@ public:
                     if (!(dp_Pa > 0.0)) continue;
 
                     const double u_air = dp_Pa / m.g;                       // [kg/m2]
-                    const double q_c   = std::max(0.0, m.co2.x[i][j][k]);
+                    // The LOCAL mass fraction (item 57), so this is a mass and not a mass
+                    // fraction integrated as though it were one.
+                    const double q_c   = std::max(0.0, AtmMixture::q_CO2_of(m.c.x[i][j][k],
+                                                                            m.co2.x[i][j][k]));
 
                     col   += q_c * u_air;
                     w_den += coslat * u_air;

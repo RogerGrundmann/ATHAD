@@ -632,7 +632,7 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     //
     // initTemperatureData reads c and co2 at every level — R_of(q_v, q_c, R_bg) for the
     // hydrostatic step and cp_of(q_v, q_c, T, M_bg) for the adiabat — but both fields were
-    // still zero when it ran, because initWaterWapour and co2Atmosphere came after it. With
+    // still zero when it ran, because initWaterWapour and initCO2 came after it. With
     // q_v = q_c = 0 the gas constant collapses to the BACKGROUND value, R_bg = 317.3 instead
     // of R_mix = 387.9 (18 % low, so an 18 % short scale height), and cp is the
     // background-only value, so the adiabat g/cp is too steep. The whole initial column was
@@ -648,7 +648,7 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     // with no dependence on t or p_stat, so moving them earlier is safe. initCloudIce stays
     // where it is: it reads the temperature profile and genuinely needs it.
     initWaterWapour();
-    ThermoAtm(*this).co2Atmosphere();
+    initCO2();
 
     initTemperatureData(Ma);                                            // initialization of temperature, hydrostatic pressure and density of dry air, reconstruction of potential surface values
     AtomUtils::damp_wiggles(t, &i_topography, true, true, true);
@@ -718,7 +718,7 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     }
 
     UtilsAtm(*this) .precipitationSum();
-    // ATHAD: co2Atmosphere() must run BEFORE densities(). The CO2 field is now a
+    // ATHAD: initCO2() must run BEFORE densities(). The CO2 field is now a
     // mass fraction that enters the local mixture gas constant R_of(c, co2), so a
     // density built before it is set uses R_of(c, 0) = 414.2 instead of 387.9 —
     // a 7 % density error through the whole column. On Earth the ordering was
@@ -739,7 +739,7 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
     ThermoAtm(*this).vegetationLand();                                  // vegetation on land
 
     {   // ATHAD: hydrostatic sanity of the initial state, equator and pole. Placed after
-        // co2Atmosphere() so every field the profile prints is populated.
+        // initCO2() so every field the profile prints is populated.
         ThermoAtm probe(*this);
         probe.printColumnProfile((jm - 1) / 2, "equator");
         probe.printColumnProfile(4,            "near north pole");
@@ -1516,7 +1516,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 // neither of those two either.
                 //
                 // IT WAS THE INITIALISATION ORDER (README item 22). initTemperatureData ran
-                // before initWaterWapour and co2Atmosphere, so the initial column was built
+                // before initWaterWapour and initCO2, so the initial column was built
                 // at R_bg instead of R_mix, and initCloudIce and the first
                 // SaturationAdjustment laid the cloud deck on it 50 km too low — at 186-196
                 // km, which is EXACTLY the i=51-52 the clipping was reported at, and a band

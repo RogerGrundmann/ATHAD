@@ -28,6 +28,7 @@
 // lapse rate everywhere, so cp_i(T) uses Shomate-form fits (NIST/JANAF) per species.
 
 #include <cmath>
+#include <cstdlib>
 #include <algorithm>
 
 namespace AtmMixture {
@@ -78,6 +79,51 @@ namespace AtmMixture {
         double x_sum    = 0.0;
     };
 
+    // ------------------------------------------------------------------------
+    // THE NON-WATER CARRIER AND ITS DILUTION (README item 57).
+    //
+    // The reference carrier fraction 1 - q_H2O_ref, set once by resolve(). 0 means unset,
+    // which selects the pre-2026-08-19 behaviour so nothing can depend on call order.
+    inline double& carrierRef() { static double v = 0.0; return v; }
+
+    // ATM_CO2_DILUTE=0 restores the old split, where the BACKGROUND absorbed every change
+    // in the water content and CO2 never moved. Default ON.
+    inline bool co2_dilute()
+    {
+        static const bool v = [](){
+            const char* e = std::getenv("ATM_CO2_DILUTE"); return !(e && std::atoi(e) == 0); }();
+        return v;
+    }
+
+    // The LOCAL CO2 mass fraction, from the transported field and the local water.
+    //
+    // WHY THIS EXISTS. Water is 67 % of this atmosphere's mass and it is not uniform —
+    // 536.9 to 739.0 g/kg across the domain — so a parcel's total mass changes as water
+    // enters and leaves it, and the mass fractions of everything else must respond. The old
+    // split set q_b = 1 - q_v - q_c with q_c taken straight from the field, so ALL of that
+    // response landed on the background (a 4.6x spread in q_bg) and NONE on CO2, which stayed
+    // pinned at 0.205300 everywhere. Removing water from a parcel concentrates CO2 and
+    // background TOGETHER; the old form concentrated only one of them, worth -1.4 % on R_mix
+    // at the wettest point and +2.6 % at the driest, correlated with the water field.
+    //
+    // THE FIX KEEPS THE STORED FIELD'S NUMBERS. The transported value is read as the CO2 mass
+    // fraction AT THE REFERENCE WATER CONTENT, and scaled to the local carrier:
+    //
+    //     q_CO2 = co2_stored * (1 - q_v) / (1 - q_H2O_ref)
+    //
+    // At q_v = q_H2O_ref this is the identity, so the initial condition, co2_0 and every
+    // printed value keep their meaning; away from it, q_CO2 and q_bg scale together and their
+    // ratio — the composition of the carrier — is invariant, which is the physical statement.
+    // CO2 stays prognostic: a transported perturbation in the stored field still shows.
+    inline double q_CO2_of(double c, double co2)
+    {
+        const double q_c0 = std::min(std::max(co2, 0.0), 1.0);
+        const double ref  = carrierRef();
+        if (!co2_dilute() || ref <= 0.0) return q_c0;
+        const double q_v  = std::min(std::max(c, 0.0), 1.0);
+        return q_c0 * (1.0 - q_v) / ref;
+    }
+
     // Build the composition from the eight configured mole fractions.
     inline Composition resolve(double x_H2O, double x_CO2, double x_N2,
                                double x_CH4, double x_NH3, double x_H2,
@@ -104,6 +150,12 @@ namespace AtmMixture {
         const double x_bg = x_N2 + x_CH4 + x_NH3 + x_H2 + x_CO + x_SO2;
         C.M_bg = (x_bg > 0.0) ? (m_bg / x_bg) : M_N2;
         C.R_bg = R_STAR / C.M_bg;
+
+        // The reference non-water carrier, for q_CO2_of below. Set here because this is the
+        // one function that knows the configured composition and it runs once, before any
+        // physics; leaving it at 0 anywhere else selects the legacy no-dilution path rather
+        // than a wrong number.
+        carrierRef() = 1.0 - C.q_H2O;
 
         return C;
     }
@@ -145,14 +197,14 @@ namespace AtmMixture {
     // ------------------------------------------------------------------------
     // Local mixture properties from the two prognostic mass fractions.
     //
-    // c and co2 are mass fractions in [0,1]; the background takes up the remainder.
-    // Both are clamped and the background floored at zero, so a transport overshoot
-    // degrades the properties smoothly instead of producing a negative gas constant.
+    // c is a mass fraction in [0,1]; co2 is read through q_CO2_of above; the background takes
+    // up the remainder. Both are clamped and the background floored at zero, so a transport
+    // overshoot degrades the properties smoothly instead of producing a negative gas constant.
     // ------------------------------------------------------------------------
     inline void split(double c, double co2, double& q_v, double& q_c, double& q_b)
     {
         q_v = std::min(std::max(c,   0.0), 1.0);
-        q_c = std::min(std::max(co2, 0.0), 1.0);
+        q_c = q_CO2_of(c, co2);
         const double sum = q_v + q_c;
         if (sum > 1.0) {                      // renormalise rather than go negative
             q_v /= sum;

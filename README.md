@@ -3962,9 +3962,107 @@ the measurement.
     CO₂ a source — magma-ocean degassing or dissolution — which is the only thing that makes
     (2) false and the only one that is a Hadean science question rather than a plumbing one.
 
+57. **The non-water carrier is renormalised, so CO₂ and background now concentrate together as
+    water leaves a parcel — and the CO₂ initial condition becomes `initCO2()`, where it
+    belongs. Item 56's third reason is fixed; the stored field keeps its numbers.**
+
+    **THE CONVENTION.** The transported `co2` field is read as the CO₂ mass fraction **at the
+    reference water content**, and `AtmMixture::q_CO2_of` scales it to the local carrier:
+
+    ```
+    q_CO2 = co2_stored * (1 - q_v) / (1 - q_H2O_ref)
+    ```
+
+    At `q_v = q_H2O_ref` this is the identity, so `co2_0`, the initial condition and every
+    printed value keep their meaning and their numbers. Away from it, `q_CO2` and `q_bg` scale
+    **together** and the composition of the carrier is invariant — which is the physical
+    statement item 56 said was missing. CO₂ stays prognostic: a transported perturbation in the
+    stored field still shows. `carrierRef()` is set once inside `resolve()`, the one function
+    that knows the configured composition and runs before any physics; left at 0 it selects the
+    legacy path, so nothing can depend on call order. `ATM_CO2_DILUTE=0` restores the old
+    behaviour.
+
+    **PUTTING IT IN `split()` FIXES SIX FUNCTIONS AT ONCE** — `R_of`, `cp_of`, `M_of`,
+    `M_nonwater`, `x_CO2_of`, `x_H2O_of`. Four sites read `co2` raw and were converted
+    individually:
+
+    - **`MultiLayerRadiation`** — the CO₂ optical depth, and the one with teeth. Pinning `q_c`
+      handed the whole water-driven variation to `q_b`, i.e. it moved mass between two species
+      whose opacities differ by **1000×** (`kappa_CO2` = 1e-3 against `kappa_bg` = 1e-6).
+    - **`ThermoAtm::co2Column`** — so the integral is a mass, not a mass fraction integrated as
+      though it were one.
+    - **`IceSchemeCommon` ×2** — the `c ≤ 1 − co2` ceiling. Under the new convention
+      `q_v + q_CO2 + q_bg = 1` for *any* `q_v`, because the carrier shrinks as water grows, so
+      that ceiling has no meaning and 1.0 is the real bound on a mass fraction. (It had already
+      stopped firing — item 23.)
+
+    A side effect worth noting: `M_nonwater` now returns a value **independent of the water
+    content**, which is what its own docstring always claimed it computed ("renormalised to
+    exclude H₂O"). Under the old split it varied with water.
+
+    **MEASURED — 40 iterations, 24 threads, one binary, the knob the only difference:**
+
+    | | `ATM_CO2_DILUTE=0` | dilution on |
+    |---|---|---|
+    | co2 column, max − min | **6.8e-04 kg/m²** (1.3e-6 relative) | **220.0 kg/m²** (4.2e-4) |
+    | co2 column average | 523352.862 | 523314.417 → 523314.708 |
+    | max water vapour | 744.965 g/kg | 777.730 (+4.4 %) |
+    | OLR | 323.83 W/m² | 323.87 (+0.012 %) |
+    | photosphere T | 368.00 K | 368.30 K |
+    | mean albedo | 0.4987 | 0.4988 |
+    | `Psi_max` | 105590.82 | 105590.66 |
+    | max temperature | 1219.345378 | 1219.345314 |
+
+    **The CO₂ column gains 320× more spatial structure** — that is the whole point, and it is
+    the direct answer to item 56: CO₂ mass now follows the inverse of the water field instead of
+    being flat to 1e-6. The global mean falls 0.0073 %, because the domain-mean water sits
+    slightly above `c_0` so the mean carrier is slightly smaller, and it then **holds to
+    5.6e-07 across the run's diagnostics** — the mass is conserved, which was the number most
+    likely to misbehave under a convention change.
+
+    **BIT-IDENTITY OF THE LEGACY PATH, checked against a foreign binary.** `ATM_CO2_DILUTE=0`
+    reproduces `run_s_final` — built before any of this existed — digit for digit at iteration
+    10: water vapour 696.916724/611.243205, co2 column 523435.587906/505987.734976, column
+    average 520130.791.
+
+    **A misattribution caught in the act.** The `co2 column` field shows a 3.4 % latitudinal
+    spread at iteration 10 in *both* arms, and it would have been easy to publish that as the
+    dilution working. It is a pole artefact of that diagnostic, present identically with the
+    knob off. The real signature is the max−min at iteration 40 and the mean.
+
+    **`initCO2()` — the initial condition moves to `InitValues_Atm.cpp`.** `ThermoAtm::
+    co2Atmosphere()` is retired. It never belonged in a thermodynamics class: it is an initial
+    condition, and keeping it there is what made it easy to call from inside the time loop,
+    which is exactly the defect item 12 had to remove. The new routine states the two contracts
+    that were previously implicit — that it must precede `initTemperatureData` and `densities()`
+    (item 22: with `co2` still zero, R collapses to the background's 317.3 against 387.9, an
+    18 % short scale height, and the lid snapshot the run is pinned to is built from it), and
+    what the stored value now means.
+
+    **And it can make the tracer non-uniform, which is what item 56 said was untested.**
+    `ATM_CO2_INIT_PERTURB` (default 0.0, bit-identical) lays down a surface-rich, top-poor
+    gradient, linear in **true height** rather than grid index — on this stretch those are very
+    different things (item 39). Verified at amplitude 0.25: 0.2566 kg/kg at the surface against
+    0.1618 at 277 km. **It is a measurement tool and not a Hadean claim**: item 56's second
+    reason — a uniform tracer with no source has nothing to transport — means the CO₂ transport
+    and its convective redistribution are *untested*, not tested and found working. Anything
+    measured with this knob set describes the numerics, and no number from such a run belongs in
+    a statement about the atmosphere.
+
+    **NOT FIXED, and it is second order.** `c` is water **vapour**; condensate lives in separate
+    arrays, so when vapour condenses the parcel keeps that mass as liquid or ice and the
+    gas-phase carrier grows less than `1 − c` implies. The strictly correct normalisation is by
+    the gas mass, `1 − (cloud + ice + graupel)`. Condensate here runs 12–47 g/kg, so this is a
+    ≤5 % residual on a correction that is itself ±15 %.
+
 ## Remaining work
 
 
+- **~~The composition closes on the background, so CO₂ can never dilute~~ — FIXED in item 57**
+  (`ATM_CO2_DILUTE=0` restores it). The CO₂ column gains 320× more spatial structure, the global
+  CO₂ mass is conserved to 5.6e-07, and the OLR moves 0.012 %. What remains is second order: `c`
+  is vapour only, so the carrier should strictly be normalised by the gas mass
+  `1 − (cloud + ice + graupel)` — a ≤5 % residual on a ±15 % correction. Original entry:
 - **The composition closes on the background, so CO₂ can never dilute** (item 56). `split()`
   sets `q_b = 1 − q_v − q_c`, and water — 67 % of the mass — varies 536.9 to 739.0 g/kg across
   the domain, so the whole of that variation is absorbed by the background fraction (a **4.6×**

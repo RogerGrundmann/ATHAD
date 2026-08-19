@@ -900,6 +900,92 @@ void cAtmosphereModel::initWaterWapour() {
 /*
 *
 */
+// ===========================================================================
+// initCO2 — the CO2 initial condition.
+//
+// Lives here, with the other initialisers, rather than in ThermoAtm: it is an initial
+// condition and nothing else. Since README item 12 the field is genuinely prognostic —
+// co2Atmosphere() used to re-impose this uniform state INSIDE the time loop and discard
+// whatever had been transported, so what was called a tracer was a constant.
+//
+// ORDERING IS A CONTRACT, NOT A PREFERENCE (item 22). This must run BEFORE
+// initTemperatureData and before densities(), because both read the composition through
+// R_of(q_v, q_c, R_bg) and cp_of(q_v, q_c, T, M_bg). With co2 still zero, R collapses to
+// the background value — 317.3 against R_mix = 387.9, an 18 % short scale height — and the
+// whole initial column is built for an atmosphere this model does not have. That defect was
+// live for months because densities() rebuilds the column immediately afterwards; what did
+// not get rebuilt was the lid snapshot the run is then pinned to.
+//
+// WHAT THE STORED VALUE MEANS (item 57). The field is the CO2 mass fraction AT THE REFERENCE
+// WATER CONTENT. AtmMixture::q_CO2_of scales it to the local carrier,
+// q_CO2 = co2_stored * (1 - q_v)/(1 - q_H2O_ref), so a UNIFORM field here is a genuinely
+// well-mixed atmosphere: CO2 and the background keep their ratio everywhere while both
+// concentrate wherever water is scarce. Before item 57 a uniform field meant a CO2 mass
+// fraction that was constant while the background absorbed every change in the water — which
+// is not well mixed, it is CO2 pinned.
+//
+// Units are kg/kg, not ppm: at 20.5 % by mass ppm is meaningless, and every consumer (the
+// mixture properties, the radiative optical depth) wants a fraction. co2_scale multiplies the
+// field for sensitivity experiments.
+//
+// NO SOURCE OR SINK EXISTS. Nothing in this model degasses, dissolves or precipitates CO2, so
+// with a uniform start the field stays uniform and rhs_co2 is identically zero (item 56).
+// That is the correct behaviour for a Hadean atmosphere whose carbon cycle is not modelled —
+// but it also means the transport is never exercised, which is what the knob below is for.
+// ===========================================================================
+void cAtmosphereModel::initCO2() {
+    std::cout << "\n\n\n      AGCM: initCO2" << std::endl;
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    const double co2_ref = co2_0 * co2_scale;                           // [kg/kg]
+
+    // ATM_CO2_INIT_PERTURB — amplitude of a DELIBERATELY ARTIFICIAL vertical gradient on the
+    // initial field, default 0.0 (bit-identical: the factor is exactly 1.0).
+    //
+    // This is a MEASUREMENT TOOL, not a Hadean claim. Item 56 established that CO2 shows no
+    // convective influence for three independent reasons, one of which is that a uniform
+    // tracer with no source has nothing to transport — so the transport and the convective
+    // redistribution are untested, not tested and found working. Laying down a surface-rich,
+    // top-poor profile gives them something to act on: a well-mixed atmosphere should erode it
+    // and a broken transport should not. Anything measured with this set describes the
+    // numerics, and no number from such a run belongs in a statement about the atmosphere.
+    static const double perturb = [](){
+        const char* e = getenv("ATM_CO2_INIT_PERTURB"); return e ? atof(e) : 0.0; }();
+
+    const double z_top = std::max(1.0, (double)get_layer_height(im - 1));
+
+    #pragma omp parallel for collapse(2)
+    for (int j = 0; j < jm; j++) {
+        for (int k = 0; k < km; k++) {
+            for (int i = 0; i < im; i++) {
+                // +amp at the surface, -amp at the lid, linear in TRUE height (not in the
+                // grid index — the stretch makes those two very different things, item 39).
+                const double shape = 1.0 - 2.0 * (double)get_layer_height(i) / z_top;
+                co2.x[i][j][k] = co2_ref * (1.0 + perturb * shape);
+            }
+        }
+    }
+
+    std::cout.precision(6);
+    if (perturb != 0.0) {
+        std::cout << "      AGCM: co2 initialised with an ARTIFICIAL vertical gradient, "
+                  << "amplitude " << perturb << " (surface " << co2_ref * (1.0 + perturb)
+                  << ", lid " << co2_ref * (1.0 - perturb) << " kg/kg) — transport test only"
+                  << std::endl;
+    } else {
+        std::cout << "      AGCM: co2 well mixed at " << co2_ref
+                  << " kg/kg at the reference water content (co2_0 = " << co2_0
+                  << ", co2_scale = " << co2_scale << ")" << std::endl;
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
+    printf(" Time measured: %.3f seconds for initCO2\n", elapsed.count() * 1e-9);
+    std::cout << "      AGCM: initCO2 ended" << std::endl;
+}
+/*
+*
+*/
 void cAtmosphereModel::initCloudIce() {
     std::cout << "\n\n\n      AGCM: initCloudIce" << std::endl;
 

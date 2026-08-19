@@ -175,7 +175,14 @@ public:
                     if (dp_Pa < 0.0) dp_Pa = 0.0;
 
                     const double q_v = std::max(0.0, m.c.x[i][j][k]);
-                    const double q_c = std::max(0.0, m.co2.x[i][j][k]);
+                    // LOCAL CO2 mass fraction, not the transported field read raw (item 57):
+                    // the carrier concentrates as water leaves, so a dry column carries more
+                    // CO2 per kilogram and more background, in their fixed ratio. Reading the
+                    // field raw pinned q_c and handed the whole variation to q_b, which for
+                    // this integral means it was moving mass between two species with
+                    // kappa_CO2 = 1e-3 and kappa_bg = 1e-6 — a 1000x difference in opacity.
+                    const double q_c = std::max(0.0, AtmMixture::q_CO2_of(m.c.x[i][j][k],
+                                                                          m.co2.x[i][j][k]));
                     const double q_b = std::max(0.0, 1.0 - q_v - q_c);
 
                     const double u_col = dp_Pa * inv_g;               // [kg/m2] total layer mass

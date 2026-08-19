@@ -219,7 +219,7 @@ private:
     // mass, so there is no small parameter to expand in and the exact form is used.
     //
     // M_other is built from the reference CO2 mass fraction but the LOCAL water mass
-    // fraction q_v. ATHAD's CO2 is well mixed by construction (co2Atmosphere fills it
+    // fraction q_v. ATHAD's CO2 is well mixed by construction (initCO2 fills it
     // uniformly), so the reference and the cell agree; water is not, and it is 67 % of
     // the mass, so it decides how much of the non-water carrier is CO2 (heavy) versus
     // background (light) — 28.6 g/mol at q_v = 0 against 35.1 at q_v = 0.67.
