@@ -837,11 +837,24 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
     // ATOM_METRIC_CURVATURE (AtomUtils, lib/Utils.h) — see there for the form and for why these
     // must not be switched on without ATM_METRIC_RADIUS. Signs follow from rhs_x = ... - transport_x,
     // and the expressions are ATJUP's (RHS_Jup_Turb.cpp:405-411) term for term.
+    // Hoisted so the BUDGET CAPTURES BELOW READ THE SAME NUMBER THE RHS APPLIED. They are the
+    // curvature contribution to rhs_x, i.e. MINUS the transport_x term, because every rhs is
+    // written rhs_x = ... - transport_x. Zero when the switch is off.
+    //
+    // README item 54: *bud_advh used to be built from the raw advective pieces alone, so with
+    // ATOM_METRIC_CURVATURE=1 a LIVE term of all three momentum budgets was captured by no
+    // field at all and the budgets could not close. The instrument was written when the term
+    // was guaranteed inert and inherited that guarantee — the same shape of defect as the
+    // constants this file keeps finding, in the one place built to detect them.
+    double curv_u = 0.0, curv_v = 0.0, curv_w = 0.0;
     if(AtomUtils::metric_curvature()){
         const double cotanthe = costhe / sinthe;
-        transport_u += -(v_ijk * v_ijk + w_ijk * w_ijk) * inv_rm;
-        transport_v +=  (u_ijk * v_ijk - w_ijk * w_ijk * cotanthe) * inv_rm;
-        transport_w +=  (w_ijk * u_ijk + v_ijk * w_ijk * cotanthe) * inv_rm;
+        curv_u =  (v_ijk * v_ijk + w_ijk * w_ijk) * inv_rm;
+        curv_v = -(u_ijk * v_ijk - w_ijk * w_ijk * cotanthe) * inv_rm;
+        curv_w = -(w_ijk * u_ijk + v_ijk * w_ijk * cotanthe) * inv_rm;
+        transport_u += -curv_u;   // negation is exact in IEEE, so this is bit-identical
+        transport_v += -curv_v;   // to the expressions it replaces
+        transport_w += -curv_w;
     }
     double transport_t     = u_exp * dtdr_adv     + v_invrm * dtdthe_adv     + w_invrs * dtdphi_adv;
     double transport_c     = u_exp * dcdr_adv     + v_invrm * dcdthe_adv     + w_invrs * dcdphi_adv;
@@ -1099,7 +1112,9 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
         ubud_pgf.x[i][j][k]  = -dpdr_exp;
         ubud_cor.x[i][j][k]  =  coriolis * force_nd * coriolis_rad;
         ubud_advv.x[i][j][k] = -(u_exp * dudr_adv);
-        ubud_advh.x[i][j][k] = -(v_invrm * dudthe_adv + w_invrs * dudphi_adv);
+        // + curv_u so that ubud_advv + ubud_advh == -transport_u EXACTLY, curvature or not
+        // (item 54). Diagnostic only — no physics reads these fields.
+        ubud_advh.x[i][j][k] = -(v_invrm * dudthe_adv + w_invrs * dudphi_adv) + curv_u;
         ubud_diff.x[i][j][k] =  diffusion_u;
         ubud_buoy.x[i][j][k] =  buoy_term;   // exactly what rhs_u received, either branch
     }
@@ -1165,7 +1180,7 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
         vbud_pgf.x[i][j][k]   = -dpdthe_invrm;
         vbud_cor.x[i][j][k]   =  coriolis * force_nd * coriolis_the;
         vbud_advv.x[i][j][k]  = -(u_exp * dvdr_adv);
-        vbud_advh.x[i][j][k]  = -(v_invrm * dvdthe_adv + w_invrs * dvdphi_adv);
+        vbud_advh.x[i][j][k]  = -(v_invrm * dvdthe_adv + w_invrs * dvdphi_adv) + curv_v;
         vbud_diff.x[i][j][k]  =  diffusion_v;
         vbud_other.x[i][j][k] =  coeff_MC_vel * MC_v.x[i][j][k] - surf_drag * v_ijk;
     }
@@ -1184,7 +1199,7 @@ void cAtmosphereModel::RHS_Atmosphere_Turb(int i, int j, int k, const CellGeomet
         wbud_pgf.x[i][j][k]   = -dpdphi_invrs;
         wbud_cor.x[i][j][k]   =  coriolis * force_nd * coriolis_phi;
         wbud_advv.x[i][j][k]  = -(u_exp * dwdr_adv);
-        wbud_advh.x[i][j][k]  = -(v_invrm * dwdthe_adv + w_invrs * dwdphi_adv);
+        wbud_advh.x[i][j][k]  = -(v_invrm * dwdthe_adv + w_invrs * dwdphi_adv) + curv_w;
         wbud_diff.x[i][j][k]  =  diffusion_w;
         wbud_other.x[i][j][k] =  coeff_MC_vel * MC_w.x[i][j][k] - surf_drag * w_ijk;
     }
