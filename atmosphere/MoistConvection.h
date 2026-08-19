@@ -18,6 +18,35 @@ using namespace AtomUtils;
 
 
 namespace AtomMoistConvection {
+    // ATM_MC_S_CONSISTENT (2026-08-19) — the three places where the s scaling is wrong.
+    // Default OFF: unset reproduces every number this tree has ever printed.
+    //
+    // s is defined here as s = cp_l*T/s_0 and inverted as T = s*s_0/cp_l, an exact pair, so
+    // s_0 cancels wherever both directions are used. It does NOT cancel in three places:
+    //
+    //  (1) UPDRAFT RECURRENCE. dummy_s_u divides the whole mass-flux bracket by s_0, while
+    //      the four sibling recurrences beside it (q_v_u, q_c_u, v_u, w_u) divide by nothing.
+    //      Every term in that bracket is M*s or step*E*s with s ALREADY normalised, so the
+    //      division makes s_u ~2.7e5x too small — i.e. a parcel temperature of ~1e-3 K.
+    //  (2) DOWNDRAFT RECURRENCE. Same bracket, but here ONE term genuinely needs the /s_0:
+    //      L_latent*r_h*e_d is J/(m^3 s) while the others are kg/(m^2 s) times a normalised
+    //      s. The /s_0 belongs to that term alone and was applied to all of them.
+    //  (3) MC_t's CONVERSION BACK TO KELVIN. rhsForcing multiplies the s-flux divergence by
+    //      t_0, which is the inverse of s = cp_l*T/s_0 only if s_0 == cp_l*t_0. It did in
+    //      ATOM_Precipitation (1005*273.15 = 274515.75 exactly); ATHAD raised cp_l to 2040
+    //      and kept s_0, so the correct factor is s_0/cp_l = 134.57 K and the shipped one is
+    //      t_0 = 273.15 K — the convective transport heating is cp_l*t_0/s_0 = 2.03x too big.
+    //
+    // (3) is the reason the "s_0 carries Earth's cp but cp_l cancels, so it changes no
+    // result" note in this file (README item 51) is WRONG: the cancellation is real for the
+    // explicit pair and there is a third, implicit conversion that assumes the derived value.
+    //
+    // NOT in this knob, because it is not an s question and folding it in would confound the
+    // A/B: MC_t's SECOND term, (L/cp)*conv_src*t_0, is already K/s before the *t_0. That is
+    // inherited verbatim from ATOM_Precipitation and is a separate open item.
+    static const bool s_consistent = [](){
+        const char* e = getenv("ATM_MC_S_CONSISTENT"); return e && atoi(e) != 0; }();
+
     constexpr double a_ev = 1.0e-3;
     constexpr double b_ev = 5.9;
     constexpr double t_00 = 236.15;
@@ -337,13 +366,19 @@ private:
                     // SEPARATE INHERITED DEFECT, recorded here because this is where it shows:
                     // s_0 = 274515.75 = 1005 * t_0, i.e. it carries EARTH'S DRY-AIR cp, not
                     // ATHAD's cp_l = 2040 (which would give 557226). param.py's own comment
-                    // calls s_0 "cp_l * t_0", so it reads as derived and is not. The only
-                    // consequence is that s is T/134.57 rather than the intended T/273.15 —
-                    // 2.03x off as a "non-dimensional temperature" — and because cp_l cancels
-                    // this changes no result. The one place the scale WOULD matter, s = 1.0 as
-                    // a boundary value (BC_Atm.h:219,368), sits behind `if(!is_land) continue`
-                    // and is dead under invariant 1. Left alone deliberately; fixing s_0 and
-                    // the s definition together is a separate job with no measurable payoff.
+                    // calls s_0 "cp_l * t_0", so it reads as derived and is not, so s is
+                    // T/134.57 where the scheme means T/t_0.
+                    //
+                    // AN EARLIER VERSION OF THIS COMMENT SAID IT "CHANGES NO RESULT BECAUSE
+                    // cp_l CANCELS". THAT IS WRONG AND IS RETRACTED (README item 52). The
+                    // cancellation is real for the EXPLICIT s <-> T pair above; there is a
+                    // THIRD, IMPLICIT conversion that assumes the derived value — rhsForcing
+                    // multiplies the s-flux divergence by t_0 to get K/s, which inverts
+                    // s = cp_l*T/s_0 only if s_0 == cp_l*t_0. It does not here, so the
+                    // convective transport heating is cp_l*t_0/s_0 = 2.03x too large. See
+                    // ATM_MC_S_CONSISTENT at the top of this file. The dead is_land branch
+                    // (BC_Atm.h:219,368) is NOT the only place the scale matters, which is
+                    // what that claim rested on.
                     m.s.x[i][j][k]      = m.cp_l * m.t.x[i][j][k] * m.t_0 / m.s_0;
 
                     // Mass-flux fields — reset so cells outside the active [i_base..i_lfs]
@@ -1089,9 +1124,13 @@ void findCloudBaseLFS() {
                     double dummy_vel_w_u = M_u_prev * m.w_u.x[i-1][j][k]
                         + step_prev * m.E_u.x[i-1][j][k] * m.w.x[i-1][j][k];
 
+                    // The /s_0 is spurious (see ATM_MC_S_CONSISTENT at the top of this file):
+                    // every term here is already in normalised s. The four recurrences above
+                    // carry no such division, which is the tell.
                     double dummy_s_u = (M_u_prev * m.s_u.x[i-1][j][k]
                         + step_prev * (m.E_u.x[i-1][j][k] * m.s.x[i-1][j][k]
-                        - m.D_u.x[i-1][j][k] * m.s_u.x[i-1][j][k])) / m.s_0;
+                        - m.D_u.x[i-1][j][k] * m.s_u.x[i-1][j][k]));
+                    if(!s_consistent) dummy_s_u /= m.s_0;
 
                     double M_u_i = m.M_u.x[i][j][k];
                     if(fabs(M_u_i) > coeff_recurr){
@@ -1215,10 +1254,21 @@ void findCloudBaseLFS() {
                         - step_ip1 * (m.E_d.x[i+1][j][k] * m.w.x[i+1][j][k]
                         - m.D_d.x[i+1][j][k] * m.w_d.x[i+1][j][k]);
 
-                    double dummy_s_d = (M_d_ip1 * m.s_d.x[i+1][j][k]
-                        - step_ip1 * (m.E_d.x[i+1][j][k] * m.s.x[i+1][j][k]
-                        - m.D_d.x[i+1][j][k] * m.s_d.x[i+1][j][k]
-                        - L_latent * r_h_ip1 * m.e_d.x[i+1][j][k])) / m.s_0;
+                    // Only the L_latent term needs the /s_0 — it is J/(m³s) where its two
+                    // neighbours are kg/(m²s) times an already-normalised s. The shipped form
+                    // divides all three (see ATM_MC_S_CONSISTENT at the top of this file).
+                    double dummy_s_d;
+                    if(s_consistent){
+                        dummy_s_d = M_d_ip1 * m.s_d.x[i+1][j][k]
+                            - step_ip1 * (m.E_d.x[i+1][j][k] * m.s.x[i+1][j][k]
+                            - m.D_d.x[i+1][j][k] * m.s_d.x[i+1][j][k]
+                            - L_latent * r_h_ip1 * m.e_d.x[i+1][j][k] / m.s_0);
+                    } else {
+                        dummy_s_d = (M_d_ip1 * m.s_d.x[i+1][j][k]
+                            - step_ip1 * (m.E_d.x[i+1][j][k] * m.s.x[i+1][j][k]
+                            - m.D_d.x[i+1][j][k] * m.s_d.x[i+1][j][k]
+                            - L_latent * r_h_ip1 * m.e_d.x[i+1][j][k])) / m.s_0;
+                    }
 
                     double M_d_i = m.M_d.x[i][j][k];
                     if(fabs(M_d_i) > coeff_recurr){
@@ -1392,8 +1442,14 @@ void findCloudBaseLFS() {
 
                     const double cp_mc = AtmMixture::cp_of(m.c.x[i][j][k], m.co2.x[i][j][k],
                                              m.t.x[i][j][k] * m.t_0, m.m_comp.M_bg);
+                    // s -> K uses t_0, which inverts s = cp_l*T/s_0 only if s_0 == cp_l*t_0.
+                    // It did upstream (1005*273.15); here cp_l is 2040 and s_0 was not
+                    // re-derived, so the true factor is s_0/cp_l = 134.57 K and the shipped
+                    // one over-heats by cp_l*t_0/s_0 = 2.03x. See ATM_MC_S_CONSISTENT.
+                    const double s_to_K = AtomMoistConvection::s_consistent
+                                        ? (m.s_0 / m.cp_l) : m.t_0;
                     m.MC_t.x[i][j][k] = safe_cap(
-                        -(flux_s_ip1 - flux_s_i) * inv_step_rh * m.t_0                                  // K/s
+                        -(flux_s_ip1 - flux_s_i) * inv_step_rh * s_to_K                                 // K/s
                         + (L_latent / cp_mc) * conv_src* m.t_0, MCt_max);                               // K/s
 
 

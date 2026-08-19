@@ -3382,17 +3382,169 @@ the measurement.
 
     **Also found, documented not fixed**: `s_0` = 274515.75 = 1005 × `t_0` carries **Earth's
     dry-air cp**, not ATHAD's 2040 (which would give 557226), while `param.py` calls it
-    "`cp_l * t_0`" so it reads as derived. It changes no result *precisely because* `cp_l`
-    cancels; the one place the scale would matter, `s` = 1.0 as a boundary value
-    (`BC_Atm.h:219,368`), sits behind `if(!is_land) continue` and is dead under invariant 1 —
-    **the dead-Earth-branch pattern again, this time protecting a defect instead of hiding one.**
+    "`cp_l * t_0`" so it reads as derived. ~~It changes no result precisely because `cp_l`
+    cancels.~~ **RETRACTED THE NEXT DAY BY ITEM 52**: the cancellation holds for the explicit
+    `s ↔ T` pair, and `rhsForcing` contains a third, *implicit* conversion — it multiplies the
+    `s`-flux divergence by `t_0`, which inverts `s = cp_l·T/s_0` only if `s_0 = cp_l·t_0`. The
+    convective transport heating is therefore **2.03× too large**. The claim rested on the one
+    place the scale was thought to matter (`s` = 1.0 at `BC_Atm.h:219,368`) being dead under
+    invariant 1, which it is — but it was not the only place.
     And two of the five converted sites currently multiply zero, because `Q_sensible_2D` is
     declared, reset, read and output but **never written**; converted anyway so the file has one
     rule. Committed in `e7bd455`.
 
+52. **`s`, `s_u`, `s_d` are neither entropy nor dry static energy, and the scaling they do use
+    is wrong in three places. One of them pins the convective heating at its safety cap for
+    the whole spin-up, and it retracts item 51's "changes no result".**
+
+    Audited on request: the units, dimensions and environment relations of the three `s`
+    fields. What follows separates *what the quantity is* from *where its arithmetic is
+    wrong*, because they are independent problems.
+
+    **THE FIELD IS A NORMALISED TEMPERATURE, AND THE TREE CALLS IT TWO OTHER THINGS.**
+    `MoistConvection.h` defines it once and inverts it once:
+
+    ```
+    s = cp_l * T / s_0          T = s * s_0 / cp_l
+    ```
+
+    That is `T` divided by a constant — dimensionless, correctly printed as `./.`. It is not
+    entropy (which would be `cp ln T − R ln p`, in J/(kg·K)), and it is not dry static energy.
+    Three names are in use for one array:
+
+    | site | name used |
+    |---|---|
+    | `param.py:636` | "`s_0` — entropy at 0 °C, `cp_l * t_0` in J/kg" |
+    | `cAtmosphereModel.h:717-719` | "dry static energy" / "…in the updraft" / "…in the downdraft" |
+    | `Results_Atm.cpp:190` | "entropies in the up-and downdraft" |
+
+    **THE MISSING TERM IS `g·z`, AND ON THIS SHELL IT IS THE LARGER HALF.** Dry static energy
+    is `cp·T + g·z`; the geopotential is absent. That matters because a mass-flux scheme uses
+    DSE precisely so that a non-entraining parcel cools at the dry adiabatic rate for free —
+    conserving `cp·T` alone, a rising parcel keeps its temperature. On ATHAD's grid:
+
+    | level | z | `g·z` [J/kg] | `cp·T` [J/kg] | `g·Δz/cp` per layer |
+    |---|---|---|---|---|
+    | i = 0 | 0 km | 0 | 3.5e6 (1500 K) | 5.1 K |
+    | i = 20 | 54.7 km | 5.4e5 | 2.6e6 | 33.6 K |
+    | i = 35 | 201.3 km | 2.0e6 | 8.0e5 | 103.6 K |
+    | i = 39 | 277.2 km | 2.7e6 | 4.2e5 (263 K skin) | 139.9 K |
+
+    `g·z` overtakes `cp·T` at about **157 km** and is **6.5×** it at the lid — and the skin
+    above ~240 km is exactly where item 51 measured all the condensation. The adiabatic cooling
+    the scheme omits is **5 K per layer at the surface rising to 140 K per layer at the top**.
+    **The model already knows how to do this correctly elsewhere**: `findCloudBaseLFS` lifts a
+    genuine θ_e-conserving parcel with local `cp` and pressure, and that is what sets the
+    trigger, the LNB and CAPE. So the scheme carries two parcels — one that cools and decides
+    *whether* to convect, one that does not and decides *how much*. **Not fixed here**: adding
+    `g·z` changes what every `s` number means and needs its own measurement.
+
+    **THREE PLACES WHERE THE SCALING IS WRONG.** All three are behind `ATM_MC_S_CONSISTENT`,
+    default off, and the off branch is bit-identical (verified below).
+
+    - **(1) The updraft recurrence divides by `s_0` when nothing needs it.**
+      `dummy_s_u = (M·s_u + step·(E·s − D·s_u)) / s_0` — every term is already in normalised
+      `s`, so the division makes `s_u` ~2.7e5× too small. **The tell is in the same block**:
+      the four sibling recurrences beside it (`q_v_u`, `q_c_u`, `v_u`, `w_u`) have no such
+      division.
+    - **(2) The downdraft recurrence divides the whole bracket when one term needs it.**
+      There, `L_latent·r_h·e_d` genuinely is J/(m³s) against its neighbours' kg/(m²s)·`s`, so
+      **that term alone** wants the `/s_0`. It was applied to all three.
+    - **(3) `MC_t` converts `s` back to kelvin with `t_0`.** `rhsForcing` multiplies the
+      `s`-flux divergence by `t_0`, which inverts `s = cp_l·T/s_0` **only if `s_0 = cp_l·t_0`**.
+
+    **AND (3) IS WHY ITEM 51 IS WRONG.** `s_0` = 274515.75 is `1005 × 273.15` — Earth's dry-air
+    `cp` times `t_0`, exact to the digit, and correct upstream where `cp_l` **is** 1005. ATHAD
+    raised `cp_l` to 2040 and left `s_0`, so the true inverse factor is `s_0/cp_l` = **134.57 K**
+    and the shipped one is `t_0` = 273.15 K. Item 51 recorded this as harmless "because `cp_l`
+    cancels". **The cancellation is real for the explicit `s ↔ T` pair and there is a third,
+    implicit conversion that assumes the derived value** — so the convective transport heating
+    is `cp_l·t_0/s_0` = **2.03× too large**. The in-code comment asserting harmlessness has been
+    corrected in place. *The lesson is narrow and repeatable: to claim a constant cancels, find
+    every conversion, including the ones written as a bare multiplication by something else.*
+
+    **MEASURED — 40 iterations, 24 threads, moist physics from iteration 0, one binary, the
+    knob the only difference** (`python/run_s_base` vs `run_s_fix`):
+
+    | | shipped | `ATM_MC_S_CONSISTENT=1` |
+    |---|---|---|
+    | max `s_u` @ 10 | **342.33** → parcel T = **46 066 K** | 3.512 → **472.6 K** |
+    | min `s_u` @ 10 | **−980.29** → **−131 915 K** | −3.863 (lid artefact, see below) |
+    | max `c_u` @ 10 | **118.84 g/kg/s** | 0.0671 → **×1771 smaller** |
+    | max `MC_t` @ 10 | **0.010000 K/s — AT THE CAP** | 0.000083 K/s (120× below it) |
+    | max `MC_t` @ 20 / 40 | 0.003076 / 0.001492 | 0.001048 / 0.000425 (**×2.9 / ×3.5**) |
+    | max `S_s` @ 40 | 0.435406 | 0.409573 (**−5.9 %**) |
+    | max `S_r` @ 40 | 0.889990 | 0.888215 (−0.20 %) |
+    | OLR @ 40 | 323.73 W/m² | 323.67 W/m² (**−0.02 %**) |
+    | albedo, photosphere, `Psi_max` @ 40 | 0.4987, 237.4 km/368.00 K, 105590.83 | **identical** |
+
+    **So the shipped scheme spends its spin-up with updraft parcels at tens of thousands of
+    kelvin and `MC_t` pinned to `MCt_max`.** A safety cap was absorbing an arithmetic error, which
+    is the worst way for one to hide: the field looks bounded and physical in every plot. The
+    ×2.9–3.5 at iterations 20–40 is close to (3) acting alone — 2.03 — with the recurrences
+    supplying the rest.
+
+    **AND IT REACHES NOTHING INTEGRATED. FOURTH TIME.** OLR −0.02 %, albedo and photosphere
+    identical, `Psi_max` identical to all eight digits. Same wall as item 51's local `cp`
+    (−18 % on rain, +0.02 % on OLR) and item 42's `H_crit` (0.18 %): **the reflectivity
+    saturates on the presence of condensate, so nothing about its amount or rate can reach the
+    radiation.** Anything that only changes microphysical rates is unmeasurable in this model
+    until `albedo_cloud` responds to something.
+
+    **BIT-IDENTITY WHEN OFF: achieved and checked against a foreign run.** `run_s_base`
+    reproduces `run_cplocal` (item 51's baseline, built before this knob existed) at iteration
+    20 to every printed digit including `Psi_max` = 106510.37 — so the off branch is the shipped
+    code and `nm` does not enter the physics.
+
+    **WHAT IS CORRECT, stated because an audit that only lists faults is not one.** The flux
+    form `M_u(s_u − s) + M_d(s_d − s)` is the right relation to the environment; the
+    `|M| ≤ coeff_recurr` fallbacks that set `s_u = s`, `s_d = s` are right and are the reason
+    the recurrence defect stayed survivable; `precompute` rebuilding `s` from the current `t`
+    before anything reads it is right and documented; `downdraftEntrainment` seeding
+    `s_d(i_LFS) = s(i_LFS)` is right; and `step[]` is built from `get_layer_height()`, so the
+    module is on the radiation's true metric rather than the core's `exp_rm` (item 39).
+
+    **FOUR NEIGHBOURING DEFECTS FOUND WHILE LOOKING, none fixed, all real:**
+
+    - **`MC_t`'s second term carries an extra `t_0`.** `(L/cp)·conv_src` is already K/s before
+      the `* m.t_0`, so that term is ~273× its own scale — and it is the term that holds
+      `MC_t` at its **negative** cap in both arms of the A/B above. Inherited verbatim from
+      `ATOM_Precipitation`, where it is equally wrong. Not folded into the knob because it is
+      not an `s` question and would have confounded the measurement.
+    - **The lid values of `s`, `s_u`, `s_d` are extrapolation artefacts.** `bcRadius`'s
+      `both_cubic` list applies `x[iml] = x[iml-3] − 3x[iml-2] + 3x[iml-1]` to them at both
+      ends. That is the exact overshoot the same function's comment says it removed *for
+      `u`, `v`, `w`* — and it produces **negative `s`, i.e. a negative absolute temperature**:
+      `s_u` = −3.86, `s_d` = −5.85, `q_v_u` = −1459 g/kg, every one of them at exactly
+      300 005 m. `min s` = 0.575 → 77 K where the skin is 263 K. The same list is applied at
+      the poles (`fields_cubic`).
+    - **`q_v_u` reaches 3565 g/kg — 3.5 kg/kg of vapour in a mass fraction.** Interior, not a
+      lid artefact (218 km). Its recurrence has a `≤ 0` clamp and no upper bound, unlike
+      `q_c_u`'s `q_c_u_max`. Repairing `s` does not touch it: **both arms print the same
+      3564.52**.
+    - **`CAPE` divides a physical `step[i]` by `exp_rm`.** `computeCAPE` uses
+      `g·step[i]/exp_rm·Δθ_v/θ_v`, mixing a true thickness with the core's quadratic-stretch
+      Jacobian (item 39). It also uses environment T + a fixed `t_add_u` = 0.2 K as "the
+      parcel" at every level, so this second CAPE never consults `s_u` either.
+
+    **Also:** `s = s_u = s_d = 1.0` at initialisation (`UtilsAtm.h:442`) and in the dead
+    `is_land` branches means **134.57 K**, not the intended 273.15 K. Harmless today — the
+    cold-shutoff branches that also write 1.0 need `T ≤ 236.15 K` and the column's minimum is
+    263.0 K — but it is the same `s_0` error, and it becomes live the moment anything cools
+    the skin.
+
 ## Remaining work
 
 
+- **The moist-convection `s` fields are a normalised temperature wearing two other names, and
+  three scaling errors sit on top of that** (item 52). `ATM_MC_S_CONSISTENT` repairs the three
+  and is **default off** pending a longer run than the 40 iterations measured. The big one is
+  that `MC_t` sat **pinned at its `MCt_max` cap** through the spin-up while updraft parcels ran
+  at **46 000 K** — a safety cap absorbing an arithmetic error, which is the worst way for one
+  to hide. **Open and not in the knob**: the missing `g·z` (dry static energy is `cp·T + g·z`
+  and `g·z` is the *larger* term above ~157 km here, so the updraft never cools as it rises),
+  `MC_t`'s second term carrying an extra `t_0`, `q_v_u` reaching 3.5 kg/kg, and the cubic lid
+  extrapolation that gives `s` negative values — a negative absolute temperature — at 300 km.
 - **Three microphysical corrections have now died at the same wall, and the wall is the
   albedo** (item 51). Making `cp` local in `MoistConvection` moves rain and snow production by
   **−18 %** and the OLR by **+0.02 %**, with Ψ, the photosphere and the albedo bit-identical or

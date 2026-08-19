@@ -212,7 +212,7 @@ C++ class, file and function names are kept **identical to `ATOM_Precipitation`*
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
 `config_athad.xml`, `pyathad`). Preserve that.
 
-**Twenty-two defects found in the inherited code so far, all latent on Earth and live here.**
+**Twenty-three defects found in the inherited code so far, all latent on Earth and live here.**
 The pattern is consistent and worth expecting: *Earth's numbers as bare literals inside
 physics kernels, each with a comment justifying it by Earth's conditions.* Examples —
 `dr = 0.025` silently tied to `im = 41`; a 333.15 K cap written back into the prognostic
@@ -225,8 +225,13 @@ is item 50's: the Boussinesq buoyancy divides its temperature anomaly by `t_0` =
 **non-dimensionalisation constant**, where the physical reference temperature `T_ref` belongs. On a
 288 K planet the two agree to 5 % and the defect is invisible; here it overstates the body force
 5.49× at the surface and 0.96× at the top, so it is a height-dependent distortion rather than a
-rescaling. When something behaves oddly, look for a constant that was true at 1 bar and 288 K —
-including the ones that look like units.
+rescaling. The twenty-third (item 52) has a different hiding place rather than a different
+shape: `MoistConvection`'s `s` recurrences divide a whole mass-flux bracket by `s_0` when only
+one term in it needs the division, and the resulting garbage was **absorbed by a safety cap** —
+`MC_t` sat pinned at `MCt_max` while updraft parcels ran at 46 000 K, so every plot of the field
+looked bounded and physical. When something behaves oddly, look for a constant that was true at
+1 bar and 288 K — including the ones that look like units, and **look at what the caps are
+holding back**.
 
 The three worst are worth stating because they show the pattern's worst form — an
 Earth-only regime written as a *fallback branch*, so it never runs at home and is never
@@ -335,6 +340,22 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   mixture cp at ~1101 K, so +30.5 % wrong in the skin where all the condensation happens) moves rain and snow production
   **−18 %** and the OLR **+0.02 %**, with Ψ and the photosphere bit-identical. **`albedo_cloud` is the only path condensate
   has to the radiation**, so expect microphysics work to be unmeasurable until that parameterisation responds to something.
+  **Item 52 is the fourth**: repairing the `s` scaling in `MoistConvection` cuts `MC_t` by 2.9–3.5× and snow production
+  by 5.9 %, and moves the OLR by −0.02 % with Ψ, albedo and photosphere identical.
+- **`s`, `s_u`, `s_d` are a normalised temperature, not entropy and not dry static energy** (item 52,
+  audited and measured). They hold `cp_l·T/s_0`; `param.py` calls `s_0` "entropy at 0 °C" and
+  `cAtmosphereModel.h` called the arrays "dry static energy" — DSE is `cp·T + g·z` and **the `g·z` is
+  absent**, which on a 300 km shell is the *larger* term above ~157 km (2.7e6 against 4.2e5 J/kg at the
+  lid) and is worth 5 K per layer at the surface rising to 140 K at the top. So the updraft parcel never
+  cools as it rises, while `findCloudBaseLFS`'s θ_e parcel — which sets the trigger and CAPE — does.
+  Three scaling errors sit on top: the updraft recurrence divides by `s_0` when nothing needs it, the
+  downdraft divides the whole bracket when only its latent term does, and `MC_t` converts back to kelvin
+  with `t_0` where `s_0/cp_l` = 134.57 K is meant. **`ATM_MC_S_CONSISTENT=1` repairs all three, default
+  off, off-branch bit-identical.** Measured at 40 iterations: shipped runs the spin-up with `MC_t` **at
+  its cap** and parcels at **46 000 K**; repaired, `MC_t` is 120× below the cap at iteration 10 and 2.9–3.5×
+  smaller at 20–40, snow −5.9 %, **OLR −0.02 % and Ψ/albedo/photosphere identical**. Still open: the
+  missing `g·z`, `MC_t`'s second term carrying an extra `t_0`, `q_v_u` reaching 3.5 kg/kg, and `bcRadius`'s
+  cubic lid extrapolation giving `s` **negative** values at 300 km.
 - **The radial momentum balance is the pressure gradient and nothing else** (item 42, measured): `ubud_pgf` 1.15 against `ubud_cor` **exactly 0** (non-traditional Coriolis is genuinely off, not just documented off), `ubud_advh` 0.0085, and `ubud_buoy` **1e-6** — item 34's extra `*dt` measured, the buoyancy body force is ~1e6 down and effectively absent. **`ATM_BUOY_CONSISTENT=1` corrects it and is default off** (item 50): the consistent coefficient is 2e7× the shipped one and 7.2× the 336 recorded as having driven a polar vertical runaway. It also repairs the Boussinesq reference temperature — the shipped term divides the anomaly by `t_0` = 273.15 K instead of `T_ref`, overstating the force 5.49× at the surface and 0.96× at the top. With (a) alone at 20 iterations, `ubud_buoy` goes 0 → −34.6 (~4× the pressure gradient), the radial wind rises 19.5 % and Ψ moves 0.0002 %; `buoyancy_ramp` was 0.067 there, so that is **not** a stability result. `N2` confirms invariant 4: 0 through the column, 2.74e-4 s⁻² only in the isothermal skin.
 - **The imbalance is not a second number** (item 43). `t_skin` is **262.95 K at every one of ten
   diagnostics across 200 iterations** while the OLR falls 338.85 → 281.59, so σT_skin⁴ = 271.2 is

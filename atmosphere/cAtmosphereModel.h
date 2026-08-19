@@ -714,9 +714,15 @@ public:
     Array e_d;                                                          // evaporation of precipitation in the downdraft
     Array e_l;                                                          // evaporation of cloud water in the environment
     Array e_p;                                                          // evaporation of cloud water in the environment
-    Array s;                                                            // dry static energy
-    Array s_u;                                                          // dry static energy in the updraft
-    Array s_d;                                                          // dry static energy in the downdraft
+    // NOT dry static energy and NOT entropy, despite both names being used for it in this
+    // tree (param.py calls s_0 "entropy at 0°C"; Results_Atm prints "entropies"). The three
+    // arrays hold cp_l*T/s_0 — a NORMALISED TEMPERATURE, dimensionless. Dry static energy is
+    // cp*T + g*z and the g*z is absent: on this 300 km shell it reaches 2.7e6 J/kg against
+    // cp*T = 4.2e5 in the skin, so the omitted term is the LARGER one above ~157 km, and a
+    // parcel conserving s here does not cool as it rises. README item 52.
+    Array s;                                                            // cp_l*T/s_0, environment
+    Array s_u;                                                          // cp_l*T/s_0, updraft
+    Array s_d;                                                          // cp_l*T/s_0, downdraft
     Array u_u;                                                          // u-velocity component in the updraft
     Array u_d;                                                          // u-velocity component in the downdraft
     Array v_u;                                                          // u-velocity component in the updraft
