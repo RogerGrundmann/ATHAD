@@ -3630,12 +3630,25 @@ the measurement.
     **0.010000 — its `MCt_max` cap** — in every build containing the non-`s` repairs, where
     `run_s_fix` had 8.3e-5. Iterations 20 and 40 agree to 0.3 % across all builds, so it is a
     spin-up transient, but it saturates a cap, and this file has just spent an item on what
-    caps hide. **The obvious hypothesis was tested and refuted**: narrowing the recurrence back
-    to the shipped activation set (`run_s_all2`) leaves it at 0.010000, and `run_s_all2` is
-    otherwise identical to `run_s_all` in every printed number at iteration 40 — so the
-    conservative form costs nothing and explains nothing. The remaining candidates are the lid
-    BC and the bounded denominator itself; `ATM_MC_UNBOUNDED_UPDRAFT=1` discriminates them and
-    that run **had not finished when this was written**. Recorded as open rather than guessed.
+    caps hide.
+
+    **Attributed, and it is the bounded denominator.** Two hypotheses, both tested. *Refuted:*
+    narrowing the recurrence to the shipped activation set (`run_s_all2`) leaves it at 0.010000,
+    and `run_s_all2` is otherwise identical to `run_s_all` in every printed number at iteration
+    40 — so the conservative form costs nothing and explains nothing. *Confirmed:*
+    `ATM_MC_UNBOUNDED_UPDRAFT=1` with every other repair in place (`run_s_attrib`) returns
+    **0.000083 at iteration 10 — `run_s_fix`'s value to the digit** — so it is the consistent
+    denominator, not the boundary condition and not `MC_t`'s `t_0`.
+
+    **And that reframes it: nothing got worse, an Earth-calibrated ceiling started binding.**
+    With the denominator consistent, `s_u` is a bounded, physically meaningful parcel value that
+    genuinely differs from its environment, so the flux divergence it produces is a real
+    convective heating instead of the near-zero one a rewritten mass was manufacturing. Where
+    that heating exceeds `MCt_max` = 0.01 K/s the cap does what a cap does — but **`MCt_max` is
+    36 K/hr, annotated in the code as "still 3× realistic", and next to it `inv_step_rh` floors
+    the density at 0.01 kg/m³, "≈ air at 50 hPa"**. Both are Earth numbers, and at 256 km in a
+    250 bar column both are being asked to bound something they were never sized for. That is
+    the next thing to size, and it is a *new* open item, not damage from this repair.
 
     **The `s` repair is now the default** and `ATM_MC_S_LEGACY=1` restores the three defects
     together; `ATM_MC_UNBOUNDED_UPDRAFT=1` restores the old recurrence. Item 52's knob was
@@ -3705,12 +3718,13 @@ the measurement.
   `c_u` was already identically zero. **Adding `g·z` to `s` is now the top microphysics job** —
   it is no longer one defect among four, it is the only thing between this scheme and an updraft
   that condenses.
-- **One number got worse under the repairs and is not yet attributed** (item 53): `max MC_t`
-  sits at its `MCt_max` cap at iteration 10 in every build containing the non-`s` repairs, where
-  the `s`-only build had 8.3e-5. Iterations 20 and 40 agree to 0.3 % across all builds, so it is
-  a transient — but it saturates a cap, which is exactly what item 52 was about. Narrowing the
-  recurrence to the shipped activation set is refuted as the cause; the lid BC and the bounded
-  denominator remain.
+- **`MCt_max` and the 0.01 kg/m³ density floor are the next two Earth constants to size**
+  (item 53). With the updraft denominator made consistent, `max MC_t` reaches its 0.01 K/s cap
+  at iteration 10 — attributed to the denominator by `ATM_MC_UNBOUNDED_UPDRAFT=1`, which returns
+  the pre-repair 8.3e-5 exactly. The cap is 36 K/hr, annotated "still 3× realistic" for Earth,
+  and `inv_step_rh` floors the density at "≈ air at 50 hPa". At 256 km in a 250 bar column
+  neither number was sized for what it is now bounding. Iterations 20 and 40 agree to 0.3 %
+  across every build, so nothing downstream depends on it yet.
 - **The moist-convection `s` fields are a normalised temperature wearing two other names, and
   three scaling errors sit on top of that** (item 52). `ATM_MC_S_CONSISTENT` repairs the three
   and is **default off** pending a longer run than the 40 iterations measured. The big one is
