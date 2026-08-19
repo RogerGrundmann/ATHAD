@@ -199,6 +199,26 @@ void cAtmosphereModel::print_min_max_atm(){
 
     cout << endl << endl << endl << " greenhouse gas: " << endl;
     searchMinMax_3D(" max co2 ", " min co2 ", "kg/kg", co2, 1.0);
+
+    // ---- the background, split (README item 60) ----------------------------------------
+    // The six background gases are well mixed and source-free, so their mass ratios never
+    // change: every per-species field is this constant times the local q_bg, and the whole
+    // split collapses to one effective opacity. Printed so the lumped kappa_bg can never
+    // again be mistaken for a property of the mixture rather than of N2.
+    {
+        const double kap[6] = { kappa_N2, kappa_CH4, kappa_NH3, kappa_H2, kappa_CO, kappa_SO2 };
+        const char* const* nm = AtmMixture::BG_NAMES();
+        const double keff = kappaBackground();
+        cout << endl << " background gases, split (q_bg = 1 - q_H2O - q_CO2 locally): " << endl;
+        cout << "        species   frac. of bg    kappa [m2/kg]   share of kappa_bg_eff" << endl;
+        for (int n = 0; n < 6; n++) {
+            const double share = (keff > 0.0) ? 100.0 * m_comp.f_bg[n] * kap[n] / keff : 0.0;
+            printf("        %-8s %10.4f %16.3e %18.1f %%\n",
+                   nm[n], m_comp.f_bg[n], kap[n], share);
+        }
+        printf("        %-8s %10.4f %16.3e   (lumped kappa_bg %.3e, ratio %.0fx)\n",
+               "TOTAL", 1.0, keff, kappa_bg, (kappa_bg > 0.0) ? keff / kappa_bg : 0.0);
+    }
     searchMinMax_3D(" max epsilon ",  " min epsilon ", "%", epsilon, 1.0);
     searchMinMax_3D(" max tau_above ",  " min tau_above ", "1", tau_above, 1.0);
 

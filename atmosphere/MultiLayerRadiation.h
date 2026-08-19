@@ -162,7 +162,13 @@ public:
                 // see README, and the OLR check below, which is what tests them.
                 const double kappa_H2O = m.kappa_H2O;                 // [m2/kg]
                 const double kappa_CO2 = m.kappa_CO2;                 // [m2/kg]
-                const double kappa_bg  = m.kappa_bg;                  // [m2/kg]
+                // COMPOSITION-WEIGHTED, not the lumped 1e-6 (README item 60). The six
+                // background gases are well mixed and source-free, so their mass ratios are
+                // fixed and the per-species split is exactly one number: sum(f_bg[i]*kappa_i)
+                // = 1.87e-3 at the configured composition, against 1e-6 for the lumped value
+                // that treated NH3, CH4 and SO2 as if they were N2. ATM_BG_LUMPED=1 restores
+                // the old coefficient.
+                const double kappa_bg  = m.kappaBackground();         // [m2/kg]
                 constexpr double p_ref = 1.0e5;                       // [Pa] 1 bar broadening reference
                 const double inv_g     = 1.0 / m.g;
 

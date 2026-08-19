@@ -4173,9 +4173,82 @@ the measurement.
     at 2e-06; the separation grows through the run. A coarse extremum agreeing is not evidence
     that nothing changed.
 
+60. **The background was six gases wearing one opacity, and two of them are not inert. Splitting
+    it raises the background's optical depth by 1867× — and the converged OLR moves 0.08 %.**
+
+    `kappa_bg` = 1e-6 m²/kg is the value of a radiatively inert diatomic, and it was applied to
+    all six background gases at once. Two of them are **NH₃ and CH₄ at 1.4 mole-% each**, among
+    the strongest infrared absorbers in the set, and **SO₂** is another 1.4 % with strong bands
+    at 7.3 and 8.7 µm.
+
+    **THE SPLIT COLLAPSES TO ONE NUMBER, WHICH IS WHY IT IS CHEAP.** All six are well mixed and
+    source-free, so their mass ratios are fixed by the composition and never evolve. The
+    per-species sum `Σ f_i·κ_i` is therefore a constant, and the radiative transfer does not
+    change shape — only its coefficient does. Printed every diagnostic by `Results_Atm`:
+
+    | species | fraction of bg | κ [m²/kg] | share of κ_bg_eff |
+    |---|---|---|---|
+    | N₂ | 0.3207 | 1.0e-06 | 0.0 % |
+    | CH₄ | 0.0857 | 3.0e-03 | 13.8 % |
+    | **NH₃** | 0.0910 | 1.0e-02 | **48.7 %** |
+    | H₂ | 0.0108 | 1.0e-05 | 0.0 % |
+    | CO | 0.1496 | 1.0e-04 | 0.8 % |
+    | **SO₂** | 0.3422 | 2.0e-03 | **36.7 %** |
+    | **TOTAL** | 1.0000 | **1.867e-03** | **1867× the lumped value** |
+
+    **κ_bg_eff = 1.87e-3 is nearly 2× κ_CO2**, and 32 % of the background by mass — N₂, H₂ and
+    CO together — contributes under 1 % of it. The lumped value was not an average of the six;
+    it was the value of the least absorbing one.
+
+    **AND THE OLR BARELY NOTICES, WHICH IS THE POINT.**
+
+    | iteration | lumped | split |
+    |---|---|---|
+    | 20 | 338.84 W/m² | 337.54 (**−0.38 %**) |
+    | 40 | 323.76 W/m² | 323.49 (**−0.083 %**) |
+
+    Photosphere 368.41 → 368.69 K at iteration 20 and 368.05 → 368.30 at 40, height unchanged at
+    237.4 km; `Psi_max` 105590.83 → 105588.89; albedo unchanged. **The effect SHRINKS with
+    iteration** — a 1867× change in one opacity term is worth 0.38 % of the OLR at iteration 20
+    and 0.08 % by 40.
+
+    **That is items 29 and 41 measured a third time, and the cleanest instance yet.** Those found
+    the converged OLR moving 0.10 % over 64× in `kappa_H2O` and 0.36 % over a 6× grid stretch,
+    and concluded the OLR is `σT_skin⁴` read back out. This is the same conclusion reached by
+    changing a *different* opacity, in a *different* species, by a *different* mechanism — and
+    the OLR still returns to the same place. **Do not read the 1867× as a licence to expect a
+    radiative response; read it as one more measurement of `t_skin`.**
+
+    Arithmetically the smallness is unsurprising once written down: the background is 12 % of the
+    mass, so its τ contribution goes from 1.2e-07 (negligible) to **2.3e-04, now comparable with
+    CO₂'s 2.1e-04** — but both are ~3 % of water's 6.7e-03. Total τ rises 3.3 %. **The structural
+    correction is large and the radiative consequence is small, and both statements are true.**
+
+    **THE SIX KAPPAS ARE ASSUMPTIONS OF THE SAME STANDING AS `kappa_H2O` AND `kappa_CO2`** — grey
+    band-averages chosen for the right order and the right *ordering*, not measured, and set
+    relative to this scheme's own two anchors. A grey scheme cannot represent the window regions
+    these gases fill differently, so **the split is better founded than any individual number in
+    it**: that NH₃ and CH₄ are not N₂ is certain, and that NH₃'s κ is 1e-2 rather than 3e-3 is not.
+    `ATM_BG_LUMPED=1` restores the single `kappa_bg` and every number that predates this item.
+
+    **In ParaView and Results.** The six mass fractions `q_N2 … q_SO2` are written to all three
+    VTK slices, computed on the fly rather than stored: `q_i = q_bg·f_bg[i]` exactly, so six 3-D
+    arrays would carry one array's worth of information at ~128 MB. `q_bg` comes from
+    `AtmMixture::split`, the routine the thermodynamics and the radiation use, so the plotted
+    field cannot drift from the integrated one. Verified against the table: NH₃ 0.01478/0.16245
+    = 0.0910, SO₂ 0.3422, N₂ 0.3207. `q_bg` itself now spans 0.081–0.162 — item 57's carrier
+    dilution, visible for the first time.
+
 ## Remaining work
 
 
+- **The background's opacity was N₂'s, applied to NH₃, CH₄ and SO₂ as well** (item 60). Split
+  per species it is **1867× larger** and nearly 2× `kappa_CO2`, with NH₃ (49 %), SO₂ (37 %) and
+  CH₄ (14 %) carrying all of it. The converged OLR moves **0.083 %** — items 29 and 41 confirmed
+  a third time, by a different species and a different mechanism. The six κ are assumptions;
+  `ATM_BG_LUMPED=1` restores the old value. **What is still open is the ordering**: NH₃ and CH₄
+  being far from inert is certain, their individual κ are not, and a grey scheme cannot carry
+  the window regions that would decide it.
 - **~~The composition closes on the background, so CO₂ can never dilute~~ — FIXED in item 57**
   (`ATM_CO2_DILUTE=0` restores it). The CO₂ column gains 320× more spatial structure, the global
   CO₂ mass is conserved to 5.6e-07, and the OLR moves 0.012 %. What remains is second order: `c`

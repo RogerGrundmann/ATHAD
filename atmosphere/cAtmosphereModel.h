@@ -78,6 +78,16 @@ public:
     AtmMixture::Composition m_comp;
     void initComposition();
 
+    // Composition-weighted grey longwave opacity of the background, sum(f_bg[i]*kappa_i),
+    // set by initComposition(). The six background gases are well mixed and source-free, so
+    // their mass ratios are fixed and the per-species split collapses to this ONE number —
+    // the radiative transfer keeps its shape and only the coefficient changes. At the
+    // configured composition it is 1.87e-3 against the lumped kappa_bg's 1e-6, because NH3,
+    // SO2 and CH4 are 2.8 mole-% of gases the lumped value treated as inert diatomics.
+    // ATM_BG_LUMPED=1 restores kappa_bg and the pre-2026-08-19 answer. See README item 60.
+    double m_kappa_bg_eff = 0.0;
+    double kappaBackground() const;
+
     // COSMO barometric lapse parameter, derived in initComposition() as
     // cosmo_lapse_fraction * R_mix * t_surf_equator / cp_l. Earth's hard-coded 42 K is
     // meaningless at ATHAD's R and T — see param.py, cosmo_lapse_fraction.

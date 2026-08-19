@@ -221,7 +221,36 @@ def main():
             # of ~280-310 W/m2, NOT at sigma*T_surf^4.
             ('kappa_H2O', 'ATHAD: grey longwave mass absorption of water vapour in m2/kg', 'double', 0.01),
             ('kappa_CO2', 'ATHAD: grey longwave mass absorption of CO2 in m2/kg', 'double', 0.001),
-            ('kappa_bg', 'ATHAD: grey longwave mass absorption of the background gases in m2/kg', 'double', 1.0e-6),
+            ('kappa_bg', 'ATHAD: grey longwave mass absorption of the background gases in m2/kg; LUMPED fallback, used only when ATM_BG_LUMPED=1 (see the per-species values below)', 'double', 1.0e-6),
+
+            # PER-SPECIES BACKGROUND OPACITIES. The single kappa_bg above was 1e-6 — the value
+            # of a radiatively inert diatomic — applied to all six background gases at once.
+            # Two of them are NOT inert: NH3 and CH4 are 1.4 mole-% each and are among the
+            # strongest infrared absorbers in the set, and SO2 is another 1.4 % with strong
+            # bands at 7.3 and 8.7 um. Because the six are well mixed and source-free their
+            # mass ratios are FIXED, so splitting them collapses to one composition-weighted
+            # effective kappa — the radiative transfer does not change shape, only its
+            # coefficient. At the configured composition that coefficient is 1.87e-3, i.e.
+            # 1867x the lumped value and nearly 2x kappa_CO2, and NH3 (49 %), SO2 (37 %) and
+            # CH4 (14 %) carry essentially all of it while N2, H2 and CO contribute ~1 %.
+            #
+            # THESE ARE ASSUMPTIONS OF THE SAME STANDING AS kappa_H2O AND kappa_CO2 — grey
+            # band-averages chosen for the right ORDER and the right ORDERING, not measured.
+            # They are set relative to this scheme's own two anchors (H2O 1e-2, CO2 1e-3):
+            #   NH3  1e-2  strong 10.5 um band, comparable to water
+            #   CH4  3e-3  strong 7.7 um band, between CO2 and water
+            #   SO2  2e-3  strong 7.3/8.7 um bands
+            #   CO   1e-4  weak dipole, one band at 4.7 um
+            #   H2   1e-5  no dipole; collision-induced only, which a grey scheme cannot carry
+            #   N2   1e-6  the inert baseline, i.e. what the lumped value assumed for all six
+            # A grey scheme cannot represent the window regions these gases fill differently,
+            # so the SPLIT is better founded than any individual number in it.
+            ('kappa_N2',  'ATHAD: grey longwave mass absorption of N2 in m2/kg',  'double', 1.0e-6),
+            ('kappa_CH4', 'ATHAD: grey longwave mass absorption of CH4 in m2/kg', 'double', 3.0e-3),
+            ('kappa_NH3', 'ATHAD: grey longwave mass absorption of NH3 in m2/kg', 'double', 1.0e-2),
+            ('kappa_H2',  'ATHAD: grey longwave mass absorption of H2 in m2/kg',  'double', 1.0e-5),
+            ('kappa_CO',  'ATHAD: grey longwave mass absorption of CO in m2/kg',  'double', 1.0e-4),
+            ('kappa_SO2', 'ATHAD: grey longwave mass absorption of SO2 in m2/kg', 'double', 2.0e-3),
 
             # ATHAD: geothermal / magma-ocean heat flux through the base of the atmosphere
             # in W/m2. A quenching magma ocean radiates far more than the modern Earth's
