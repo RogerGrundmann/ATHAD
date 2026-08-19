@@ -201,31 +201,57 @@ namespace AtmMixture {
     // up the remainder. Both are clamped and the background floored at zero, so a transport
     // overshoot degrades the properties smoothly instead of producing a negative gas constant.
     // ------------------------------------------------------------------------
-    inline void split(double c, double co2, double& q_v, double& q_c, double& q_b)
+    // q_cond is the SUSPENDED CONDENSATE mass fraction (cloud + ice + graupel), defaulting to
+    // 0 so every existing call compiles unchanged.
+    //
+    // WHY IT BELONGS HERE (item 58). The carrier is what is left of a kilogram of parcel once
+    // the water is taken out, and "the water" is vapour AND condensate: a droplet is still in
+    // the parcel and still carries its mass. Normalising by 1 - q_v alone hands the
+    // condensate's share to the gas, so the carrier — and with it q_CO2 and q_bg — comes out
+    // too large by up to 4.7 % where condensate peaks at 47 g/kg.
+    //
+    // THE RETURNED FRACTIONS SUM TO 1 - q_cond, NOT TO 1, and that is deliberate: they are per
+    // unit TOTAL parcel mass, so R_of returns (1 - q_cond)*R_gas and p/(R_of*T) is the TOTAL
+    // density directly. That identity is what let densities()'s separate `water_factor`
+    // divisor be deleted. The model already had this correction — in one place, applied only
+    // to r_humid, spelled 1 - cloud - ice (no graupel) and floored at 0.5. One concept with
+    // two implementations is how it stayed partial for so long.
+    inline void split(double c, double co2, double& q_v, double& q_c, double& q_b,
+                      double q_cond = 0.0)
     {
         q_v = std::min(std::max(c,   0.0), 1.0);
-        q_c = q_CO2_of(c, co2);
-        const double sum = q_v + q_c;
-        if (sum > 1.0) {                      // renormalise rather than go negative
-            q_v /= sum;
-            q_c /= sum;
+
+        if (!co2_dilute() || carrierRef() <= 0.0) {      // legacy path, unchanged
+            q_c = q_CO2_of(c, co2);
+            const double sum = q_v + q_c;
+            if (sum > 1.0) {                  // renormalise rather than go negative
+                q_v /= sum;
+                q_c /= sum;
+            }
+            q_b = std::max(0.0, 1.0 - q_v - q_c);
+            return;
         }
-        q_b = std::max(0.0, 1.0 - q_v - q_c);
+
+        const double q_l  = std::min(std::max(q_cond, 0.0), 1.0);
+        const double carr = std::max(0.0, 1.0 - q_v - q_l);          // the gas carrier
+        q_c = std::min(std::max(co2, 0.0), 1.0) * carr / carrierRef();
+        if (q_c > carr) q_c = carr;                                  // cannot exceed the carrier
+        q_b = carr - q_c;
     }
 
     // Specific gas constant of the local mixture [J/(kg K)].
-    inline double R_of(double c, double co2, double R_background)
+    inline double R_of(double c, double co2, double R_background, double q_cond = 0.0)
     {
         double q_v, q_c, q_b;
-        split(c, co2, q_v, q_c, q_b);
+        split(c, co2, q_v, q_c, q_b, q_cond);
         return q_v * R_H2O + q_c * R_CO2 + q_b * R_background;
     }
 
     // Specific heat at constant pressure of the local mixture [J/(kg K)].
-    inline double cp_of(double c, double co2, double T, double M_background)
+    inline double cp_of(double c, double co2, double T, double M_background, double q_cond = 0.0)
     {
         double q_v, q_c, q_b;
-        split(c, co2, q_v, q_c, q_b);
+        split(c, co2, q_v, q_c, q_b, q_cond);
         return q_v * cp_H2O(T) + q_c * cp_CO2(T) + q_b * cp_bg(T, M_background);
     }
 

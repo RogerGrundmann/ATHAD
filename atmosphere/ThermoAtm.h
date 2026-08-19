@@ -1443,7 +1443,11 @@ public:
                 for (int i = 0; i < m.im; i++) {
                     const double q_v = m.c.x[i][j][k];
                     const double q_c = m.co2.x[i][j][k];
-                    const double R_loc = AtmMixture::R_of(q_v, q_c, R_bg);
+                    // Suspended condensate: it is part of the parcel's mass, so it is part of
+                    // what the carrier is normalised against (item 58). GRAUPEL IS INCLUDED —
+                    // the water_factor this replaces counted cloud and ice only.
+                    const double q_l = m.cloud.x[i][j][k] + m.ice.x[i][j][k] + m.gr.x[i][j][k];
+                    const double R_loc = AtmMixture::R_of(q_v, q_c, R_bg, q_l);
 
                     double T_i, p_i;
                     if (i == 0) {
@@ -1453,6 +1457,15 @@ public:
                         const double dz = height_table[i] - height_table[i-1];
 
                         // Dry adiabat with the LOCAL heat capacity: Gamma = g/cp.
+                        // NO q_cond HERE, deliberately (item 58). The rule is: pass the
+                        // condensate where the result multiplies or produces a TOTAL density,
+                        // because there the (1 - q_cond) factor is exactly the gas-to-total
+                        // conversion. Do NOT pass it to a per-mass gas property. This cp sets
+                        // the adiabat g/cp, and (1 - q_cond)*cp_gas would make the lapse rate
+                        // STEEPER — the opposite of the truth, since suspended condensate adds
+                        // its own ~4200 J/(kg K) and makes a parcel harder to cool. Doing that
+                        // properly means a moist adiabat with the condensate's heat capacity,
+                        // which is a separate piece of physics, not a normalisation.
                         const double cp_loc = AtmMixture::cp_of(q_v, q_c, T_prev, M_bg);
                         const double T_ad   = T_prev - (m.g / cp_loc) * dz;
 
@@ -1485,11 +1498,20 @@ public:
                     m.t.x[i][j][k]      = T_i / m.t_0;
                     m.p_stat.x[i][j][k] = p_i;
 
-                    const double water_factor = std::max(0.5, 1.0
-                                        - m.cloud.x[i][j][k] - m.ice.x[i][j][k]);
-                    m.r_humid.x[i][j][k] = 1e2 * p_i / (R_loc * T_i * water_factor);
+                    // water_factor DELETED (item 58). It was 1/(1 - cloud - ice), floored at
+                    // 0.5, applied here and nowhere else — the gas-mass normalisation, in one
+                    // place, partial (no graupel) and invisible to every other consumer of the
+                    // composition. R_of now carries it for all of them: the fractions it
+                    // weights sum to 1 - q_cond, so R_loc IS (1 - q_cond)*R_gas and this
+                    // quotient is the total density with no extra divisor. Applying both would
+                    // count the condensate twice.
+                    //
+                    // The floor moves onto R_loc, which is what the 0.5 was really protecting:
+                    // a parcel that is all water leaves no carrier and R_loc -> q_v*R_H2O,
+                    // still positive, but a degenerate cell must not divide by zero.
+                    m.r_humid.x[i][j][k] = 1e2 * p_i / (std::max(R_loc, 1.0) * T_i);
 
-                    const double R_dry_loc = AtmMixture::R_of(0.0, q_c, R_bg);
+                    const double R_dry_loc = AtmMixture::R_of(0.0, q_c, R_bg);  // dry: no q_cond
                     m.r_dry.x[i][j][k]     = 1e2 * p_i / (R_dry_loc * T_i);
 
                     T_prev = T_i;

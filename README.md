@@ -4106,14 +4106,81 @@ the measurement.
     solid is the negative: the 4-9 % losses item 54 reported are transient, and the terms
     cannot be rejected on the evidence that rejected them.
 
+59. **The gas-mass normalisation moves into `split()`, and `densities()`'s `water_factor` is
+    deleted in the same edit — because the model already had this correction, in one place,
+    partial, and applying both would have counted the condensate twice.**
+
+    Item 57 left this as the known second-order residual: `c` is water **vapour**, so
+    normalising the carrier by `1 − q_v` hands the suspended condensate's share of the mass to
+    the gas. A droplet is still in the parcel and still weighs something.
+
+    **THE MODEL ALREADY KNEW.** `ThermoAtm::densities()` carried
+
+    ```cpp
+    const double water_factor = std::max(0.5, 1.0 - m.cloud.x[i][j][k] - m.ice.x[i][j][k]);
+    m.r_humid.x[i][j][k] = 1e2 * p_i / (R_loc * T_i * water_factor);
+    ```
+
+    — the gas-mass normalisation, applied to `r_humid` and to nothing else, spelled without
+    graupel and floored at 0.5. **One concept with two implementations is how it stayed
+    partial**: every other consumer of the composition — the radiation's optical depth, the
+    saturation carrier, the mixture `R` and `cp`, the hydrostatic step three lines above — used
+    a carrier that silently included the condensate.
+
+    **THE FIX.** `split()` takes `q_cond` (cloud + ice + **graupel**), defaulted to 0 so every
+    existing call compiles unchanged, and returns fractions that **sum to `1 − q_cond`, not to
+    1**. That is the point rather than a wart: they are per unit TOTAL parcel mass, so `R_of`
+    returns `(1 − q_cond)·R_gas` and `p/(R_of·T)` is the total density directly — which is
+    exactly what `water_factor` was constructing by hand. With the factor inside `R_loc`, the
+    divisor had to go, and the 0.5 floor moves onto `R_loc` where it belongs (a parcel that is
+    all water leaves no carrier; the guard is against dividing by zero, not against the
+    physics).
+
+    **AND IT FIXES THE HYDROSTATIC STEP AS A BY-PRODUCT.** `p_i = p_prev·exp(−g·dz/(R_loc·T))`
+    sits three lines above the deleted divisor and used the un-normalised `R_loc`, i.e. it
+    integrated `dp/dz = −ρ_gas·g` where the correct weight is `ρ_total`. `water_factor` never
+    reached it. Now it does.
+
+    **WHERE `q_cond` IS AND IS NOT PASSED, as a rule rather than a list**: pass it where the
+    result multiplies or produces a **total density**, because there `(1 − q_cond)` is exactly
+    the gas-to-total conversion. Do **not** pass it to a per-mass gas property. The adiabat's
+    `cp_of` is the case that matters: `(1 − q_cond)·cp_gas` would make the lapse rate *steeper*,
+    which is backwards — suspended condensate adds its own ~4200 J/(kg·K) and makes a parcel
+    harder to cool. Doing that properly is a moist adiabat, which is physics, not
+    normalisation. The site is commented to that effect.
+
+    **MEASURED — 40 iterations, 24 threads, one binary, against the dilution-only run:**
+
+    | | dilution only | + gas mass |
+    |---|---|---|
+    | OLR | 323.86 W/m² | **323.52** (−0.11 %) |
+    | imbalance | −52.79 W/m² | −52.45 |
+    | co2 column average | 523314.529 | 523318.560 (+7.7e-06) |
+    | max water vapour | 777.932 g/kg | 783.164 (+0.67 %) |
+    | photosphere T | 368.30 K | 368.28 K |
+    | mean albedo | 0.4988 | 0.4988 |
+    | `Psi_max` | 105590.66 | 105588.74 (−1.8e-05) |
+
+    **The OLR moves nine times further than item 57's dilution did** (−0.11 % against
+    +0.012 %), which is the opposite of what "second-order residual" suggests. The reason is
+    where the condensate is: it peaks at 37-47 g/kg in a thin band near 236 km, which is also
+    where the photosphere sits, so a correction that is negligible in the deep column lands
+    exactly on the levels the outgoing flux comes from. **Both numbers are 40-iteration
+    transients and neither is a converged result** — what they establish is that the correction
+    is live and its size is set by the condensate's location, not its column mean.
+
+    At iteration 10 the two runs agree to every printed digit and differ only in `residuum_atm`
+    at 2e-06; the separation grows through the run. A coarse extremum agreeing is not evidence
+    that nothing changed.
+
 ## Remaining work
 
 
 - **~~The composition closes on the background, so CO₂ can never dilute~~ — FIXED in item 57**
   (`ATM_CO2_DILUTE=0` restores it). The CO₂ column gains 320× more spatial structure, the global
   CO₂ mass is conserved to 5.6e-07, and the OLR moves 0.012 %. What remains is second order: `c`
-  is vapour only, so the carrier should strictly be normalised by the gas mass
-  `1 − (cloud + ice + graupel)` — a ≤5 % residual on a ±15 % correction. Original entry:
+  is vapour only — **and that is fixed too, in item 59**, which also deleted `densities()`'s
+  partial `water_factor` so the condensate is not counted twice. Original entry:
 - **The composition closes on the background, so CO₂ can never dilute** (item 56). `split()`
   sets `q_b = 1 − q_v − q_c`, and water — 67 % of the mass — varies 536.9 to 739.0 g/kg across
   the domain, so the whole of that variation is absorbed by the background fraction (a **4.6×**
