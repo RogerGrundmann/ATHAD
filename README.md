@@ -3802,7 +3802,10 @@ the measurement.
     to a residual of 2.2 — **88 % cancellation where there was 0 %**. Both grew ~60× from the
     shipped pgf; `p_dyn`'s radial gradient is now doing real work.
 
-    **THE COST, AND IT IS GROWING.** `Psi_max` 106510.37 → 101801.92 at iteration 20
+    **THE COST, AND IT IS GROWING — WITHDRAWN BY ITEM 58.** At 400 iterations, against a
+    matched control, the metric arm ends **1.5 % ABOVE** the control after a −44 % excursion and
+    a recovery. Everything in this paragraph is a transient. Original text follows.
+    `Psi_max` 106510.37 → 101801.92 at iteration 20
     (**−4.4 %**) and 105590.83 → 96019.85 at iteration 40 (**−9.1 %**). The radial wind goes
     0.2975 → 0.2394 m/s (−19.5 %) — *weaker*, which is what a pressure gradient that is now
     opposed rather than acting alone should give. Everything else is unmoved at 20: `v`
@@ -4054,6 +4057,54 @@ the measurement.
     gas-phase carrier grows less than `1 − c` implies. The strictly correct normalisation is by
     the gas mass, `1 − (cloud + ice + graupel)`. Condensate here runs 12–47 g/kg, so this is a
     ≤5 % residual on a correction that is itself ±15 %.
+
+58. **The 400-iteration pair: the two metric terms do NOT cost the circulation. Ψ takes a deep
+    excursion, restructures, and comes back level with the control — and every intermediate
+    number said the opposite.**
+
+    Item 54 measured `ATOM_CORIOLIS_NONTRAD=1 ATOM_METRIC_CURVATURE=1` at 40 iterations, found
+    Ψ_max down 4.4 % at 20 and 9.1 % at 40, and left the endpoint open on the grounds that a
+    doubling gap over one interval is not a trend. It was right to. Two matched 400-iteration
+    runs, 24 threads, same binary, same config, the control under `ATM_CO2_DILUTE=0` so its
+    physics matches the metric arm's:
+
+    | iter | control (shipped) | nontrad + curvature |
+    |---|---|---|
+    | 20 | 106510 @ 5° | 101802 @ 5° |
+    | 100 | 102877 @ 5° | 79492 @ 5° |
+    | 180 | 99291 @ 5° | **59370 @ 5°** |
+    | 260 | 95674 @ 5° | 67330 @ **17°** |
+    | 340 | 92014 @ 5° | 78189 @ 16° |
+    | 380 | 90168 @ 5° | 85995 @ 9° |
+    | 400 | **89241 @ 5°** | **90606 @ 9°** |
+
+    **The control decays monotonically and almost linearly, −16.2 % over 380 iterations**, its
+    maximum pinned at lat 5° throughout. That reproduces item 37's −16.7 % / −16.2 % on the
+    repaired binary, which is worth having on its own: items 52-53 did not disturb the
+    circulation.
+
+    **The metric arm does something structurally different.** It falls to a minimum near
+    iteration 180-200 — **−44 %**, far worse than the control — and then *recovers*, ending
+    **1.5 % ABOVE** the control. The cell core migrates out to 17° and back to 9° while it
+    happens. That is a reorganisation, not a decay: the terms take the prescribed cell apart and
+    something else assembles.
+
+    **SO ITEM 54'S "COST, AND IT IS GROWING" IS WITHDRAWN.** The sequence of readings was
+    −4.4 % at 20, −9.1 % at 40, −25 % at 100, −40 % at 180, and **+1.5 % at 400**. Every
+    intermediate value pointed the wrong way, and the two that looked most like a trend —
+    the doubling between 20 and 40, and the near-linear fall to 180 — were the least
+    informative. **This is the third time this file has been caught by a monotone trend**, and
+    the only reason it did not become a claim is that the run was paired with a control of the
+    same length on the same binary from the start. *The lesson is not "extrapolate more
+    carefully". It is that an unpaired long run cannot answer a question of this shape at all.*
+
+    **What is NOT settled.** 400 iterations is 78 s to 25 min of physical time (item 47), so
+    neither arm is near equilibrium and "they converge" is a statement about this window. The
+    two curves are still moving in opposite directions at 400 — the control down 927 per 20
+    iterations, the metric arm up 4611 — so the crossing is recent and the next hundred
+    iterations could put them anywhere. **Do not read the +1.5 % as a result either.** What is
+    solid is the negative: the 4-9 % losses item 54 reported are transient, and the terms
+    cannot be rejected on the evidence that rejected them.
 
 ## Remaining work
 
