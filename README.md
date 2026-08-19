@@ -3898,9 +3898,82 @@ the measurement.
     invariant 4" should be read as "N2 confirms `densities()` integrates its own adiabat to
     O(dz²)", which is a real and useful check, but a different one.
 
+56. **CO₂ shows no convective influence for three independent reasons, any one of which would
+    be sufficient — and the third one is a bookkeeping choice that makes CO₂ inert against
+    everything, not just convection.**
+
+    Measured first: `max co2` = `min co2` = **0.205300 kg/kg** at every diagnostic of every run
+    in this file. Not approximately uniform — uniform to every printed digit.
+
+    **(1) THERE IS NO CONVECTIVE TERM IN ITS EQUATION.** Side by side:
+
+    ```
+    rhs_c.x   = -transport_c   + diffusion_c + coeff_trans*S_v*r_humid + coeff_MC_q*MC_q
+    rhs_co2.x = -transport_co2 + diffusion_co2
+    ```
+
+    There is **no `MC_co2` field anywhere in the tree**. `MoistConvection` carries five updraft
+    scalars — `s_u`, `q_v_u`, `q_c_u`, `v_u`, `w_u` — and their downdraft partners, and it has
+    no tracer slot at all. CO₂ appears in that file only as a thermodynamic argument to
+    `cp_of`/`R_of`, never as something transported. **So a CO₂ field WITH gradients would still
+    be invisible to the convection scheme**; convection could reach it only indirectly, through
+    the resolved velocity field it modifies.
+
+    **(2) THERE IS NOTHING TO TRANSPORT, AND `rhs_co2` IS IDENTICALLY ZERO.** `co2Atmosphere`
+    fills the field uniformly (initial condition only since item 12) and no source or sink for
+    CO₂ exists anywhere in the model. For a uniform field `transport_co2 = u·∂co2/∂r + … ≡ 0`
+    and `diffusion_co2 = ∇²co2 ≡ 0`, so `rhs_co2 ≡ 0` in every cell for all time. CO₂ is not a
+    slowly-evolving tracer that happens to stay flat; it is **frozen by construction**, which is
+    why the printed min and max agree to six decimals rather than to noise.
+
+    *The `co2 column` diagnostic does show structure — 523353.42 against 523352.74 kg/m², a
+    7e-7 spread — but that is the AIR column varying with the surface temperature, not CO₂.*
+
+    **(3) AND IT CANNOT EVEN DILUTE, BECAUSE THE COMPOSITION CLOSES ON THE BACKGROUND.**
+    `AtmMixture::split` sets `q_b = 1 − q_v − q_c`: the background is the residual. Water is 67 %
+    of this atmosphere's mass and it is **not** uniform — 536.9 to 739.0 g/kg across the domain —
+    so the total mass of a parcel changes as water moves in and out of it, and the mass fractions
+    of everything else must respond. In this model **all of that response lands on the
+    background** and none on CO₂:
+
+    | | q_v | q_CO₂ | q_bg | R_mix |
+    |---|---|---|---|---|
+    | wettest cell | 0.7390 | 0.2053 (pinned) | 0.0557 | 398.9 |
+    | reference | 0.6724 | 0.2053 | 0.1223 | 387.9 |
+    | driest cell | 0.5369 | 0.2053 (pinned) | 0.2578 | 368.4 |
+
+    The background fraction spans **4.6×** while CO₂ does not move at all. Concentrating CO₂ and
+    background *together* — which is what removing water from a parcel physically does — puts
+    `R_mix` **1.4 % lower at the wettest point and 2.6 % higher at the driest**, and that error
+    is correlated with the water field, so it is a systematic, water-shaped bias in `R_mix`,
+    `cp_mix` and hence in the density and the hydrostatic column, not noise.
+
+    **So "CO₂ is prognostic" (item 12) is true and empty at the same time.** The transport
+    equation is integrated, its result is exactly the initial condition, and nothing in the
+    model — convection, microphysics, or dilution by the water it shares a mass budget with —
+    can change it. That is a correct outcome for reasons (1) and (2), which are consequences of
+    there being no CO₂ source at 4.4 Ga in this model; reason (3) is a modelling choice worth
+    revisiting, because it is the one that would otherwise have given CO₂ a real spatial
+    structure to transport.
+
+    **What would make CO₂ move**, in increasing order of work: renormalise the non-water
+    carrier so CO₂ and background concentrate together (fixes (3), and fixes the `R_mix` bias
+    whether or not CO₂ is interesting); add a CO₂ slot to the mass-flux scheme (fixes (1)); give
+    CO₂ a source — magma-ocean degassing or dissolution — which is the only thing that makes
+    (2) false and the only one that is a Hadean science question rather than a plumbing one.
+
 ## Remaining work
 
 
+- **The composition closes on the background, so CO₂ can never dilute** (item 56). `split()`
+  sets `q_b = 1 − q_v − q_c`, and water — 67 % of the mass — varies 536.9 to 739.0 g/kg across
+  the domain, so the whole of that variation is absorbed by the background fraction (a **4.6×**
+  spread) while CO₂ stays pinned at 0.205300 everywhere. Concentrating CO₂ and background
+  together, which is what removing water from a parcel does, moves `R_mix` **−1.4 % at the
+  wettest point and +2.6 % at the driest** — a systematic, water-shaped bias in `R_mix`, `cp_mix`,
+  the density and the hydrostatic column. This is also the reason CO₂ shows no convective
+  influence: the other two reasons (no `MC_co2` term exists; `rhs_co2 ≡ 0` for a uniform field
+  with no source) are consequences of there being no CO₂ source, but this one is a choice.
 - **`N²` measures the prescribed profile and the integrator, not the atmosphere** (item 55).
   It is formed at the end of `densities()` from the `t` and `p_stat` that same call just wrote,
   and it is identical to 0.03-0.5 % across runs whose `p_dyn` radial structure differs by
