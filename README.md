@@ -3673,6 +3673,18 @@ the measurement.
     | max `q_v_u`, `S_r`, cloud water | 333.18 / 0.0778 / 47.08 | **identical** |
     | max `c_u` | 0.067791 | **0.000000** |
 
+    and at iteration 40, where the integrated quantities can be compared:
+
+    | | baseline | repaired |
+    |---|---|---|
+    | max `s_u` | 5.737 → **1167.5 K** | 2.5014 → **509.0 K** |
+    | min `s_u` | −5.012 | **0.000000** |
+    | min `MC_t` | −0.010000 (cap) | −0.000457 |
+    | max `c_u` | 0.067955 | 0.000000 |
+    | OLR | 283.72 W/m² | **283.72** |
+    | `Psi_max` | 42186.73 | 42186.38 (−8e-6) |
+    | albedo, `S_r`, `S_s`, cloud water | 0.5000 / 0.0777 / 0.4628 / 47.01 | **unchanged to 5 digits** |
+
     **`c_u` → 0 is the most informative number in this table, and it is not a repair failing.**
     The baseline's updraft condensation was computed from a parcel at 1128 K — a temperature the
     `/s_0` defect invented. With the parcel at its correct 509 K it is sub-saturated and nothing
