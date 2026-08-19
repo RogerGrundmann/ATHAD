@@ -396,7 +396,8 @@ private:
     std::vector<double> c_land_red;
     std::vector<double> c_ocean_red;
 
-    std::vector<double> CAPE;
+    // CAPE removed 2026-08-19 with computeCAPE() (README item 52): written, never read, and
+    // wrong in three ways. cape_col[j][k] in MoistConvection is the real one.
     std::vector<double> K_u;
     std::vector<double> K_d;
 

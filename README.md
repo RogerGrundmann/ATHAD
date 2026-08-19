@@ -3533,9 +3533,172 @@ the measurement.
     263.0 K — but it is the same `s_0` error, and it becomes live the moment anything cools
     the skin.
 
+53. **The repair pass: item 52's four neighbouring defects fixed, the `s` scaling made the
+    default, and a fifth defect found while repairing the third — which turned out to be the
+    one that actually produced the impossible number.**
+
+    Five builds, all 40 iterations, 24 threads, moist physics from iteration 0, one config,
+    each adding to the one above it:
+
+    | run | what it adds | |
+    |---|---|---|
+    | `run_s_base` | — | the shipped model |
+    | `run_s_fix` | the three `s` scalings (item 52) | |
+    | `run_s_repair` | `MC_t` term 2, the lid BC, the bounded recurrence, `computeCAPE` deleted | |
+    | `run_s_all` | the `cc_factor` reference | |
+    | `run_s_all2` | the recurrence narrowed to the shipped activation set | |
+
+    **(1) `MC_t`'s second term lost its `*t_0`.** `(L/cp)·conv_src` is already K/s — `L/cp` is
+    kelvin per unit mass fraction, `conv_src` is (kg/kg)/s — so the factor made that term 273×
+    its own scale. Two terms in one sum cannot both be right when one is a temperature and the
+    other a temperature over `t_0`. Fixed unconditionally, not behind the `s` knob, because it
+    is not an `s` question. **Inherited verbatim from `ATOM_Precipitation`, where it is equally
+    wrong.**
+
+    **(2) The cubic extrapolation came off BOTH radial boundaries** for the convection scalars,
+    microphysical rates, mass fluxes and diagnostic forces (`bcRadius`'s Pattern A list),
+    replaced by a zero-gradient copy. This is the **third** time this stencil has had to come
+    off a boundary in that one function — `v`/`w` "overshoot THROUGH zero", the turbulence
+    scalars "amplify the concavity", `p_stat` reached −36 hPa — and the fourth argument was
+    already written in `bcTheta` ("condition number ~7 … NaN at the pole"). Item 52 measured
+    what it was doing at the lid; **ATHAD_COND supplied the surface half**: `s_u` = −5.012 at
+    0 m, an updraft parcel at **−1020 K** over a 513 K sea. There was even a symptom-level
+    patch already sitting under the i=0 loop — *"updraft moisture at the surface must be
+    non-negative"*, clamping `q_v_u` and `q_c_u` — put there by whoever met the same negative
+    values and treated them at the output instead of at the source.
+
+    **(3) The updraft recurrence is bounded by construction, not by a clamp.** A clamp is what
+    hid the `s` defect, so the repair is algebraic instead. `d(M·φ_u)/dz = E·φ − D·φ_u` with
+    `dM/dz = E − D` expands to `M·dφ_u/dz = E·(φ − φ_u)`: **detrainment cancels exactly**, and
+    φ_u can never leave the interval spanned by its previous value and the environment.
+    Discretely that identity holds only if the denominator is the mass the numerator was built
+    from, and three things break it here — `clamp_M` and the `is_land`/`t_00` kills rewrite
+    `M(i)` after the fact; `E_u` is a moisture *convergence* and goes negative where the flow
+    diverges moisture, which an entrainment rate cannot; and `step·D` can exceed `M(i-1)` on
+    the deep layers, where `step` reaches 23 km. So the two weights are formed explicitly,
+    floored at zero, and the sum is the denominator. `q_c_u` keeps the flux form — its bracket
+    carries real sources, so it is not a convex combination of anything — but gets the
+    consistent denominator.
+
+    **(4) `computeCAPE()` deleted, not fixed.** It was a *second* CAPE that nothing read:
+    `m.CAPE` was written here and never read anywhere in either tree. It divided a physical
+    `step[i]` by `exp_rm`; its "parcel" was the environment temperature plus a fixed 0.2 K at
+    every level, so it never lifted anything and never consulted `s_u`; and `m.CAPE` was a 1-D
+    array indexed by LEVEL written inside a (j,k) loop, so the last column overwrote every
+    other one. `cape_col[j][k]` in `findCloudBaseLFS` — a θ_e-conserving ascent with local `cp`
+    and true thicknesses — is the real one and already correct. **One correct CAPE is better
+    than one correct and one wrong.**
+
+    **(5) THE FIFTH DEFECT, and it is the one that produced item 52's impossible number.**
+    Repairing (3) did not move `q_v_u` at all: 3564.52 g/kg before and after, to the digit. The
+    seed was the source, not the recurrence. `cc_factor` returns `q_sat(T)/q_sat(T_ref_cc)`
+    with **`T_ref_cc` = 288.15 — Earth's mean surface temperature, a bare literal in a physics
+    kernel.** On Earth that makes the factor O(1) by construction, which is the entire design
+    ("warmer columns get proportionally more seed moisture, ~7 %/K"). Here the numerator is
+    `q_sat(1500 K)` = 1, because the surface is supercritical (invariant 2), and the
+    denominator is `q_sat(288 K)` at 250 bar ≈ 6.8e-5 — so the "ratio" was ~3.5e4 and the seed
+    cap `q_v_u_add · cc_factor` came out at **3.47 kg/kg**. Referenced to the model's own
+    surface temperature scale instead, the factor is O(1) on any planet and still carries the
+    equator-to-pole contrast the design wants.
+
+    **MEASURED:**
+
+    | | `base` | `fix` | `repair` | `all` |
+    |---|---|---|---|---|
+    | max `q_v_u` @40 | 3564.52 g/kg | 3564.52 | 3564.52 | **724.67** |
+    | min `q_v_u` @40 | −742.79 g/kg | −742.79 | **0.000000** | 0.000000 |
+    | min `s_u` @40 | −3.865 (−520 K) | −3.865 | **0.000000** | 0.000000 |
+    | min `s_d` @40 | −4.723 (−636 K) | −4.723 | **0.000000** | 0.000000 |
+    | max `s_u` @10 | 342.33 (46 066 K) | 3.512 | 3.512 | 3.512 |
+    | max `S_r` @40 | 0.889990 | 0.888215 | **0.000611** | 0.000611 |
+    | max `S_s` @40 | 0.435406 | 0.409573 | 0.333249 | 0.400351 |
+    | max `MC_t` @40 | 0.001492 | 0.000425 | 0.000425 | 0.000420 |
+    | OLR @40 | 323.73 W/m² | 323.67 | 323.67 | **323.76** |
+    | albedo / photosphere / `Psi_max` @40 | — | — | — | **identical in all four** |
+
+    **`max S_r` = 0.889990 → 0.000611 is worth its own line**: that extremum was *at the lid*,
+    300 005 m, i.e. the largest rain-production rate in the model was an extrapolation artefact.
+    After the BC repair the maximum sits at 236 km, in the cloud.
+
+    **And the OLR moves 0.03 % across all of it.** Fifth correction to die at the albedo
+    (items 42, 51, 52 and both halves of this one): `Psi_max` is identical to eight digits,
+    the albedo and photosphere unchanged. **Everything repaired here was unphysical and none of
+    it was reaching the radiation**, which is a statement about `albedo_cloud` saturating on the
+    presence of condensate, not about the repairs.
+
+    **ONE THING GOT WORSE AND IS REPORTED AS SUCH.** At iteration 10 `max MC_t` sits at
+    **0.010000 — its `MCt_max` cap** — in every build containing the non-`s` repairs, where
+    `run_s_fix` had 8.3e-5. Iterations 20 and 40 agree to 0.3 % across all builds, so it is a
+    spin-up transient, but it saturates a cap, and this file has just spent an item on what
+    caps hide. **The obvious hypothesis was tested and refuted**: narrowing the recurrence back
+    to the shipped activation set (`run_s_all2`) leaves it at 0.010000, and `run_s_all2` is
+    otherwise identical to `run_s_all` in every printed number at iteration 40 — so the
+    conservative form costs nothing and explains nothing. The remaining candidates are the lid
+    BC and the bounded denominator itself; `ATM_MC_UNBOUNDED_UPDRAFT=1` discriminates them and
+    that run **had not finished when this was written**. Recorded as open rather than guessed.
+
+    **The `s` repair is now the default** and `ATM_MC_S_LEGACY=1` restores the three defects
+    together; `ATM_MC_UNBOUNDED_UPDRAFT=1` restores the old recurrence. Item 52's knob was
+    default-off pending measurement; it has been measured.
+
+    **NOT REPAIRED, deliberately, and both are stated in item 52:** the missing `g·z` — `s` is
+    `cp·T`, dry static energy is `cp·T + g·z`, and `g·z` is the larger term above ~157 km here,
+    so the updraft still does not cool as it rises. That is a redefinition of the field, not a
+    units fix, and it needs its own measurement. `MC_t`'s **negative** cap, driven by `e_d`, is a
+    mixed result: in ATHAD it binds at iteration 10 and is off the cap by 20 (−1.1e-5) both
+    before and after, while **in ATHAD_COND it was at −0.010000 at every diagnostic before the
+    repair and is −0.000716 after** — there, removing the 273× was enough to unbind it.
+
+    **`bcTheta`'s `fields_cubic` was checked and was NOT a defect** — both its loops are plain
+    copies; only the name was left over from the stencil the pole argument had already removed.
+    Renamed `fields_pole_copy`, because a name is how the next reader decides where to look.
+
+
+    **PORTED TO ATHAD_COND, and checked by reading that file rather than assuming the fork
+    shares the code.** All of it applies there: same `/s_0` in both recurrences, same `*t_0` in
+    both `MC_t` terms, same Pattern A cubic, same `computeCAPE`, same `cc_factor`. The
+    magnitudes differ where `cp_l` does — `s_0` is Earth's `1005 × t_0` there too, against
+    `cp_l` = 1349, so its `MC_t` transport ran **1.342×** hot rather than ATHAD's 2.03×, and its
+    `s`-to-kelvin factor is `s_0/cp_l` = 203.50 K.
+
+    **Measured there, 40 iterations, 24 threads, its own config, against a baseline run on the
+    pre-repair binary** (`run_s_cond_base` vs `run_s_cond`), at iteration 10:
+
+    | | baseline | repaired |
+    |---|---|---|
+    | max `s_u` | 5.545 → parcel **1128 K** | 2.502 → **509.1 K**, over a 513 K sea |
+    | min `s_u` | −5.012 → **−1020 K**, at 0 m | **0.000000** |
+    | min `MC_t` | **−0.010000 — its cap, at every diagnostic** | **−0.000716** |
+    | max `MC_t` | 0.000000 | 0.000807 |
+    | max `q_v_u`, `S_r`, cloud water | 333.18 / 0.0778 / 47.08 | **identical** |
+    | max `c_u` | 0.067791 | **0.000000** |
+
+    **`c_u` → 0 is the most informative number in this table, and it is not a repair failing.**
+    The baseline's updraft condensation was computed from a parcel at 1128 K — a temperature the
+    `/s_0` defect invented. With the parcel at its correct 509 K it is sub-saturated and nothing
+    condenses. **And it never will**, because the parcel does not cool as it rises: that is the
+    missing `g·z` of item 52, and with the arithmetic now right it is no longer masked. So
+    repairing the scaling has promoted the design defect from "documented" to "the only thing
+    left between this scheme and a working updraft". `c_u` is one of the two terms in
+    `conv_src`; in ATHAD it was already identically zero at every diagnostic in every build.
+
 ## Remaining work
 
 
+- **The updraft cannot condense any more, and that is the `g·z` bill coming due** (item 53).
+  With the `s` arithmetic repaired, ATHAD_COND's `max c_u` goes 0.0678 → **0.000000**: the
+  baseline's updraft condensation was computed from a parcel at 1128 K that the `/s_0` defect
+  invented, and the correct 509 K parcel is sub-saturated. It will stay sub-saturated, because
+  `s` is `cp·T` with no geopotential, so the parcel does not cool as it rises (item 52). ATHAD's
+  `c_u` was already identically zero. **Adding `g·z` to `s` is now the top microphysics job** —
+  it is no longer one defect among four, it is the only thing between this scheme and an updraft
+  that condenses.
+- **One number got worse under the repairs and is not yet attributed** (item 53): `max MC_t`
+  sits at its `MCt_max` cap at iteration 10 in every build containing the non-`s` repairs, where
+  the `s`-only build had 8.3e-5. Iterations 20 and 40 agree to 0.3 % across all builds, so it is
+  a transient — but it saturates a cap, which is exactly what item 52 was about. Narrowing the
+  recurrence to the shipped activation set is refuted as the cause; the lid BC and the bounded
+  denominator remain.
 - **The moist-convection `s` fields are a normalised temperature wearing two other names, and
   three scaling errors sit on top of that** (item 52). `ATM_MC_S_CONSISTENT` repairs the three
   and is **default off** pending a longer run than the 40 iterations measured. The big one is

@@ -41,11 +41,45 @@ namespace AtomMoistConvection {
     // result" note in this file (README item 51) is WRONG: the cancellation is real for the
     // explicit pair and there is a third, implicit conversion that assumes the derived value.
     //
-    // NOT in this knob, because it is not an s question and folding it in would confound the
-    // A/B: MC_t's SECOND term, (L/cp)*conv_src*t_0, is already K/s before the *t_0. That is
-    // inherited verbatim from ATOM_Precipitation and is a separate open item.
+    // 2026-08-19, SAME DAY, SECOND PASS: the knob is now ON by default and the sense is
+    // inverted — ATM_MC_S_LEGACY=1 restores the three defects together, to reproduce any
+    // number printed before this change. Nothing about the arithmetic was in doubt; the
+    // default was off only until it had been measured, and it has been (README item 52:
+    // 40 iterations, OLR -0.02 %, Psi/albedo/photosphere identical, and the shipped code
+    // running its spin-up with MC_t pinned at MCt_max and parcels at 46 000 K).
+    //
+    // MC_t's SECOND term, (L/cp)*conv_src*t_0, was deliberately left out of the A/B because
+    // it is not an s question. It is fixed unconditionally below — it was already K/s before
+    // the *t_0, so that term was ~273x its own scale. Inherited verbatim from
+    // ATOM_Precipitation; PORT IT BACK.
     static const bool s_consistent = [](){
-        const char* e = getenv("ATM_MC_S_CONSISTENT"); return e && atoi(e) != 0; }();
+        const char* e = getenv("ATM_MC_S_LEGACY"); return !(e && atoi(e) != 0); }();
+
+    // ATM_MC_UNBOUNDED_UPDRAFT=1 restores the unbounded updraft scalar recurrence (README
+    // item 52's third neighbouring defect: q_v_u reaching 3565 g/kg — 3.5 kg/kg of vapour in
+    // a MASS FRACTION — with a <= 0 clamp and no upper bound).
+    //
+    // THE REPAIR IS NOT A CLAMP, because a clamp is what hid the s defect for a year. The
+    // flux form d(M phi_u)/dz = E*phi - D*phi_u with dM/dz = E - D is ALGEBRAICALLY a convex
+    // mixing: expanding gives M dphi_u/dz = E*(phi - phi_u), so DETRAINMENT CANCELS EXACTLY
+    // and phi_u can never leave the interval spanned by its previous value and the
+    // environment. Discretely,
+    //
+    //     phi_u(i) = [ (M(i-1) - step*D)*phi_u(i-1) + (step*E)*phi_env ] / M(i)
+    //
+    // is that convex combination IF AND ONLY IF M(i) == (M(i-1) - step*D) + step*E and both
+    // weights are >= 0. Three things break the identity here, and all three are live:
+    //   - clamp_M() and the is_land / t_00 kills rewrite M(i) AFTER it was formed, so the
+    //     denominator stops matching the numerator and the scalar is scaled by an arbitrary
+    //     factor (M_max/|M| can be 30x, and it compounds level by level);
+    //   - E_u is a local MOISTURE CONVERGENCE, -r_h/c*(u.grad c) + eps_u*M_u, which goes
+    //     NEGATIVE wherever the flow diverges moisture — an entrainment RATE cannot;
+    //   - step*D can exceed M(i-1) on the deep layers (step reaches 23 km up there).
+    // So: form the two weights explicitly, floor both at zero, and divide by their SUM
+    // rather than by the separately-clamped M(i). Bounded by construction, exactly equal to
+    // the old expression whenever nothing was clamped, and it needs no ceiling constant.
+    static const bool updraft_bounded = [](){
+        const char* e = getenv("ATM_MC_UNBOUNDED_UPDRAFT"); return !(e && atoi(e) != 0); }();
 
     constexpr double a_ev = 1.0e-3;
     constexpr double b_ev = 5.9;
@@ -140,7 +174,6 @@ public:
             downdraftRecurrence();
         }
 
-        computeCAPE();
         rhsForcing();
         subTerrainFill();
 
@@ -201,7 +234,21 @@ private:
     // larger updraft-moisture seed and convective precipitation follows CC (~7%/K)
     // instead of falling as q_sat outruns a fixed cap. >1 warm, <1 cold, 1 at T_ref.
     double cc_factor(double T_K, double p_hPa) const {
-        constexpr double T_ref_cc = 288.15;                 // [K] reference surface T (15°C)
+        // 2026-08-19 (README item 52): T_ref_cc WAS 288.15 — EARTH'S MEAN SURFACE
+        // TEMPERATURE, a bare literal in a physics kernel, and the ratio this helper returns
+        // is taken against it. On Earth that makes the factor O(1) by construction, which is
+        // the whole design: "warmer columns get proportionally more seed moisture, ~7 %/K".
+        // Here the numerator is q_sat(1500 K), which is 1 because the surface is supercritical
+        // (invariant 2), while the denominator is q_sat(288 K) at 250 bar ~ 6.8e-5 — so the
+        // "ratio" was ~3.5e4 and the moisture seed cap q_v_u_add * cc_factor came out at
+        // 3.47 kg/kg. THAT is where the impossible q_v_u = 3565 g/kg came from: a MASS
+        // FRACTION of 3.5, injected by the seed, not grown by the recurrence.
+        //
+        // The reference has to be the model's own surface temperature scale, which restores
+        // the intended meaning — the factor measures how much warmer THIS column is than the
+        // planet's own surface, so it is O(1) by construction on any planet and still carries
+        // the equator-to-pole contrast the design wants.
+        const double T_ref_cc = 0.5 * (m.t_surf_equator + m.t_surf_pole);
         auto E_sat_of = [&](double T) {
             return (T >= m.t_0)
                 ? SaturationH2O::saturationPressure(T)            // over water
@@ -343,7 +390,6 @@ private:
 
         m.K_u = std::vector<double>(m.im, 0.0);
         m.K_d = std::vector<double>(m.im, 0.0);
-        m.CAPE = std::vector<double>(m.im, 0.0);
 
         // Reset 3-D convection fields so stale values from a previous call
         // cannot corrupt M_u/M_d when the saturation
@@ -1132,8 +1178,47 @@ void findCloudBaseLFS() {
                         - m.D_u.x[i-1][j][k] * m.s_u.x[i-1][j][k]));
                     if(!s_consistent) dummy_s_u /= m.s_0;
 
+                    // The consistent denominator: the SAME mass the numerator was built from,
+                    // as two non-negative weights (parcel air retained, environment air
+                    // entrained). Their sum is what M_u.x[i] would be had clamp_M and the
+                    // is_land / t_00 kills not rewritten it, so dividing by it makes every
+                    // pure-transport scalar a convex combination of phi_u(i-1) and phi_env —
+                    // bounded, with no ceiling constant. See ATM_MC_UNBOUNDED_UPDRAFT above.
+                    const double w_env = std::max(step_prev * m.E_u.x[i-1][j][k], 0.0);
+                    const double w_par = std::max(M_u_prev - step_prev * m.D_u.x[i-1][j][k], 0.0);
+                    const double M_u_mix = w_par + w_env;
+
                     double M_u_i = m.M_u.x[i][j][k];
-                    if(fabs(M_u_i) > coeff_recurr){
+                    // BOTH tests, deliberately. The repair is meant to change the DENOMINATOR,
+                    // not which cells are active — |M_u_i| > coeff_recurr is the shipped
+                    // activation test and it stays, so the active set can only stay the same
+                    // or NARROW (it narrows exactly where the mixing mass has fallen below
+                    // coeff_recurr, i.e. where there is no consistent mass to carry anything
+                    // and the old code was dividing by a rewritten one). It can never widen.
+                    // Dropping the |M_u_i| test (the first version of this
+                    // repair) activated cells the fallback used to hold at s_u = s, and
+                    // measured it: max MC_t went from 8.3e-5 to 0.010000 — ITS CAP — at
+                    // iteration 10. Widening a scheme's active set is a change of physics and
+                    // does not belong in a units repair.
+                    if(updraft_bounded && M_u_mix > coeff_recurr
+                       && fabs(M_u_i) > coeff_recurr){
+                        const double inv_mix = 1.0 / M_u_mix;
+                        // q_c_u keeps the flux form: its bracket carries genuine SOURCES
+                        // (detrained cloud water, precipitation conversion), not just mixing,
+                        // so it is not a convex combination of anything and cannot be written
+                        // as one. It is still divided by the consistent mass rather than the
+                        // rewritten one, which is what removes the M_max/|M| amplification.
+                        m.q_v_u.x[i][j][k] = (w_par * m.q_v_u.x[i-1][j][k]
+                                            + w_env * m.c.x[i-1][j][k]) * inv_mix;
+                        m.q_c_u.x[i][j][k] = dummy_q_c_u * inv_mix;
+                        m.v_u.x[i][j][k]   = (w_par * m.v_u.x[i-1][j][k]
+                                            + w_env * m.v.x[i-1][j][k]) * inv_mix;
+                        m.w_u.x[i][j][k]   = (w_par * m.w_u.x[i-1][j][k]
+                                            + w_env * m.w.x[i-1][j][k]) * inv_mix;
+                        m.s_u.x[i][j][k]   = s_consistent
+                            ? (w_par * m.s_u.x[i-1][j][k] + w_env * m.s.x[i-1][j][k]) * inv_mix
+                            : dummy_s_u / M_u_i;
+                    } else if(!updraft_bounded && fabs(M_u_i) > coeff_recurr){
                         double inv_M_u = 1.0 / M_u_i;
                         m.q_v_u.x[i][j][k] = dummy_q_v_u * inv_M_u;
                         m.q_c_u.x[i][j][k] = dummy_q_c_u * inv_M_u;
@@ -1320,50 +1405,22 @@ void findCloudBaseLFS() {
 *
 */
 // ==================== CAPE ====================
-    void computeCAPE() {
-        using namespace AtomMoistConvection;
+    // computeCAPE() DELETED 2026-08-19 (README item 52). It was a SECOND, wrong CAPE that
+    // nothing read: m.CAPE was written here and never read anywhere in the tree, and the
+    // calculation was wrong three ways —
+    //
+    //   - it divided a PHYSICAL thickness step[i] (metres, from get_layer_height) by exp_rm,
+    //     the core's quadratic-stretch Jacobian, which is not a metric this module uses and
+    //     is not the right one for the grid anyway (item 39);
+    //   - its "parcel" was the environment temperature plus a fixed t_add_u = 0.2 K at every
+    //     level, so it never lifted anything and never consulted s_u;
+    //   - m.CAPE was a 1-D array indexed by LEVEL, written inside a (j,k) loop, so whichever
+    //     column happened to run last overwrote every other column's value.
+    //
+    // The real CAPE is cape_col[j][k], built in findCloudBaseLFS by a theta_e-conserving
+    // parcel ascent with local cp and true layer thicknesses, and it is what seeds M_u. One
+    // correct CAPE, not one correct and one wrong.
 
-        m.CAPE.assign(m.im, 0.0);
-
-        for(int k = 0; k < m.km; k++){
-            for(int j = 0; j < m.jm; j++){
-
-                int i_base = i_Base_local[j][k];
-                int i_lfs  = i_LFS_local[j][k];
-
-                // cloud base contribution (mirrors findCloudBase() in MoistConvShall)
-                {
-                    double t_u       = m.t.x[i_base][j][k] * m.t_0;
-                    double t_u_add   = t_u + t_add_u;
-                    double t_vir     = t_u_add * (1.0 + alf * m.q_v_u.x[i_base][j][k]
-                                       - m.q_c_u.x[i_base][j][k]);
-                    double t_vir_env = std::max(t_u * (1.0 + alf * m.c.x[i_base][j][k]
-                                       - cloud.x[i_base][j][k]), 1.0);
-                    double rm        = m.rad.z[i_base];
-                    double exp_rm    = 1.0 / (rm + 1.0);
-                    m.CAPE[i_base]   = m.g * step[i_base]
-                                       / exp_rm * (t_vir - t_vir_env) / t_vir_env;
-                }
-
-                // accumulate CAPE upward through the cloud layer (mirrors convectiveUpdraft() in MoistConvShall)
-                for(int i = i_base; i < i_lfs && i < m.im-1; i++){
-                    double t_u       = m.t.x[i][j][k] * m.t_0;
-                    double t_u_add   = t_u + t_add_u;
-                    double t_vir     = t_u_add * (1.0 + alf * m.q_v_u.x[i][j][k]
-                                       - m.q_c_u.x[i][j][k]);
-                    double t_vir_env = std::max(t_u * (1.0 + alf * m.c.x[i][j][k]
-                                       - cloud.x[i][j][k]), 1.0);
-                    double rm        = m.rad.z[i];
-                    double exp_rm    = 1.0 / (rm + 1.0);
-                    m.CAPE[i+1]      = m.CAPE[i] + m.g * step[i]
-                                       / exp_rm * (t_vir - t_vir_env) / t_vir_env;
-                }
-            }
-        }
-    }
-/*
-*
-*/
 // ==================== RHS FORCING ====================
     void rhsForcing() {
         // Physical caps that break the convective feedback loop
@@ -1448,9 +1505,17 @@ void findCloudBaseLFS() {
                     // one over-heats by cp_l*t_0/s_0 = 2.03x. See ATM_MC_S_CONSISTENT.
                     const double s_to_K = AtomMoistConvection::s_consistent
                                         ? (m.s_0 / m.cp_l) : m.t_0;
+                    // SECOND TERM: (L/cp)*conv_src is ALREADY K/s — L/cp is K per unit mass
+                    // fraction and conv_src is (kg/kg)/s — so the *t_0 that used to stand here
+                    // made it 273x its own scale, and it is what held MC_t at its NEGATIVE cap
+                    // wherever e_d was appreciable. Two terms in one sum cannot both be right
+                    // when one is a temperature and the other a temperature/t_0. Removed
+                    // unconditionally (not behind ATM_MC_S_LEGACY: that knob restores the s
+                    // scaling, and this is not an s question). Inherited verbatim from
+                    // ATOM_Precipitation, where it is equally wrong — PORT IT BACK.
                     m.MC_t.x[i][j][k] = safe_cap(
                         -(flux_s_ip1 - flux_s_i) * inv_step_rh * s_to_K                                 // K/s
-                        + (L_latent / cp_mc) * conv_src* m.t_0, MCt_max);                               // K/s
+                        + (L_latent / cp_mc) * conv_src, MCt_max);                                      // K/s
 
 
 

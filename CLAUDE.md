@@ -336,6 +336,9 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   ParaView and Results. **`initCloudIce`'s H_crit is on a fraction of surface pressure now**,
   which is right but measured as a 0.18 % effect on OLR, not the lever it was billed as: the
   albedo cannot respond to cloud *amount* at all, because reflectivity saturates on presence.
+  **Item 53 makes it five for five** — every repair in it (three `s` scalings, `MC_t`'s `t_0`, the lid
+  and surface BCs, the bounded recurrence, `cc_factor`) moves the OLR by 0.03 % in total and leaves Ψ
+  identical to eight digits.
   **Item 51 makes that three for three**: a local mixture `cp` in `MoistConvection` (the constant `cp_l` = 2040 is the
   mixture cp at ~1101 K, so +30.5 % wrong in the skin where all the condensation happens) moves rain and snow production
   **−18 %** and the OLR **+0.02 %**, with Ψ and the photosphere bit-identical. **`albedo_cloud` is the only path condensate
@@ -356,6 +359,16 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   smaller at 20–40, snow −5.9 %, **OLR −0.02 % and Ψ/albedo/photosphere identical**. Still open: the
   missing `g·z`, `MC_t`'s second term carrying an extra `t_0`, `q_v_u` reaching 3.5 kg/kg, and `bcRadius`'s
   cubic lid extrapolation giving `s` **negative** values at 300 km.
+  **ALL OF THOSE ARE REPAIRED AS OF ITEM 53 except the `g·z`**, and the `s` repair is now the default
+  (`ATM_MC_S_LEGACY=1` restores the old behaviour). A fifth defect turned up during the repair and was
+  the one that actually produced the impossible `q_v_u`: **`cc_factor`'s reference temperature was
+  Earth's 288.15 K**, so the moisture-seed cap `q_v_u_add·q_sat(1500 K)/q_sat(288 K)` came out at
+  **3.47 kg/kg** — a mass fraction of 3.5. Repairing the recurrence did not move it at all; referencing
+  the ratio to the model's own surface temperature did (3564 → 725 g/kg). **The `g·z` is now the top
+  microphysics job**: with the arithmetic right, ATHAD_COND's updraft condensation `c_u` goes to
+  **identically zero**, because a parcel carrying `cp·T` alone never cools as it rises and so never
+  saturates. All of it is ported to ATHAD_COND, where `s_0`/`cp_l` makes the `MC_t` error 1.342× rather
+  than 2.03×, and where the surface half of the BC defect was measured (`s_u` = −1020 K at 0 m).
 - **The radial momentum balance is the pressure gradient and nothing else** (item 42, measured): `ubud_pgf` 1.15 against `ubud_cor` **exactly 0** (non-traditional Coriolis is genuinely off, not just documented off), `ubud_advh` 0.0085, and `ubud_buoy` **1e-6** — item 34's extra `*dt` measured, the buoyancy body force is ~1e6 down and effectively absent. **`ATM_BUOY_CONSISTENT=1` corrects it and is default off** (item 50): the consistent coefficient is 2e7× the shipped one and 7.2× the 336 recorded as having driven a polar vertical runaway. It also repairs the Boussinesq reference temperature — the shipped term divides the anomaly by `t_0` = 273.15 K instead of `T_ref`, overstating the force 5.49× at the surface and 0.96× at the top. With (a) alone at 20 iterations, `ubud_buoy` goes 0 → −34.6 (~4× the pressure gradient), the radial wind rises 19.5 % and Ψ moves 0.0002 %; `buoyancy_ramp` was 0.067 there, so that is **not** a stability result. `N2` confirms invariant 4: 0 through the column, 2.74e-4 s⁻² only in the isothermal skin.
 - **The imbalance is not a second number** (item 43). `t_skin` is **262.95 K at every one of ten
   diagnostics across 200 iterations** while the OLR falls 338.85 → 281.59, so σT_skin⁴ = 271.2 is
