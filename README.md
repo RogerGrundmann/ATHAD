@@ -3828,9 +3828,87 @@ the measurement.
     the number this file has spent items 26-37 trying to interpret. The honest next step is a
     long run, and a repaired `ubud_advh` to read it with.
 
+55. **`N²` gets its shape from the prescribed temperature profile and from the truncation error
+    of the integration that writes it. It contains no dynamical information at all — measured
+    across three runs whose `p_dyn` differs by 2500×.**
+
+    Asked where a diagnostic that no prognostic equation produces gets its structure from. The
+    chain is short and entirely upstream of the dynamics.
+
+    **IT IS COMPUTED FROM WHAT THE SAME FUNCTION JUST WROTE.** The `N²` block sits at the end of
+    `ThermoAtm::densities()` (`ThermoAtm.h:1592`), and it reads `m.t` and `m.p_stat` — both of
+    which `densities()` assigned a hundred lines earlier in the same call:
+
+    ```
+    t_surf_equator / t_surf_pole   (prescribed)
+        -> T_ad = T_prev - (g/cp_of(T_prev)) * dz        the dry adiabat, forward Euler
+        -> T_i  = max(t_skin, T_ad)                      isothermal above ~240 km
+        -> p_i  = p_prev * exp(-g*dz/(R*T_mean))         hydrostatic on that same T
+        -> theta = T*(p_0/p)^(R/cp),  N^2 = (g/theta) dtheta/dz
+    ```
+
+    So `N²` is a re-reading of the prescribed profile. Nothing in the momentum or pressure
+    solution enters it, and `ATM_PROGNOSTIC_T=0` (the default) guarantees the profile the
+    dynamics and the radiation computed is overwritten before `N²` is formed.
+
+    **MEASURED: IT IS IDENTICAL ACROSS RUNS THAT DIFFER ENORMOUSLY IN THE FLOW.** Iteration 20,
+    same zonal slice:
+
+    | run | `p_dyn` radial range | `N²` at i=8 / 32 / 39 | max abs difference vs shipped |
+    |---|---|---|---|
+    | shipped | 0.166 | 6.00e-07 / 1.515e-05 / 2.737e-04 | — |
+    | nontrad+curvature | **44.55** | 6.00e-07 / 1.515e-05 / 2.737e-04 | **8e-08** |
+    | no balanced init | 0.0179 | 6.00e-07 / 1.515e-05 / 2.737e-04 | 2e-08 |
+
+    **2500× in the radial pressure structure and 4 % in Ψ move `N²` by 0.5 % at its smallest
+    value and 0.03 % at its largest.** Whatever `N²` is reporting, it is not the circulation.
+
+    **AND BELOW THE SKIN IT IS NOT STRATIFICATION, IT IS THE GRID.** An exact adiabat has
+    `N² ≡ 0`. The model's is not exact: it steps `T_ad = T_prev − (g/cp(T_prev))·dz` with `cp`
+    taken at the *bottom* of each layer, and `cp` falls as `T` falls (2341 → 1563 across this
+    column), so every layer comes out slightly too warm and θ drifts upward. The signature is
+    unambiguous:
+
+    | i | z [km] | dz [km] | `N²` | `N²/dz` | `N²/dz²` |
+    |---|---|---|---|---|---|
+    | 2 | 2.5 | 1.37 | 1.3e-07 | 9.5e-11 | 6.9e-14 |
+    | 8 | 12.9 | 2.15 | 6.0e-07 | 2.8e-10 | 1.30e-13 |
+    | 20 | 54.7 | 5.29 | 2.96e-06 | 5.6e-10 | 1.06e-13 |
+    | 29 | 122.6 | 10.39 | 9.50e-06 | 9.1e-10 | 8.8e-14 |
+    | 35 | 201.3 | 16.29 | 2.50e-05 | 1.53e-09 | 9.4e-14 |
+
+    Over a **12× range in layer thickness**, `N²/dz` varies by 16× and **`N²/dz²` is constant to
+    ±30 %**. That is a second-order truncation error, not a physical stratification: the
+    monotonic rise of `N²` up the column is the exponential grid stretch, nothing else. On a
+    uniform grid it would be flat, and refining `zeta` would shrink it quadratically.
+
+    **THE SKIN VALUE IS THE ONE GENUINE NUMBER, AND IT IS A CHECK.** In the isothermal layer
+    `N² = g²/(cp·T)` exactly. Measured at i = 38: `N²` = 2.372e-04 with T = 263.0 K implies
+    **cp = 1543 J/(kg·K)**, against `AtmMixture::cp_of`'s clamped value of ~1563 at 298 K —
+    **1.3 %**. So the diagnostic is arithmetically correct; it is the profile it reads that is
+    an input. (At the lid i = 40 the one-sided difference drops it to 1.93e-04; edge artefact,
+    not physics.)
+
+    **WHAT THIS COSTS THE ARGUMENT IT WAS BUILT FOR.** Item 42 added `N²` to stop the model
+    *asserting* that it is neutrally stratified by construction, because that assertion carries
+    the claim that no baroclinic eddy can maintain an indirect cell. The instrument now answers:
+    the column is neutral **because the adiabat is imposed**, and the only departure from
+    neutrality is the integrator's own error. That is not evidence about the atmosphere. It
+    becomes a measurement the moment `ATM_PROGNOSTIC_T=1` — and CLAUDE.md's "N2 confirms
+    invariant 4" should be read as "N2 confirms `densities()` integrates its own adiabat to
+    O(dz²)", which is a real and useful check, but a different one.
+
 ## Remaining work
 
 
+- **`N²` measures the prescribed profile and the integrator, not the atmosphere** (item 55).
+  It is formed at the end of `densities()` from the `t` and `p_stat` that same call just wrote,
+  and it is identical to 0.03-0.5 % across runs whose `p_dyn` radial structure differs by
+  **2500×**. Below the skin its value is a **second-order truncation error** of the adiabat
+  integration — `N²/dz²` is constant to ±30 % over a 12× range of layer thickness while `N²/dz`
+  varies 16× — so the monotonic rise up the column is the grid stretch, not stratification. The
+  skin value is genuine (`g²/(cp·T)`, implying cp = 1543 against `cp_of`'s 1563, 1.3 %). It
+  becomes a measurement of the atmosphere only under `ATM_PROGNOSTIC_T=1`.
 - **`p_dyn` is 99.97 % a prescribed balance with no radial structure, and the two off-by-default
   metric terms are what supply one** (item 54). Turning `ATOM_CORIOLIS_NONTRAD` and
   `ATOM_METRIC_CURVATURE` on multiplies the radial range of `p_dyn` by **192× at j=45**, at
