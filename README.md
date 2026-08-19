@@ -3727,9 +3727,119 @@ the measurement.
     left between this scheme and a working updraft". `c_u` is one of the two terms in
     `conv_src`; in ATHAD it was already identically zero at every diagnostic in every build.
 
+54. **`p_dyn` has no radial structure because the model has no radial force. Switching the two
+    off-by-default metric terms on gives it one, and the radial pressure gradient appears
+    immediately — 192× at mid-latitudes, at iteration 0.**
+
+    Reported observation: `p_dyn` shows no variation in i, when the velocity field should give
+    it some. Confirmed, diagnosed and then tested by turning the terms on.
+
+    **THE FIELD IS 99.97 % A PRESCRIBED BALANCE.** Read out of the zonal VTK
+    (non-dimensionalised, k = 87), the shipped model at iteration 0:
+
+    | | latitudinal range | radial range j=45 | j=90 |
+    |---|---|---|---|
+    | iteration 0 | 444.61 | 0.247 (**0.06 %**) | 0.840 (0.19 %) |
+    | iteration 20 | 444.18 | 0.166 | 0.769 |
+
+    The radial structure is already negligible *before any dynamics have run*, and over 20
+    iterations it **shrinks**. With `ATM_BALANCED_INIT=0` the field the velocity builds on its
+    own is amplitude −0.077…+0.159 at iteration 20 — genuinely two-dimensional (radial range
+    0.0179 at j=45, **16 % of its own amplitude**, non-monotonic) but **4000× smaller than the
+    balance**. The flow's pressure response is not missing; it is swamped.
+
+    **THREE COMPOUNDING CAUSES.**
+
+    - **`initBalancedState` has no radial force to balance.** It builds
+      `F_r = force_nd·nontrad·2sinθ·wbar (+ curvature)`, and `coriolis_nontraditional()` and
+      `metric_curvature()` are both default-false (`lib/Utils.h:52,90`), so **`F_r ≡ 0`
+      identically**. `balancedStateSolve` then minimises
+      `(dp/dr·exp_rm − 0)² + (dp/dθ·inv_rm − F_the)²`, which *penalises every radial gradient*,
+      and its operator is anisotropic against them: `cE = exp_rm²/dr²` = 400 at the surface
+      against `cN = inv_rm²/dθ²` = 7.3, i.e. **55× stiffer radially**.
+    - **The startup projection throws its own pressure away.** `project_initial_velocity` runs
+      200 Jacobi sweeps, applies `v ← v − ∇p`, then **step 4 clears `p_dyn` to zero** so RK4
+      does not double-correct. Measured: with the balance off, `p_dyn` at iteration 0 is
+      identically 0 everywhere.
+    - **One Gauss–Seidel sweep per iteration is a smoother, not a solve** — the file says so
+      itself. With `num1` ≈ 400 against `num2` ≈ `num3` ≈ 155 it erodes radial structure
+      preferentially, which is the 0.247 → 0.166 above.
+
+    **THE TEST: `ATOM_CORIOLIS_NONTRAD=1 ATOM_METRIC_CURVATURE=1`, 40 iterations, 24 threads.**
+    (`ATM_METRIC_RADIUS` defaults to 6370 km — metric r0 = 21.23 — so the documented
+    prerequisite for the curvature terms is already met.)
+
+    | | lat range | radial j=45 | radial j=90 |
+    |---|---|---|---|
+    | shipped, iter 0 | 444.61 | 0.247 | 0.840 |
+    | **nontrad+curv, iter 0** | 443.66 | **47.42 (10.7 % of lat)** | **20.47 (4.6 %)** |
+    | nontrad+curv, iter 20 | 443.18 | 44.55 | 19.88 |
+    | shipped, iter 40 | 444.14 | 0.137 | 0.716 |
+    | nontrad+curv, iter 40 | 443.05 | **43.37** | 19.88 |
+
+    **192× at j=45 and 24× at j=90, present at iteration 0**, with the latitudinal range
+    unchanged (444.61 → 443.66) — an addition of radial structure, not a rescaling. The profile
+    is monotonic and physical: at j=45 `p_dyn` climbs 6.72 → 51.27 from surface to lid, while at
+    the equator it *falls* 206.5 → 186.1. It decays only 6 % over 20 iterations against the
+    shipped field's 33 %.
+
+    **AND THE RADIAL MOMENTUM BUDGET BECOMES A BUDGET.** rms over the zonal slice at
+    iteration 20:
+
+    | term | shipped | nontrad+curv |
+    |---|---|---|
+    | `ubud_pgf` | 0.3025 | **18.257** |
+    | `ubud_cor` | **0** | **18.901** |
+    | `ubud_advv` | 0.00017 | 0.00013 |
+    | `ubud_advh` | 0.00095 | 0.00086 |
+    | `ubud_diff` | 0.000014 | 0.00034 |
+    | `ubud_buoy` | 0.0000005 | 0.0000005 |
+    | **NET** | **0.3027** | **2.183** |
+
+    Shipped, the "budget" is one unopposed term: the net *is* the pressure gradient, because
+    there is nothing for it to balance (item 42's finding, re-measured). With the terms on,
+    a Coriolis term of rms 18.9 stands against a pressure gradient of rms 18.3 and they cancel
+    to a residual of 2.2 — **88 % cancellation where there was 0 %**. Both grew ~60× from the
+    shipped pgf; `p_dyn`'s radial gradient is now doing real work.
+
+    **THE COST, AND IT IS GROWING.** `Psi_max` 106510.37 → 101801.92 at iteration 20
+    (**−4.4 %**) and 105590.83 → 96019.85 at iteration 40 (**−9.1 %**). The radial wind goes
+    0.2975 → 0.2394 m/s (−19.5 %) — *weaker*, which is what a pressure gradient that is now
+    opposed rather than acting alone should give. Everything else is unmoved at 20: `v`
+    −0.02 %, `w` +0.01 %, OLR identical at 338.84, max T to 7 digits. Invariant 1 holds — N–S
+    asymmetry −3.75e-07 at iteration 40 against the 1e-5 tolerance, though that is 2.4× the
+    shipped run's −1.56e-07 and worth watching. **No runaway at this length, and 40 iterations
+    is not a stability result** — item 28 records a polar vertical runaway from a radial force
+    that was 300× too large, and the Ψ trend here is *doubling* between iteration 20 and 40, so
+    where it lands is unknown. This file has been caught extrapolating a monotone trend twice;
+    this is not a third.
+
+    **A DIAGNOSTIC BLIND SPOT FOUND IN THE ACT OF USING IT.** `ubud_advh` is built from the raw
+    advective pieces, `-(v_invrm·dudthe_adv + w_invrs·dudphi_adv)`, while
+    `metric_curvature()` adds `−(v² + w²)·inv_rm` to `transport_u`. **So with the curvature
+    terms on, one live term of the radial budget is captured by no `ubud_*` field at all**
+    (≈0.5 by estimate, against pgf 18 — small, but the budget cannot be closed without it).
+    The instrument was built when the term was guaranteed inert, and it inherits that
+    assumption. Fix `ubud_advh` before using the budget to judge the curvature terms.
+
+    **NOT FLIPPED.** These stay default-off: what is measured here is 40 iterations of an
+    initialisation-dominated transient, `lib/Utils.h` calls both terms "small corrections" on
+    the evidence of a 20-iteration Earth test, and the one number that moved — Ψ, −4.4 % — is
+    the number this file has spent items 26-37 trying to interpret. The honest next step is a
+    long run, and a repaired `ubud_advh` to read it with.
+
 ## Remaining work
 
 
+- **`p_dyn` is 99.97 % a prescribed balance with no radial structure, and the two off-by-default
+  metric terms are what supply one** (item 54). Turning `ATOM_CORIOLIS_NONTRAD` and
+  `ATOM_METRIC_CURVATURE` on multiplies the radial range of `p_dyn` by **192× at j=45**, at
+  iteration 0, and turns the radial momentum budget from one unopposed pressure gradient
+  (rms 0.30, nothing against it) into a real balance (cor 18.9 against pgf 18.3, residual 2.2).
+  Cost: Ψ_max −4.4 % at iteration 20 and **−9.1 % at 40** — a growing gap, so the endpoint is
+  unknown. **Not flipped**, and two things must come first: `ubud_advh` is built from the raw
+  advective pieces and does **not** capture the curvature term, so with those switches on the
+  radial budget is missing a live term by construction; and a run long enough to say what Ψ does.
 - **The updraft cannot condense any more, and that is the `g·z` bill coming due** (item 53).
   With the `s` arithmetic repaired, ATHAD_COND's `max c_u` goes 0.0678 → **0.000000**: the
   baseline's updraft condensation was computed from a parcel at 1128 K that the `/s_0` defect
