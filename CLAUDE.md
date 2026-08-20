@@ -562,6 +562,16 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   one of those runs and `t_skin` is 262.96 in every one. Treat any OLR number as a statement
   about `t_skin` until that is broken. (The 0.9 %-over-8× figure this file used to carry was
   written before any scan existed — see item 29.)
+- **THE PROGNOSTIC COLUMN CONVERGES, AND ITEM 45's 2927 W/m² IS RETRACTED** (item 66). 400
+  iterations with `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1`: the dry OLR falls 474 → **223.8 W/m²**
+  with successive differences 111 → 0.65, a decelerating limit rather than a trend, against
+  absorbed + geothermal of 271.57 — an imbalance of −47.7 W/m², the first prognostic number here
+  of the same order as the energy input. Item 45's "10.8× absorbed and still falling" was the
+  `n_lambda = 4` solver, as item 65 inferred. Its MECHANISM survives: skin emission is 0.0 %
+  throughout, so the branch does escape the `t_skin` pin — now to a converged value. `t_skin`
+  still never moves (262.99 → 263.01), but the OLR is no longer σT_skin⁴. **The moist onset at
+  iteration 300 is a different story**: 223.8 → 1022, then 767, 751, 1036, 782 — ±35 % with no
+  limit in 100 iterations, so the dry column is converged and the moist one is not.
 - **A large part of the free-running top's cooling is the UNDER-CONVERGED radiation solver**
   (item 65). Same trace, same cell, only the solver changed: T at level 38 goes 266 → 219.7 →
   228.3 K with the default four Lambda sweeps and 266 → **228.9 → 243.3** with

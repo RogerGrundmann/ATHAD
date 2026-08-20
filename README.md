@@ -4575,6 +4575,53 @@ the measurement.
     configuration by 0.15 %, and halves a cooling that has been corrupting the prognostic branch.
     What it still lacks is the long run item 30 asked for.
 
+66. **Item 30's long measurement, finally run: the prognostic column CONVERGES, at 224 W/m²
+    against item 45's 2927, and "10.8× absorbed and still falling" was a solver artefact.**
+
+    400 iterations, 24 threads, `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1`, otherwise the shipped
+    configuration (`im` = 41, `moist_phys_start_iter` = 300) so it is directly comparable with
+    items 45–47. OLR every 20 iterations:
+
+    ```
+    dry   (20-300):  474.45  363.26  303.35  271.01  253.17  242.98  236.89  233.05
+                     230.47  228.63  227.25  226.15  225.25  224.48  223.83
+    moist (320-400): 1021.93  766.57  751.00  1036.27  782.34
+    ```
+
+    **THE DRY PROGNOSTIC COLUMN CONVERGES.** Successive differences are 111, 60, 32, 18, 10, 6,
+    4, 2.6, 1.8, 1.4, 1.1, 0.9, 0.8, 0.65 — a decelerating approach to **~223.8 W/m²**, not a
+    trend. Against absorbed SW + geothermal of **271.57 W/m²** that is an imbalance of
+    **−47.7 W/m²**, i.e. the column emits 82 % of what it takes in. It is the first prognostic
+    number in this file that is the same order as the energy input.
+
+    **ITEM 45 IS RETRACTED ON ITS HEADLINE.** With `n_lambda = 4` the same branch gave
+    15 764 → 8 542 → 6 211 → 2 927 W/m², "10.8× the 271 absorbed and still falling at 400".
+    That was the under-converged Lambda iteration, exactly as item 65 inferred from three trace
+    lines. **What survives from item 45 is its mechanism**: `emission from isothermal skin` is
+    **0.0 % at every diagnostic here too**, so the prognostic branch genuinely escapes the
+    `t_skin` pin — and now it escapes it to a converged value rather than to a runaway.
+
+    **`t_skin` still does not move** (262.99 → 263.01 K, target 263.07 from absorbed 271.57),
+    because it is the fixed point of the absorbed flux and independent of the column. The
+    difference is that the OLR is no longer σT_skin⁴ = 271.2: it is 223.8 and it got there by
+    integrating. **For the first time the reported OLR is neither pinned to `t_skin` nor
+    diverging.**
+
+    **THE MOIST ONSET IS A SHOCK AND DOES NOT SETTLE IN 100 ITERATIONS.** At iteration 300 the
+    moist physics switches on and the OLR jumps 223.83 → 1021.93, then oscillates 766.57,
+    751.00, 1036.27, 782.34 — swings of ±35 % with no sign of a limit. **The dry column is
+    converged; the moist one is not**, and nothing in the moist branch here should be quoted.
+    That the shock is 4.6× the dry value is itself the finding: turning on condensation in a
+    column that had settled dry is not a perturbation.
+
+    Photosphere over the run: **237.4 → 255.3 km**, `T_ph` **388.8 → 342.3 K**, climbing and
+    cooling steadily through both phases.
+
+    **This is the third argument for making `ATM_RAD_DIRECT` the default**, after "it is exact
+    rather than under-iterated" and "it is 10× cheaper": the branch it was gating turns out to
+    converge, and every prognostic number measured without it — items 45, 46, 47 — was measured
+    on a solver known since item 30 to be 4× wrong. Redo them, do not extend them.
+
 ## Remaining work
 
 - **The updraft is one grid level deep, and that is now the top microphysics job** (item 61).
