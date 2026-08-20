@@ -562,6 +562,18 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   one of those runs and `t_skin` is 262.96 in every one. Treat any OLR number as a statement
   about `t_skin` until that is broken. (The 0.9 %-over-8× figure this file used to carry was
   written before any scan existed — see item 29.)
+- **The supersaturation at 236/256 km is `q_sat` FALLING, not `q_v` rising** (item 64,
+  instrumented with `ATM_SAT_TRACE=1`). `SaturationAdjustment` reaches ~100.5 % RH within one
+  call — it condenses 0.47 kg/kg at level 38 — so it is not stalling; and the prescribed profile
+  HOLDS THE RATIO DOWN rather than causing it. Entry `q_v/q_sat` at level 38 over five
+  iterations: **7.62 → 16.5 → 10.8** prescribed, against **7.62 → 976 → 1934** under
+  `ATM_PROGNOSTIC_T=1`, where the cell free-runs to 220–228 K and `q_sat` collapses two orders of
+  magnitude while `q_v` stays flat to six digits. Two things follow: the loop's exit test is on
+  the STEP, not the residual, so it cannot tell convergence from a damped oscillation; and
+  `alpha_entry` applies the −37 °C ice threshold a SECOND time as a master gain on all five
+  write-backs (`ATM_SAT_NO_ALPHA=1`, default off) — a real defect, but ungating it makes the
+  ratio worse (2094 → 2977), so it is not the lever. **Re-point item 16 at whatever cools the
+  free-running top.**
 - **The convective triggers are fractions of surface pressure now (item 63), and the convective
   layer is STILL one grid level thick — because invariant 2 pins it, not the triggers.** The
   thresholds were 1000/970/900/800/700/200 hPa, absolute Earth surface pressures, so every scan ran
