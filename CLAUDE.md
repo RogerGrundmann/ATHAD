@@ -562,6 +562,14 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   one of those runs and `t_skin` is 262.96 in every one. Treat any OLR number as a statement
   about `t_skin` until that is broken. (The 0.9 %-over-8× figure this file used to carry was
   written before any scan existed — see item 29.)
+- **A large part of the free-running top's cooling is the UNDER-CONVERGED radiation solver**
+  (item 65). Same trace, same cell, only the solver changed: T at level 38 goes 266 → 219.7 →
+  228.3 K with the default four Lambda sweeps and 266 → **228.9 → 243.3** with
+  `ATM_RAD_DIRECT=1`, and the supersaturation ratio at call 3 falls **1934 → 97.9**. So item 30's
+  `n_lambda = 4` and item 64's cooling top are one defect seen from two sides, and **every
+  prognostic-column number in this file (items 45-47's 2927 W/m² and "still falling") was
+  produced with that solver underneath** — redo them rather than extend them. Not the whole
+  story: converged, the top still falls 266 → 229 K in one call.
 - **The supersaturation at 236/256 km is `q_sat` FALLING, not `q_v` rising** (item 64,
   instrumented with `ATM_SAT_TRACE=1`). `SaturationAdjustment` reaches ~100.5 % RH within one
   call — it condenses 0.47 kg/kg at level 38 — so it is not stalling; and the prescribed profile

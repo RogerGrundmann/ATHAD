@@ -4539,6 +4539,42 @@ the measurement.
     confidence, and both died to the same three printed columns. The trace cost one afternoon
     and is print-only; it should have existed before the first explanation, not after the second.
 
+65. **What cools the free-running top is, in large part, the under-converged radiation solver —
+    which means every prognostic-column number in this file rests on it.**
+
+    Item 64 left the supersaturation at levels 37/38 attributed to a falling `q_sat` and asked
+    what cools the cell. Same five-iteration trace, same cell, **only the solver changed**:
+
+    | call | default (`ATM_N_LAMBDA` = 4) | `ATM_RAD_DIRECT=1` |
+    |---|---|---|
+    | 1 | 266.22 K | 266.22 K |
+    | 2 | **219.72** | **228.92** |
+    | 3 | **228.25** | **243.25** |
+    | `q_v/q_sat` at call 3 | 1934 | **97.9** |
+
+    The exact closed-form solve **halves the cooling and cuts the supersaturation ratio 20×**,
+    and the trajectory turns around — 229 → 243 recovering, against 220 → 228 still wandering.
+    Reproduce with
+    `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1 ATM_SAT_TRACE=1 cli/had c5.xml` (nm = 5,
+    `moist_phys_start_iter` = 0).
+
+    **This joins two threads that were being worked separately.** Item 30 established that four
+    Lambda sweeps under-converge a 250 bar column by 4× and left `ATM_RAD_DIRECT` default-off
+    pending one long measurement. Items 45–47 then measured the PROGNOSTIC column — 2927 W/m²,
+    "still falling at 400 iterations" — with that same under-converged solver underneath. Item
+    64's cooling top is the same defect seen from the humidity side. **Every prognostic-column
+    number in this file was produced by a solver known since item 30 to be 4× under-converged**,
+    which is a reason to redo them rather than to extend them.
+
+    **Not the whole story**: with the converged solver the top still falls 266 → 229 K in one
+    call, so radiation is a first-order part and not the only part. What remains is the open
+    question, and it is now a smaller one.
+
+    **The case for flipping `ATM_RAD_DIRECT` on by default has a second, independent argument
+    now** — it is exact rather than under-iterated, 10× cheaper, changes the standard prescribed
+    configuration by 0.15 %, and halves a cooling that has been corrupting the prognostic branch.
+    What it still lacks is the long run item 30 asked for.
+
 ## Remaining work
 
 - **The updraft is one grid level deep, and that is now the top microphysics job** (item 61).
