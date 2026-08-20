@@ -53,6 +53,25 @@ private:
     static constexpr double fade_K        = 5.0;                        // transition half-width in Kelvin
     static constexpr int    iter_prec_end = 20;
 
+    // ATM_SAT_TRACE=1 — print the Newton loop for ONE cell, to answer why this routine leaves
+    // ATHAD supersaturated at levels 37/38 (README item 16: q_v = 3.6x q_sat at 236.4 km and
+    // 18.9x at 256.0 km, all 181 columns, RH 2518 % and 626 %). Print-only: it writes no field
+    // and returns nothing, so a traced run and an untraced one differ only in stdout.
+    //
+    // What to read. omega = 1/(1+G) is Newton-optimal damping and G = (L/cp)*dq_sat/dT is
+    // enormous here — L/cp ~ 1225 K at ATHAD's cp, and dq_sat/dT is steep where q_sat swings
+    // 0.186 -> 0.033 over 20 km — so each pass may close only a 1/(1+G) fraction of the gap.
+    // The loop's exit test is |q_v_b/q_v_hyp - 1| <= 1e-6, a test on the STEP and not on the
+    // residual, which heavy damping can satisfy while the cell is still far from saturation.
+    // The trace prints both so the two can be told apart.
+    // Default OFF: unset reproduces every number this tree has printed.
+    static inline const bool sat_no_alpha = [](){
+        const char* e = getenv("ATM_SAT_NO_ALPHA"); return (e && atoi(e) != 0); }();
+    static inline const bool sat_trace = [](){
+        const char* e = getenv("ATM_SAT_TRACE"); return (e && atoi(e) != 0); }();
+    static constexpr int trace_j = 90;    // equator on the 181-point grid
+    static constexpr int trace_k = 0;
+
     void computeSteps() {
         step.resize(m.im);
         for (int i = 0; i < m.im; i++)
@@ -136,7 +155,32 @@ private:
                     double q_sat  = SaturationH2O::saturationMassFraction(E_sat, p_local,
                                                                           M_other);
 
-                    const double alpha_entry = 1.0 / (1.0 + std::exp(-(T - m.t_00) / fade_K));
+                    // ATM_SAT_NO_ALPHA=1 — the -37 C ice threshold is applied TWICE here, and
+                    // the second application is a defect. Inside the Newton loop it is already
+                    // the PHASE SPLIT: CND = clamp((T - t_00)*t_range_inv), DEP = 1 - CND,
+                    // which is the physics ("below -37 C supercooled liquid cannot exist, so
+                    // condensation becomes deposition"). alpha_entry then re-applies the same
+                    // threshold as a MASTER GAIN on all five write-backs (S_c_c, c, cloud, ice
+                    // and t, lines below), so a cell below ~236 K keeps only a few per cent of
+                    // whatever the loop computed — deposition included, which is precisely the
+                    // process that should be running there.
+                    //
+                    // Invisible on Earth, where a cell at -37 C holds ~0.1 g/kg of vapour.
+                    // Live here: with ATM_PROGNOSTIC_T=1 level 38 free-runs to 220-228 K with
+                    // 683 g/kg of vapour and alpha_entry = 0.036, so the adjustment is allowed
+                    // to apply 3.6 % of its own answer. The entry test alpha_entry > 0.01 also
+                    // skips the cell outright below 213.2 K.
+                    const double alpha_entry = sat_no_alpha
+                        ? 1.0
+                        : 1.0 / (1.0 + std::exp(-(T - m.t_00) / fade_K));
+
+                    const bool trace = sat_trace && (i == 37 || i == 38)
+                                       && j == trace_j && k == trace_k;
+                    if (trace)
+                        std::printf("\n[sat] i=%d  T=%.2f K  p=%.5f bar  q_v=%.6f  q_sat=%.6f"
+                                    "  q_v/q_sat=%.2f  alpha_entry=%.6f\n",
+                                    i, T, p_local * 1e-3, q_v_old, q_sat,
+                                    (q_sat > 0.0 ? q_v_old / q_sat : -1.0), alpha_entry);
 
                     if ((q_v_old > q_sat && alpha_entry > 0.01) ||
                         (q_v_old < q_sat &&
@@ -236,11 +280,27 @@ private:
                             const double Gain = CND * (L_cnd / cp_g) * SaturationH2O::dqSatdT(q_sat, T)
                                               + DEP * (L_dep / cp_g) * SaturationH2O::dqSatdT(q_Ice, T);
                             const double omega = 1.0 / (1.0 + Gain);
+                            const double q_v_prev_pass = q_v_b;
                             q_v_hyp = q_v_b + omega * (q_v_target - q_v_b);
+
+                            if (trace)
+                                std::printf("[sat]   pass %2d  G=%.4g  omega=%.4g  T=%.2f"
+                                            "  q_v=%.6f  q_sat=%.6f  residual=%.6f"
+                                            "  step=%.3g  exit_test=%.3g\n",
+                                            iter, Gain, omega, T, q_v_b, q_sat,
+                                            q_v_b - q_sat, q_v_hyp - q_v_prev_pass,
+                                            (q_v_hyp != 0.0)
+                                              ? std::fabs(q_v_b / q_v_hyp - 1.0) : -1.0);
 
                             if (fabs(q_v_b / q_v_hyp - 1.0) <= 1.0e-6)
                                 break;
                         }
+
+                        if (trace)
+                            std::printf("[sat]   OUT     T=%.2f K (from %.2f)  q_v=%.6f"
+                                        "  q_c=%.6f  q_i=%.6f   write-back q_v=%.6f\n",
+                                        T, T_original, q_v_b, q_c_b, q_i_b,
+                                        q_v_old + alpha_entry * (q_v_b - q_v_old));
 
                         q_c_b = std::max(0.0, q_c_b);
                         q_i_b = std::max(0.0, q_i_b);

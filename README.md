@@ -4489,6 +4489,56 @@ the measurement.
     the slice most looked at was the one missing them. Both trees now emit 84 scalar fields per
     zonal slice, verified against freshly written files.
 
+64. **Item 16 instrumented: the saturation adjustment works, the supersaturation is re-created
+    between calls, and freeing the profile makes it worse — my invariant-3 explanation is
+    retracted in the same item that produced it.**
+
+    Two print-only/default-off knobs. `ATM_SAT_TRACE=1` prints the Newton loop for one cell at
+    levels 37/38; `ATM_SAT_NO_ALPHA=1` sets `alpha_entry` to 1.
+
+    **(a) The adjustment is not stalling.** At level 38 (256 km), entry `q_v` = 0.6724 against
+    `q_sat` = 0.0883 — **7.62× supersaturated** — the loop condenses 0.045 kg/kg on pass 1, the
+    latent heat throws `T` from 266 to 342 K, past boiling at 0.02 bar so `q_sat` becomes
+    **1.000000**, the target inverts and passes 2–9 evaporate it back. From pass 10 it settles
+    into a **limit cycle**: `q_v` pinned at 0.6628 while `q_sat` oscillates 0.64 ↔ 0.67. It exits
+    having condensed **0.47 kg/kg**, leaving the cell at `q_v/q_sat` ≈ 1.005. **One call reaches
+    ~100.5 % RH.** The earlier guess that heavy damping stalls it far from saturation is wrong.
+
+    **(b) But the exit test measures the STEP, not the residual.** `|q_v_b/q_v_hyp − 1| ≤ 1e-6`
+    falls to 4.4e-06 by pass 20 while the residual still swings ±0.003. Here it happens to exit
+    near the right answer; it would exit just as confidently anywhere on that cycle.
+
+    **(c) THE PRESCRIBED PROFILE IS HOLDING THE SUPERSATURATION DOWN, NOT CAUSING IT.** I wrote
+    that `densities()` re-imposing the adiabat discards the adjustment's 22 K of latent heating
+    and re-creates the supersaturation each iteration. Measured over five iterations, entry
+    `q_v/q_sat` at level 38:
+
+    | call | prescribed (default) | `ATM_PROGNOSTIC_T=1` |
+    |---|---|---|
+    | 1 | 7.62 | 7.62 |
+    | 2 | 16.50 | **975.97** |
+    | 3 | 10.82 | **1933.97** |
+
+    **Retracted.** Freed, the cell cools to **220–228 K** and `q_sat` collapses 0.088 → 0.00035,
+    while `q_v` is flat at 0.683 to six digits. **The supersaturation is `q_sat` falling, not
+    `q_v` rising** — which is why it reads as a moisture problem and is not one. Item 16 should
+    be re-pointed at whatever cools the free-running top, the same unexplained behaviour as
+    items 45–47.
+
+    **(d) `alpha_entry` is a genuine defect and NOT the lever.** The −37 °C ice threshold is
+    applied twice: inside the loop as the phase split (`CND`/`DEP`, correct — below −37 °C
+    condensation becomes deposition), and again as `alpha_entry`, a **master gain on all five
+    write-backs** (`S_c_c`, `c`, `cloud`, `ice`, `t`). A cell below ~236 K keeps a few per cent
+    of what the loop computed, deposition included; below 213.2 K the entry test skips it
+    outright. Invisible on Earth (~0.1 g/kg at −37 °C), live here at **683 g/kg with a gain of
+    0.036**. But with `ATM_SAT_NO_ALPHA=1` the prognostic ratios go 7.62 → **2094 → 2977**,
+    *worse* than 976 → 1934: the gain was masking the cooling, not causing the excess. Repair it
+    because a threshold applied twice is a defect, not because it will move item 16.
+
+    **Method note.** Both wrong explanations in this item were mine, both were stated with
+    confidence, and both died to the same three printed columns. The trace cost one afternoon
+    and is print-only; it should have existed before the first explanation, not after the second.
+
 ## Remaining work
 
 - **The updraft is one grid level deep, and that is now the top microphysics job** (item 61).
