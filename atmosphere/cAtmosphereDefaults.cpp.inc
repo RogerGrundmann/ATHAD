@@ -34,8 +34,6 @@ void cAtmosphereModel::SetDefaultConfig() {
   t_equat_modern = 15.4;
   rad_equator_short = 298.0;
   rad_pole_short = 0.0;
-  rad_equator = 398.2;
-  rad_pole = 360.0;
   sigma = 5.67028e-08;
   kappa_H2O = 0.01;
   kappa_CO2 = 0.001;

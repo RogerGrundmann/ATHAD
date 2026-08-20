@@ -194,13 +194,6 @@ def main():
             ('rad_equator_short', 'ATHAD: TOA short wave insolation at the equator in W/m2', 'double', 298.0),
             ('rad_pole_short', 'ATHAD: TOA short wave insolation at the poles in W/m2', 'double', 0.0),
 
-            # These two are the LONGWAVE boundary values of the inherited scheme. They are
-            # present-day Earth fluxes and have no Hadean meaning; mode 2 computes the
-            # longwave from the optical depth instead, so they survive only where the old
-            # code still reads them.
-            ('rad_equator', 'inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)', 'double', 398.2),
-            ('rad_pole', 'inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)', 'double', 360.0),
-
             ('sigma', 'Stefan-Boltzmann constant W/(m²*K4)', 'double', 5.670280e-8),
 
             # ==================================================================

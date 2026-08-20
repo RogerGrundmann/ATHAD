@@ -92,11 +92,14 @@ public:
         // Now a PARAMETER (albedo_surface), not a literal. It was written here as a
         // constexpr while the config carried an inert albedo_pole/albedo_equator pair that
         // nothing read — so the file said one thing and the configuration said another.
-        const double alb_surface_molten = m.albedo_surface;   // dark silicate melt, clear sky
+        // Named for what it IS (the clear-sky surface value) rather than for what this fork's
+        // surface happens to be, so the line reads true in ATHAD_COND too, where the same
+        // parameter holds a sea albedo (0.06). The melt justification above is ATHAD's.
+        const double alb_surface_clear = m.albedo_surface;    // dark silicate melt, clear sky
         #pragma omp parallel for schedule(static)
         for (int j = 0; j < m.jm; j++)
             for (int k = 0; k < m.km; k++)
-                m.albedo.y[j][k] = alb_surface_molten;
+                m.albedo.y[j][k] = alb_surface_clear;
 
         // Incoming short-wave radiation: pole -> equator parabola, hemispherically symmetric.
         m.short_wave_radiation = std::vector<double>(m.jm, m.rad_pole_short);

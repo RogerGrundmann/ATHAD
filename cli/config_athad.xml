@@ -28,8 +28,6 @@
         <t_equat_modern>15.4</t_equat_modern>  <!-- mean temperature of the modern earth in °C(double) -->
         <rad_equator_short>298.0</rad_equator_short>  <!-- ATHAD: TOA short wave insolation at the equator in W/m2(double) -->
         <rad_pole_short>0.0</rad_pole_short>  <!-- ATHAD: TOA short wave insolation at the poles in W/m2(double) -->
-        <rad_equator>398.2</rad_equator>  <!-- inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)(double) -->
-        <rad_pole>360.0</rad_pole>  <!-- inherited Earth longwave boundary value in W/m2 (unused in radiation_mode 2)(double) -->
         <sigma>5.67028e-08</sigma>  <!-- Stefan-Boltzmann constant W/(m²*K4)(double) -->
         <kappa_H2O>0.01</kappa_H2O>  <!-- ATHAD: grey longwave mass absorption of water vapour in m2/kg(double) -->
         <kappa_CO2>0.001</kappa_CO2>  <!-- ATHAD: grey longwave mass absorption of CO2 in m2/kg(double) -->
