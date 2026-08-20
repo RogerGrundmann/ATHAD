@@ -357,6 +357,24 @@ def main():
 #            ('convection_mode', 'convection type: 0=deep only (precipitating), 1=deep+shallow (non-precipitating if p_diff<p_stat_diff), 2=deep+shallow+midlevel (also non-precipitating for cloud base above p_stat_midlevel/700 hPa)', 'int', 0),
             ('convection_mode', 'convection type: 0=deep only (precipitating), 1=deep+shallow (non-precipitating if p_diff<p_stat_diff), 2=deep+shallow+midlevel (also non-precipitating for cloud base above p_stat_midlevel/700 hPa)', 'int', 1),
 
+            # ATHAD: ceiling on the convective mass flux |M_u|, |M_d|, in kg/(m2 s).
+            # A PARAMETER since 2026-08-20, ported from ATHAD_COND. It was two bare literals —
+            # one in AtomMoistConvection read by clamp_M, a second shadowing constexpr inside
+            # rhsForcing's safe_cap — both 3.0, agreeing by luck rather than by construction.
+            #
+            # 3.0 IS EARTH'S ("~10x any realistic value", "healthy ~0.3"), true at 1.2 kg/m3.
+            # A convective mass flux is M = rho*sigma*w and only rho changes between planets:
+            # Earth's ceiling implies sigma*w = 2.5 m/s, which over this model's 42.97 kg/m3
+            # surface is 107. 100.0 is that, rounded, and it is the SAME value ATHAD_COND
+            # arrived at from its own 39-42 kg/m3 sea surface — so the two trees share it.
+            #
+            # UNLIKE IN ATHAD_COND, IT NEVER BOUND HERE AND STILL DOES NOT. Checked over a full
+            # 40-iteration run: zero cells at the old 3.0 cap, and the largest |M| anywhere is
+            # 0.654 kg/(m2 s) — 4.6x below the old ceiling and 153x below this one. The port is
+            # a no-op by measurement, and its point is the duplicated literal and keeping the
+            # two trees identical, not a change of behaviour. ATHAD's convection is confined to
+            # levels 37-38 (236-256 km) where the air is thin; see README items 61 and 63.
+            ('mc_M_max', 'ATHAD: ceiling on convective mass flux |M_u|,|M_d| in kg/(m2 s)', 'double', 100.0),
 #            ('iter_prec', 'precipitation sub-iteration count: min 3 for evaporation (e_d, e_p) to act on non-zero P_conv; check convergence at 4-5', 'int', 4),
             ('iter_prec', 'precipitation sub-iteration count: min 3 for evaporation (e_d, e_p) to act on non-zero P_conv; check convergence at 4-5', 'int', 3),
 

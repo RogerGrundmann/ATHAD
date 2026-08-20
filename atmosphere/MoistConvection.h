@@ -170,7 +170,8 @@ namespace AtomMoistConvection {
     // capped only the final value used in the RHS; the internal c_u, q_v_u,
     // q_v_d, P_conv chain still saw the runaway. Same magnitude as the safe_cap
     // M_max in rhsForcing (~10× any realistic value).
-    constexpr double M_max = 3.0;                                       // [kg/(m²s)] (also used in rhsForcing safe_cap)
+    // M_max is the config parameter mc_M_max now — see param.py. It was a bare 3.0 here AND
+    // a second, shadowing 3.0 inside rhsForcing, which is one constant with two definitions.
 
     constexpr double c_mb = 0.003;                                      // [·] cloud-base mass-flux coefficient (0.03 over-drove: M_u pegged clamp, maxT→57C, stratiform→16mm/d; 10x down → M_u~0.3 healthy)
 }
@@ -321,11 +322,11 @@ private:
     // cannot drive c_u/q_v_u/q_v_d/P_conv into runaway before rhsForcing's
     // safe_cap runs at the end of the iter_prec loop. Bit-level NaN/Inf reset
     // (under -ffast-math std::min/max are unreliable on NaN).
-    static inline double clamp_M(double v) noexcept {
+    inline double clamp_M(double v) const noexcept {
         std::uint64_t bits;
         std::memcpy(&bits, &v, sizeof(bits));
         if ((bits & 0x7FF0000000000000ULL) == 0x7FF0000000000000ULL) return 0.0;
-        const double M_max = AtomMoistConvection::M_max;
+        const double M_max = m.mc_M_max;          // config parameter, was a bare 3.0
         return (v < -M_max) ? -M_max : (v > M_max) ? M_max : v;
     }
 
@@ -1492,7 +1493,7 @@ void findCloudBaseLFS() {
         // near-surface cell pegged MC_t/MC_w at the previous caps every step (saturating
         // u/v/w at ±100 m/s), so the old caps were the velocity forcing in disguise. New
         // values are 3–5× physical, so realistic convection is still untouched.
-        constexpr double M_max   = 3.0;        // [kg/(m²s)]  up/downdraft mass flux  (was 10.0; healthy ~0.3)
+        const double M_max       = m.mc_M_max; // [kg/(m²s)]  up/downdraft mass flux, config parameter
         constexpr double MCt_max = 0.01;       // [K/s]       convective heating      (was 0.05; ~36 K/hr, still 3× realistic)
         // 2026-06-25: 2.0e-4 (=0.2 g/kg/s) let the convective moisture pump flood the
         // near-surface layer over high tropical orography (Ethiopian highlands 9°N/37°E,
