@@ -4239,7 +4239,147 @@ the measurement.
     = 0.0910, SO₂ 0.3422, N₂ 0.3207. `q_bg` itself now spans 0.081–0.162 — item 57's carrier
     dilution, visible for the first time.
 
+61. **`g·z` goes into the static energy, and the updraft cannot use it — because the updraft is
+    ONE GRID LEVEL DEEP. Item 53's "the only thing between this scheme and an updraft that
+    condenses" is retracted: the blocker is geometry, not thermodynamics.**
+
+    **(a) The geopotential is written.** Item 52 found `s`, `s_u`, `s_d` holding `cp_l·T/s_0` —
+    a normalised temperature — while `cAtmosphereModel.h` called them dry static energy, which is
+    `cp·T + g·z`. `ATM_MC_GEOPOTENTIAL=1` adds `g·z(i)/s_0` at every write of the three arrays,
+    subtracts it at the one place a parcel temperature is read back out
+    (`T_u = (s_u − φ)·s_0/cp_l`), and moves the two `<= 0` floors onto `φ(i)` so they stay floors
+    on temperature rather than on DSE. Default OFF.
+
+    It is the larger term here, as item 52 said: `g·z` = 2.94e6 J/kg at the lid against
+    `cp·T` = 4.2e5. `s` stops looking like a temperature profile and starts looking like a static
+    energy — **1.567–11.108 becomes 10.229–14.268**, nearly uniform, which is what a column on
+    its own adiabat must have.
+
+    **MEASURED — 40 iterations, 24 threads, ONE binary, moist physics from iteration 0:**
+
+    | | off | on |
+    |---|---|---|
+    | `s` range (iter 0) | 1.567 – 11.108 | 10.229 – 14.268 |
+    | `max s_u` (iter 40) | 3.6578 | 11.2577 |
+    | `max MC_t` (iter 40) | 1.078e-03 K/s | **2.06e-04 (−81 %)** |
+    | `min MC_t` (iter 40) | −2.5e-05 K/s | **−8.31e-04 (33×)** |
+    | **`max c_u`** | **0.000000** | **0.000000** |
+    | `max q_v_u` | 748.345 g/kg | 748.413 |
+    | `max M_u` | 135.026 g/m²s | 134.886 |
+    | OLR (iter 20 / 40) | 337.54 / 323.49 W/m² | 337.54 / 323.59 |
+    | photosphere | 237.4 km, 368.30 K | identical |
+    | mean albedo | 0.4988 | 0.4988 |
+    | `Psi_max` (iter 40) | 105588.89 | 105588.91 |
+
+    **(b) `c_u` is still identically zero, and the reason is geometry.** The parcel temperature at
+    every active updraft cell is **302.7 K in BOTH arms, to the digit** — the geopotential cannot
+    cool a parcel that never rises, and this one never does:
+
+    - the dominant column has **cloud base at level 37 (236.4 km) and the LFS at level 38
+      (256.0 km)** — 99 of the 173 convecting columns in the zonal slice, with base 38 / LFS 39 in
+      another 13;
+    - the updraft recurrence is `for(i = i_base+1; i <= i_LFS-1)`, which is **an empty loop when
+      the two are adjacent**. The whole updraft is then whatever `initUpdraft` seeded at one level;
+    - `|M_u| > coeff_recurr` (0.1 kg/m²s) holds in exactly **one level (i = 37) and 7 of 181
+      columns** of that slice.
+
+    So the parcel sits at 302.7 K with `q_v_u` = 508.6 g/kg at p = 0.083 bar, in an environment at
+    265 K whose own `q_sat` is 0.186 — **the environment is condensing while the parcel is 38 K
+    too warm to**. Item 53 predicted that adding `g·z` would let the updraft cool and condense.
+    It would — over a hundred-kilometre ascent. There is no ascent.
+
+    **Where the geopotential DOES act is the downdraft**, whose recurrence runs
+    `for(i = i_lfs-1; i >= 0)` — from 256 km to the surface — so its DSE excess picks up a real
+    `g·Δz` that does not cancel against the environment. That is the entire source of the `MC_t`
+    change, and it is a change of PATTERN, not of scale: peak convective heating −81 %, peak
+    convective cooling ×33. **A scheme whose updraft is one cell deep and whose downdraft spans
+    the column is not a convection scheme yet**, and CLAUDE.md's "deep convection is inactive"
+    (absolute-hPa triggers at 250 bar) is now measured rather than inferred.
+
+    **The knob stays off.** Not because the arithmetic is in doubt — `cp·T` with no geopotential
+    is simply not dry static energy — but because turning it on changes `MC_t` by 5× in a scheme
+    that cannot presently produce an updraft, i.e. it improves a term nothing consumes. The
+    ordering is: fix the trigger levels, then flip this.
+
+    **(c) One name per species, and the `N2` collision is gone.** The VTK files carried `N2` for
+    the **Brunt-Väisälä frequency squared** and `q_N2` for **nitrogen**, side by side in the same
+    file. The array is now `brunt_N2` and the field `BruntVaisala_N2`. The eight species are
+    written under bare names — `H2O CO2 N2 CH4 NH3 H2 CO SO2` — all mass fractions, all from
+    `AtmMixture::split()`, the routine the thermodynamics and the radiation use. Before this,
+    three conventions coexisted and one of them was wrong in substance: the field plotted as
+    `CO2` was the **raw tracer array**, which carries no dilution, so it read 0.2053 everywhere
+    while what the physics uses spans **0.1359–0.2805** in the zonal slice at iteration 40.
+    Item 57's 320× carrier structure existed in the model and was invisible on screen for that
+    reason. The transported array is still written, as **`CO2_tracer`** — that is where CO₂
+    *transport* is visible, and the two fields answer different questions. The eight sum to
+    1 − condensate (0.9807–1.0000, zonal slice). Physics-neutral, checked: the post-rename run
+    reproduces OLR 323.49 W/m², `Psi_max` 105588.89 and photosphere 368.30 K exactly.
+
+    **(d) A NULL A/B, because two runs of identical physics turned out not to agree.** Checking
+    that the knob's off-branch reproduced the old binary produced the most useful measurement in
+    this item. Four pairs, all *the same physics*, 40 iterations, moist physics from iteration 0:
+
+    | pair | seed | first divergence | OLR @40 | water vapour @40 | `max M_u` | `Psi_max` |
+    |---|---|---|---|---|---|---|
+    | same binary, 24 threads, twice | run-to-run only | residuum #25, **7e-7** | identical | 1.2e-10 of scale | 0 | identical |
+    | rebuild, no physics code touched (the ParaView rename) | none measurable | residuum #25 | **identical** | — | — | identical |
+    | rebuild that re-arranged physics arithmetic (this item's edit, **knob OFF**) | codegen | residuum #3, **5e-8** | 323.85 → **323.49 (0.11 %)** | **795 of 7421 points, up to 64 g/kg** | **57 % of scale** | identical to 8 digits |
+    | same binary, **24 vs 23 threads** | reduction order | residuum #2, **3.5e-7** | 323.49 → **325.14 (0.51 %)** | **1087 points, 12.2 % of scale** | **56 % of scale** | 1e-6 |
+
+    **Three things follow, and the third is a warning about this file's own numbers.**
+
+    **The moist and convective fields are the amplifier; the dynamics are not.** The same 5e-8
+    seed leaves `Psi_max` identical to eight digits and `p_dyn` at 1e-7, while moving `M_u` by
+    57 % of its own maximum and shifting 795 grid points of water vapour by up to 64 g/kg — all
+    of them at levels 38–39 (256–277 km), the condensing band, where a trigger flipping on or
+    off relocates a whole cell. The global max and min of water vapour still agree to seven
+    digits: what changes is *where* it is, not how much.
+
+    **A rebuild is not automatically neutral, and this is checkable rather than assumable.** The
+    ParaView-only rebuild is indistinguishable from run-to-run noise; the header edit is not.
+    The difference is whether the optimiser re-arranged arithmetic inside a physics loop under
+    `-ffast-math -march=native`.
+
+    **The 40-iteration OLR is reproducible to 0.11 % across a rebuild and only 0.51 % across a
+    THREAD-COUNT CHANGE — and that is the number to hold against this file's OLR results.**
+    Items 51, 52, 53, 59 and 60 reported their OLR effects as 0.02–0.11 %, i.e. **between one
+    fifth and one twenty-fifth of the model's own 40-iteration reproducibility envelope**. Each
+    was a same-binary, same-thread-count A/B, so each is valid *as a controlled comparison* and
+    none is retracted; but none of them is a robust property of the model either, and none
+    should be quoted as a physical effect without saying at what thread count it was measured.
+    The pattern those items describe — "every microphysics correction dies at the albedo" — is
+    unaffected and is if anything strengthened: the corrections are not merely small, they are
+    small compared with re-running the same physics on 23 cores instead of 24. **`Psi_max`,
+    albedo and the photosphere are unmoved in every pair** (Ψ to 1e-6 or better) and remain
+    trustworthy to the digits printed; the OLR at 40 iterations is not.
+
+    **And the honest note about this knob**: `ATM_MC_GEOPOTENTIAL`'s off-branch is
+    arithmetically the old code — `+ phi_s(i)` with `phi_s ≡ 0` is exact, and the iteration-0
+    min/max block confirms `s`, `s_u`, `MC_t` and `c_u` come out bit-identical after the first
+    `MoistConvection` call — but **it is not bit-identical to the old *binary***, because the
+    rebuild moved unrelated loops. This file's usual "off-branch bit-identical" standard is a
+    statement about the source, and for the moist fields at 40 iterations that is not the same
+    thing.
+
+    **Reproduced at**: `python/run_gz_base` (off) and `python/run_gz_on` (on) for (a)–(b);
+    `python/run_rename40` for (c); `python/run_gz_ctrl`, `python/run_null_same` and
+    `python/run_null_23t` for (d).
+
 ## Remaining work
+
+- **The updraft is one grid level deep, and that is now the top microphysics job** (item 61).
+  Cloud base 236.4 km, LFS 256.0 km — adjacent levels in 99 of 173 convecting columns — so the
+  recurrence `for(i = i_base+1; i <= i_LFS-1)` is an empty loop, no parcel ascends, and `c_u` is
+  identically zero for a reason that has nothing to do with the thermodynamics. The
+  deep-convection triggers (1000/970/900/800 hPa, absolute Earth surface pressures) are the
+  suspect; they must become fractions of the local surface pressure. **`ATM_MC_GEOPOTENTIAL` is
+  written and waiting for this**, and should be flipped after it, not before.
+- **The 40-iteration OLR is reproducible to 0.51 % across a thread-count change** (item 61),
+  which is 5–25× every OLR effect this file has reported. Nothing is retracted — those were
+  controlled same-binary same-thread A/Bs — but **quote no OLR difference below ~0.5 % as a
+  property of the model**, and state the thread count with any that is quoted. The amplifier is
+  the convective trigger set, not the dynamics: Ψ, albedo and the photosphere are unmoved at
+  1e-6 in every null pair. Curing it is the same ordered-reduction job item 18 names.
 
 
 - **The background's opacity was N₂'s, applied to NH₃, CH₄ and SO₂ as well** (item 60). Split

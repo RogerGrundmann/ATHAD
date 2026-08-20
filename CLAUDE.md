@@ -189,6 +189,23 @@ fixed thread count**; **thread-count dependent at ~1e-8**. The old claim of "bit
   printed wind extrema agree exactly. The feedback path is a global mean that re-enters the
   physics; `t_skin` is the prime suspect, being a reduction the whole column is then rebuilt
   from. Curing it needs ordered reductions.
+- **MEASURED 2026-08-20 (item 61), and it is worse than "the last digit".** The last digit is
+  where it *starts*; the moist-convection trigger set is where it ends up. Four null pairs at
+  40 iterations with moist physics on, same physics in every arm:
+  **same binary, same 24 threads, twice** — bit-identical through iteration 20, then run-to-run
+  divergence from residuum #25 at 7e-7, reaching 1.5e-9 of scale in Ψ and nothing in the printed
+  scalars (so item 18's "bit-identical at a fixed thread count" is right for ~20 iterations and
+  not exactly true after that). **A rebuild that touches no physics code** — indistinguishable
+  from that. **A rebuild that re-arranges arithmetic in a physics loop** (adding `+ phi_s(i)`
+  with `phi_s ≡ 0` did) — 5e-8 at residuum #3, and by iteration 40 the OLR differs **0.11 %**
+  and 795 grid points of water vapour by up to **64 g/kg**. **24 vs 23 threads** — 3.5e-7 at
+  residuum #2, and by iteration 40 the OLR differs **0.51 %**, `max M_u` by 56 % of scale.
+  **In every pair Ψ_max, albedo and the photosphere are unmoved** (Ψ to 1e-6 or better). So the
+  dynamics are not the amplifier and the convective triggers are: a trigger flipping relocates a
+  cell, which moves the water where the photosphere is. **Consequence: do not quote a
+  40-iteration OLR difference below ~0.5 % as a property of the model**, and state the thread
+  count with any OLR number at all. Items 51-53, 59 and 60 reported 0.02-0.11 % — controlled
+  same-binary same-thread comparisons, so not retracted, but inside the envelope.
 
 The pressure-solver race is the third time the family has found that defect and the first
 time here, despite it being listed below under *traps already solved elsewhere*. **A
@@ -206,7 +223,16 @@ other filename.
 ## Relationship to the family
 
 Siblings live beside this directory: `ATOM_Precipitation` (modern Earth), `ATJUP`,
-`ATSAT`, `ATURAN`, `ATNEPT` (giants), `ASTIM` (impacts).
+`ATSAT`, `ATURAN`, `ATNEPT` (giants), `ASTIM` (impacts), and `ATHAD_COND` (this model's
+post-condensation epoch: 60 bar, a 513 K sea, water subcritical).
+
+**ATHAD_COND carries this file's five trace-gas mole fractions since 2026-08-20** — CH₄,
+NH₃, H₂, CO and SO₂ at 0.014 each, where they used to be zero there. Only the *fractions*
+are shared: 1.4 % of ATHAD's 250 bar is 3.5 bar per gas and 1.4 % of COND's 60 bar is
+0.84 bar, so the two forks do not carry the same trace-gas inventory and no conclusion
+about one transfers to the other on amount. What does transfer is the background: with
+the traces in, COND's `R_bg` is 318.10 against this model's 317.26, because in both the
+traces are ~71 % of the background by mass.
 
 C++ class, file and function names are kept **identical to `ATOM_Precipitation`** so fixes
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
@@ -331,9 +357,16 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   temperature there, and the fraction of columns radiating from within 1 K of `t_skin`. New
   companions: `tau_layer` (per-layer dtau, the resolution measure), `ubud_*` (the **radial**
   momentum budget, absent while θ and φ both had one — item 28's spurious 293-rms radial
-  acceleration was invisible for exactly this reason), `N2` (measures "neutrally stratified by
+  acceleration was invisible for exactly this reason), `brunt_N2` (measures "neutrally stratified by
   construction" instead of asserting it, and tests invariant 4), and `Psi` as a field. All in
-  ParaView and Results. **`initCloudIce`'s H_crit is on a fraction of surface pressure now**,
+  ParaView and Results.
+  **Field names changed in item 61**: the Brunt-Vaisala frequency squared is `brunt_N2` in the code
+  and `BruntVaisala_N2` in the VTK files — it used to be `N2`, in the same file as nitrogen's
+  `q_N2`. The eight species are written under bare names (`H2O CO2 N2 CH4 NH3 H2 CO SO2`), all
+  mass fractions from `AtmMixture::split()`, so what is plotted is what is integrated; the raw
+  transported CO2 array is `CO2_tracer` and answers a different question (what the transport
+  advances, not what the physics reads — they differ by item 57's dilution, 0.1359-0.2805 against
+  a uniform 0.2053). **`initCloudIce`'s H_crit is on a fraction of surface pressure now**,
   which is right but measured as a 0.18 % effect on OLR, not the lever it was billed as: the
   albedo cannot respond to cloud *amount* at all, because reflectivity saturates on presence.
   **Item 53 makes it five for five** — every repair in it (three `s` scalings, `MC_t`'s `t_0`, the lid
@@ -364,12 +397,21 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   the one that actually produced the impossible `q_v_u`: **`cc_factor`'s reference temperature was
   Earth's 288.15 K**, so the moisture-seed cap `q_v_u_add·q_sat(1500 K)/q_sat(288 K)` came out at
   **3.47 kg/kg** — a mass fraction of 3.5. Repairing the recurrence did not move it at all; referencing
-  the ratio to the model's own surface temperature did (3564 → 725 g/kg). **The `g·z` is now the top
-  microphysics job**: with the arithmetic right, ATHAD_COND's updraft condensation `c_u` goes to
-  **identically zero**, because a parcel carrying `cp·T` alone never cools as it rises and so never
-  saturates. All of it is ported to ATHAD_COND, where `s_0`/`cp_l` makes the `MC_t` error 1.342× rather
-  than 2.03×, and where the surface half of the BC defect was measured (`s_u` = −1020 K at 0 m).
-- **The radial momentum balance is the pressure gradient and nothing else** (item 42, measured): `ubud_pgf` 1.15 against `ubud_cor` **exactly 0** (non-traditional Coriolis is genuinely off, not just documented off), `ubud_advh` 0.0085, and `ubud_buoy` **1e-6** — item 34's extra `*dt` measured, the buoyancy body force is ~1e6 down and effectively absent. **`ATM_BUOY_CONSISTENT=1` corrects it and is default off** (item 50): the consistent coefficient is 2e7× the shipped one and 7.2× the 336 recorded as having driven a polar vertical runaway. It also repairs the Boussinesq reference temperature — the shipped term divides the anomaly by `t_0` = 273.15 K instead of `T_ref`, overstating the force 5.49× at the surface and 0.96× at the top. With (a) alone at 20 iterations, `ubud_buoy` goes 0 → −34.6 (~4× the pressure gradient), the radial wind rises 19.5 % and Ψ moves 0.0002 %; `buoyancy_ramp` was 0.067 there, so that is **not** a stability result. `N2` confirms invariant 4: 0 through the column, 2.74e-4 s⁻² only in the isothermal skin — **but read item 55 before quoting it**: `N2` is formed at the end of `densities()` from the `t` and `p_stat` that same call just wrote, so it re-reads the prescribed profile and is identical to 0.03–0.5 % across runs whose `p_dyn` radial structure differs by **2500×**. Below the skin its non-zero part is a **second-order truncation error** of the adiabat integration (`N2/dz²` constant to ±30 % over a 12× range of `dz`), i.e. the grid stretch, not stratification. It measures the atmosphere only under `ATM_PROGNOSTIC_T=1`.
+  the ratio to the model's own surface temperature did (3564 → 725 g/kg). All of it is ported to
+  ATHAD_COND, where `s_0`/`cp_l` makes the `MC_t` error 1.342× rather than 2.03×, and where the surface
+  half of the BC defect was measured (`s_u` = −1020 K at 0 m).
+  **THE `g·z` IS WRITTEN NOW (`ATM_MC_GEOPOTENTIAL=1`, default off) AND IT WAS NOT THE BLOCKER**
+  (item 61). `s` becomes a real static energy — 1.567–11.108 → 10.229–14.268, nearly uniform, as a
+  column on its own adiabat must be — but `c_u` stays **identically zero and the parcel temperature is
+  302.7 K in both arms, to the digit**, because the updraft **never rises a single level**: cloud base
+  is level 37 and the LFS level 38 in 99 of 173 convecting columns, and the recurrence
+  `for(i = i_base+1; i <= i_LFS-1)` is an empty loop when they are adjacent. `|M_u| > coeff_recurr`
+  holds in **one level and 7 of 181 columns**. So item 53's "the only thing between this scheme and an
+  updraft that condenses" is **retracted: the blocker is geometry, not thermodynamics.** The one place
+  the geopotential does act is the DOWNDRAFT, which descends from the LFS to the surface, and it moves
+  `MC_t` by 5× — peak heating −81 %, peak cooling ×33. Improving a term nothing consumes is why the
+  knob stays off: fix the trigger levels first.
+- **The radial momentum balance is the pressure gradient and nothing else** (item 42, measured): `ubud_pgf` 1.15 against `ubud_cor` **exactly 0** (non-traditional Coriolis is genuinely off, not just documented off), `ubud_advh` 0.0085, and `ubud_buoy` **1e-6** — item 34's extra `*dt` measured, the buoyancy body force is ~1e6 down and effectively absent. **`ATM_BUOY_CONSISTENT=1` corrects it and is default off** (item 50): the consistent coefficient is 2e7× the shipped one and 7.2× the 336 recorded as having driven a polar vertical runaway. It also repairs the Boussinesq reference temperature — the shipped term divides the anomaly by `t_0` = 273.15 K instead of `T_ref`, overstating the force 5.49× at the surface and 0.96× at the top. With (a) alone at 20 iterations, `ubud_buoy` goes 0 → −34.6 (~4× the pressure gradient), the radial wind rises 19.5 % and Ψ moves 0.0002 %; `buoyancy_ramp` was 0.067 there, so that is **not** a stability result. `brunt_N2` — the Brunt-Vaisala frequency squared, renamed from `N2` in item 61 so it cannot be read as nitrogen — confirms invariant 4: 0 through the column, 2.74e-4 s⁻² only in the isothermal skin — **but read item 55 before quoting it**: `brunt_N2` is formed at the end of `densities()` from the `t` and `p_stat` that same call just wrote, so it re-reads the prescribed profile and is identical to 0.03–0.5 % across runs whose `p_dyn` radial structure differs by **2500×**. Below the skin its non-zero part is a **second-order truncation error** of the adiabat integration (`brunt_N2/dz²` constant to ±30 % over a 12× range of `dz`), i.e. the grid stretch, not stratification. It measures the atmosphere only under `ATM_PROGNOSTIC_T=1`.
 - **The imbalance is not a second number** (item 43). `t_skin` is **262.95 K at every one of ten
   diagnostics across 200 iterations** while the OLR falls 338.85 → 281.59, so σT_skin⁴ = 271.2 is
   constant and the reported imbalance is *identically* the OLR's distance from it (281.59 − 271.2
@@ -513,8 +555,12 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   one of those runs and `t_skin` is 262.96 in every one. Treat any OLR number as a statement
   about `t_skin` until that is broken. (The 0.9 %-over-8× figure this file used to carry was
   written before any scan existed — see item 29.)
-- **Deep convection is inactive.** Its trigger thresholds (1000/970/900/800 hPa) are
-  absolute Earth surface pressures and never fire at 250 bar. They need to become
-  fractions of surface pressure.
+- **Deep convection is inactive, and item 61 measures how inactive.** Its trigger thresholds
+  (1000/970/900/800 hPa) are absolute Earth surface pressures and never fire at 250 bar; they need to
+  become fractions of surface pressure. What that produces is a "deep" convective layer **one grid
+  level thick** — cloud base 236.4 km, LFS 256.0 km, adjacent levels in the majority of columns — so
+  the updraft recurrence never executes, no parcel ascends, and `c_u` is identically zero for a reason
+  that has nothing to do with the microphysics. **This is now the top microphysics job**, ahead of the
+  geopotential, which is written and waiting for it.
 - `time_start/end/step` remain because the time-slice loop is still structural, though only
   one slice ever runs.

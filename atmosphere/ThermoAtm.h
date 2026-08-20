@@ -1618,7 +1618,7 @@ public:
                         const int iu = (i < m.im - 1) ? i + 1 : i;
                         const double dz = m.get_layer_height(iu) - m.get_layer_height(il);
                         const double th = theta[i];
-                        m.N2.x[i][j][k] = (dz > 0.0 && th > 0.0)
+                        m.brunt_N2.x[i][j][k] = (dz > 0.0 && th > 0.0)
                                         ? (m.g / th) * (theta[iu] - theta[il]) / dz : 0.0;
                     }
                 }

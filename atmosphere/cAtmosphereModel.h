@@ -688,7 +688,11 @@ public:
     // behind it. Two uses: it measures that claim, and it is a direct test of invariant 4,
     // since a column genuinely on its own integrated adiabat must have N^2 ~ 0 through the
     // convective part. Any departure there is an adiabat-integration defect, not weather.
-    Array N2;                                                           // Brunt-Vaisala frequency squared [1/s2]
+    // RENAMED 2026-08-20 (was `N2`, printed and plotted as "N2"). Nitrogen is now written
+    // as N2 by the eight-species ParaView block, and one VTK file carrying two different
+    // N2 fields is exactly the kind of name that costs an afternoon. This is the frequency,
+    // not the gas.
+    Array brunt_N2;                                                     // Brunt-Vaisala frequency squared [1/s2]
     // Zonal-mean meridional mass streamfunction [kg/s], replicated across k so the existing
     // 3D writers can emit it. Psi is genuinely 2D (a streamfunction needs non-divergent 2D
     // flow) and the replication wastes memory, but it buys the thing that was missing: the

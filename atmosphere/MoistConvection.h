@@ -81,6 +81,33 @@ namespace AtomMoistConvection {
     static const bool updraft_bounded = [](){
         const char* e = getenv("ATM_MC_UNBOUNDED_UPDRAFT"); return !(e && atoi(e) != 0); }();
 
+    // ATM_MC_GEOPOTENTIAL (2026-08-20) — the missing g*z, the last unrepaired defect of the
+    // entropy audit (README item 52) and the one item 53 promoted to the top microphysics
+    // job. `s` holds cp_l*T/s_0 and cAtmosphereModel.h calls the arrays dry static energy,
+    // but DSE is cp*T + g*z and the geopotential is simply absent. On ATOM_Precipitation's
+    // 16 km shell g*z reaches 1.6e5 J/kg against a cp*T of ~2.9e5; on this 300 km one it is
+    // 2.9e6 against 4.2e5 — the LARGER term above ~157 km.
+    //
+    // What it changes is the PARCEL, not the bookkeeping. Adding g*z(i) to s, s_u and s_d
+    // alike cancels exactly in every same-level difference (s_u - s) rhsForcing forms, so
+    // the environment forcing is untouched wherever the parcel is at rest. It does NOT
+    // cancel in the recurrences, which carry s_u from level i-1 to level i: with the
+    // geopotential in, a parcel conserving its DSE cools by g*dz/cp_l as it climbs — the
+    // dry adiabat — and can reach saturation. Without it the parcel keeps its cloud-base
+    // temperature all the way up, which is why ATHAD's updraft condensation c_u is
+    // identically zero and ATHAD_COND's went to zero the moment the s arithmetic was
+    // repaired (item 53).
+    //
+    // RESIDUE, stated rather than hidden: the s <-> T pair stays cp_l-based, so the implied
+    // parcel lapse rate is g/cp_l = 4.81 K/km at every level. cp_l = 2040 is the mixture cp
+    // at ~1101 K (item 51), so that rate is ~30 % too small in the cold skin where the
+    // condensation would happen. Making the pair local would break the exact inverse; the
+    // honest repair is a local-cp parcel integration, not a substitution.
+    //
+    // Default OFF until measured, like every knob in this file.
+    static const bool s_geopotential = [](){
+        const char* e = getenv("ATM_MC_GEOPOTENTIAL"); return (e && atoi(e) != 0); }();
+
     constexpr double a_ev = 1.0e-3;
     constexpr double b_ev = 5.9;
     constexpr double t_00 = 236.15;
@@ -223,6 +250,14 @@ private:
     // uniformly), so the reference and the cell agree; water is not, and it is 67 % of
     // the mass, so it decides how much of the non-water carrier is CO2 (heavy) versus
     // background (light) — 28.6 g/mol at q_v = 0 against 35.1 at q_v = 0.67.
+    // Geopotential part of the dry static energy in this file's normalised s units:
+    // g*z(i)/s_0, and identically zero unless ATM_MC_GEOPOTENTIAL is set. height_table is
+    // filled by precompute(), which run() calls before anything that reads or writes s.
+    inline double phi_s(int i) const noexcept {
+        return AtomMoistConvection::s_geopotential
+             ? m.g * height_table[i] / m.s_0 : 0.0;
+    }
+
     double safe_q_sat(double E_sat, double p_u, double q_v) const noexcept {
         return SaturationH2O::saturationMassFraction(
                    E_sat, p_u, AtmMixture::M_nonwater(q_v, m.co2_0, m.m_comp.M_bg));
@@ -425,7 +460,7 @@ private:
                     // ATM_MC_S_CONSISTENT at the top of this file. The dead is_land branch
                     // (BC_Atm.h:219,368) is NOT the only place the scale matters, which is
                     // what that claim rested on.
-                    m.s.x[i][j][k]      = m.cp_l * m.t.x[i][j][k] * m.t_0 / m.s_0;
+                    m.s.x[i][j][k]      = m.cp_l * m.t.x[i][j][k] * m.t_0 / m.s_0 + phi_s(i);
 
                     // Mass-flux fields — reset so cells outside the active [i_base..i_lfs]
                     // range cannot contribute to rhsForcing flux divergences.
@@ -641,8 +676,8 @@ private:
                     m.M_u.x[i][j][k] = clamp_M(m.M_u.x[i-1][j][k] + d_Mu * step[i]);// in [kg/(m³s)]
                     if(is_land(m.h, i, j, k)) m.M_u.x[i][j][k] = 0.0;
 
-                    m.s.x[i][j][k]   = m.cp_l * t_u / m.s_0;
-                    m.s_u.x[i][j][k] = m.cp_l * t_u_add / m.s_0;
+                    m.s.x[i][j][k]   = m.cp_l * t_u / m.s_0 + phi_s(i);
+                    m.s_u.x[i][j][k] = m.cp_l * t_u_add / m.s_0 + phi_s(i);
 
                     m.u_u.x[i][j][k] = vel * m.u.x[i][j][k];
                     m.v_u.x[i][j][k] = vel * m.v.x[i][j][k];
@@ -668,8 +703,8 @@ private:
 
                     if(i == local_i_end+1)  m.M_u.x[i-1][j][k] = m.M_u.x[local_i_beg][j][k];
 
-                    m.s.x[i][j][k]   = m.cp_l * t_u / m.s_0;
-                    m.s_u.x[i][j][k] = m.cp_l * t_u / m.s_0;
+                    m.s.x[i][j][k]   = m.cp_l * t_u / m.s_0 + phi_s(i);
+                    m.s_u.x[i][j][k] = m.cp_l * t_u / m.s_0 + phi_s(i);
 
                     m.q_v_u.x[i][j][k]     = m.c.x[i][j][k] + q_pert;
                     if(m.q_v_u.x[i][j][k] >= scale * q_sat_add && t_u_add >= t_00)
@@ -920,7 +955,7 @@ void findCloudBaseLFS() {
                     const double t_base = m.t.x[i_base][j][k] * m.t_0;
                     const double t_pert = delta_T_sfp[j][k];
                     const double q_pert = delta_q_sfp[j][k];
-                    m.s_u.x[i_base][j][k]   = m.cp_l * (t_base + t_pert) / m.s_0;
+                    m.s_u.x[i_base][j][k]   = m.cp_l * (t_base + t_pert) / m.s_0 + phi_s(i_base);
                     m.q_v_u.x[i_base][j][k] = std::max(m.c.x[i_base][j][k] + q_pert, 0.0);
                 }
 
@@ -1068,7 +1103,7 @@ void findCloudBaseLFS() {
 
                     double r_h_i = m.r_humid.x[i][j][k];
 
-                    m.s_d.x[i][j][k] = m.cp_l * t_u / m.s_0;
+                    m.s_d.x[i][j][k] = m.cp_l * t_u / m.s_0 + phi_s(i);
 
                     double E_sat = SaturationH2O::saturationPressureAuto(t_u);
                     double q_sat = safe_q_sat(E_sat, p_u, m.c.x[i][j][k]);
@@ -1249,7 +1284,7 @@ void findCloudBaseLFS() {
                     // gain L/cp·dq_sat/dT) stops the warm-cell overshoot (cf. SaturationAdjustment).
                     m.c_u.x[i][j][k] = 0.0;
                     if(fabs(m.M_u.x[i][j][k]) > coeff_recurr){
-                        double T_u       = m.s_u.x[i][j][k] * m.s_0 / m.cp_l;   // parcel temp [K]
+                        double T_u       = (m.s_u.x[i][j][k] - phi_s(i)) * m.s_0 / m.cp_l;  // parcel temp [K]
                         const double p_u = m.p_stat.x[i][j][k];
                         double dcond_tot = 0.0;
                         for(int it = 0; it < 2; ++it){
@@ -1270,7 +1305,7 @@ void findCloudBaseLFS() {
                             T_u                += (L_u / cp_u) * dcond;         // latent heating (sole source)
                             dcond_tot          += dcond;
                         }
-                        m.s_u.x[i][j][k] = m.cp_l * T_u / m.s_0;
+                        m.s_u.x[i][j][k] = m.cp_l * T_u / m.s_0 + phi_s(i);
                         // c_u = the ACTUAL condensation rate [(kg/kg)/s] (was the circular
                         // q_c_u·M_u/(r_h·step)); feeds only the environment forcing conv_src
                         // (MC_t heating / MC_q drying) in rhsForcing — no longer the s_u/q_v_u budgets.
@@ -1286,7 +1321,9 @@ void findCloudBaseLFS() {
                     if(m.q_v_u.x[i][j][k] <= 0.0) m.q_v_u.x[i][j][k] = 0.0;
                     if(m.q_c_u.x[i][j][k] <= 0.0) m.q_c_u.x[i][j][k] = 0.0;
                     if(m.q_c_u.x[i][j][k] > q_c_u_max) m.q_c_u.x[i][j][k] = q_c_u_max;
-                    if(m.s_u.x[i][j][k] <= 0.0)   m.s_u.x[i][j][k]   = 0.0;
+                    // The floor is a TEMPERATURE floor, so under ATM_MC_GEOPOTENTIAL it sits
+                    // at phi_s(i), not at zero: s = 0 there would mean cp_l*T = -g*z.
+                    if(m.s_u.x[i][j][k] <= phi_s(i))   m.s_u.x[i][j][k]   = phi_s(i);
 
                     if(is_land(m.h, i, j, k) || t_u <= t_00){
                         m.E_u.x[i][j][k]   = 0.0; m.D_u.x[i][j][k] = 0.0; m.M_u.x[i][j][k] = 0.0;
@@ -1380,7 +1417,7 @@ void findCloudBaseLFS() {
                     m.u_d.x[i][j][k] = m.u.x[i][j][k] + m.M_d.x[i][j][k] * inv_a_d / safe_r_humid(r_h_i);
 
                     if(m.q_v_d.x[i][j][k] <= 0.0) m.q_v_d.x[i][j][k] = 0.0;
-                    if(m.s_d.x[i][j][k] <= 0.0)   m.s_d.x[i][j][k]   = 0.0;
+                    if(m.s_d.x[i][j][k] <= phi_s(i))   m.s_d.x[i][j][k]   = phi_s(i);
 
                     if(is_land(m.h, i, j, k) || t_u <= t_00){
                         m.E_d.x[i][j][k]   = 0.0; m.D_d.x[i][j][k] = 0.0; m.M_d.x[i][j][k] = 0.0;

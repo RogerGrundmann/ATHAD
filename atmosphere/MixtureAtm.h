@@ -70,6 +70,16 @@ namespace AtmMixture {
         return n;
     }
 
+    // All eight species in one order: the two prognostic ones (water vapour, CO2) followed by
+    // the six background species in BG_NAMES order. The ParaView writers use this so the
+    // plotted composition is ONE list from ONE source (split), rather than the three naming
+    // conventions it grew: WaterVapour in g/kg from the raw field, CO2 from the raw tracer,
+    // and q_<name> for the background. See README item 61.
+    inline const char* const* SPECIES_NAMES() {
+        static const char* n[8] = {"H2O", "CO2", "N2", "CH4", "NH3", "H2", "CO", "SO2"};
+        return n;
+    }
+
     struct Composition {
         double M_mean   = 0.0;   // mean molar mass of the full mixture   [kg/mol]
         double R_mix    = 0.0;   // gas constant of the full mixture      [J/(kg K)]
