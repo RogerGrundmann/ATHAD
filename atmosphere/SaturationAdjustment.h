@@ -69,6 +69,13 @@ private:
         const char* e = getenv("ATM_SAT_NO_ALPHA"); return (e && atoi(e) != 0); }();
     static inline const bool sat_trace = [](){
         const char* e = getenv("ATM_SAT_TRACE"); return (e && atoi(e) != 0); }();
+    // The two traced levels default to this fork's condensation band and are settable, so the
+    // same file serves ATHAD_COND, whose interesting levels are elsewhere (its column condenses
+    // from the sea up, not only at the top).
+    static inline const int trace_i1 = [](){
+        const char* e = getenv("ATM_SAT_TRACE_I1"); return e ? atoi(e) : 37; }();
+    static inline const int trace_i2 = [](){
+        const char* e = getenv("ATM_SAT_TRACE_I2"); return e ? atoi(e) : 38; }();
     static constexpr int trace_j = 90;    // equator on the 181-point grid
     static constexpr int trace_k = 0;
 
@@ -174,7 +181,7 @@ private:
                         ? 1.0
                         : 1.0 / (1.0 + std::exp(-(T - m.t_00) / fade_K));
 
-                    const bool trace = sat_trace && (i == 37 || i == 38)
+                    const bool trace = sat_trace && (i == trace_i1 || i == trace_i2)
                                        && j == trace_j && k == trace_k;
                     if (trace)
                         std::printf("\n[sat] i=%d  T=%.2f K  p=%.5f bar  q_v=%.6f  q_sat=%.6f"
