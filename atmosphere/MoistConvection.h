@@ -130,12 +130,34 @@ namespace AtomMoistConvection {
     constexpr double a_u = 3.0e-2;                                      // [·/·]
     constexpr double a_d = 3.0e-2;                                      // [·/·]
     constexpr double vel = 1.1;                                         // [·/·]
-    constexpr double p_stat_beg = 1000.0;                               // in [hPa]
-    constexpr double p_stat_end = 970.0;                                // in [hPa]
-    constexpr double p_stat_Cloud_Base = 900.0;                         // in [hPa]
-    constexpr double p_stat_base = 800.0;                               // in [hPa]
-    constexpr double p_stat_diff = 200.0;                               // in [hPa]
-    constexpr double p_stat_midlevel = 700.0;                           // cloud-base pressure threshold for midlevel convection [hPa] (Bechtold 2001)
+    // ================= THE CONVECTIVE PRESSURE THRESHOLDS =================
+    // ATHAD: the convective thresholds are FRACTIONS OF THE LOCAL SURFACE PRESSURE, not
+    // absolute hPa. Ported from ATHAD_COND 2026-08-20, where this repair was made when the
+    // fork was cut; ATHAD is the tree that kept the defect, documented as "deep convection is
+    // simply inactive" and left alone.
+    //
+    // These were 1000/970/900/800/200/700 hPa — Earth surface pressures, and the exact
+    // pattern CLAUDE.md warns about: a number that is true at 1013.25 hPa written as a bare
+    // literal inside a physics kernel. At 250 bar the whole column sits above 1000 hPa except
+    // its top ~70 km, so every scan keyed to them ran in the TOP FEW LEVELS instead of the
+    // bottom few. Fractions are the Earth values divided by 1013.25, so the scheme behaves
+    // identically on Earth and travels correctly to any surface pressure.
+    //
+    // WHAT THE REPAIR DOES NOT DO, MEASURED (README item 63): it does not move ATHAD's cloud
+    // base. The base stays at level 37 (236.4 km) with the LFS at 38 in the same 99 of 173
+    // columns as before, because what pins it is not the pressure gate but INVARIANT 2 —
+    // water is supercritical below ~177 km and sub-saturated up to 236 km, so the cloud-base
+    // test q_v_u >= scale*q_sat cannot be met lower down whatever the gate allows. Item 61
+    // closed with "the blocker is the trigger levels"; the trigger levels were a second lock
+    // on a door that thermodynamics had already bolted. In ATHAD_COND, whose sea surface is
+    // saturated by construction, the same repair is load-bearing — which is why it was made
+    // there first.
+    constexpr double f_stat_beg        = 1000.0 / 1013.25;              // 0.9869 of p_surf
+    constexpr double f_stat_end        =  970.0 / 1013.25;              // 0.9573
+    constexpr double f_stat_Cloud_Base =  900.0 / 1013.25;              // 0.8882
+    constexpr double f_stat_base       =  800.0 / 1013.25;              // 0.7895 (unused, kept with its siblings)
+    constexpr double f_stat_diff       =  200.0 / 1013.25;              // 0.1974 (a DEPTH)
+    constexpr double f_stat_midlevel   =  700.0 / 1013.25;              // 0.6908, Bechtold (2001)
     constexpr double t_add_u = 0.2;                                     // in [K]
     constexpr double q_v_u_add = 1.0e-4;                                // in [kg/kg]
     constexpr double coeff_recurr = 0.1; 
@@ -150,14 +172,6 @@ namespace AtomMoistConvection {
     // M_max in rhsForcing (~10× any realistic value).
     constexpr double M_max = 3.0;                                       // [kg/(m²s)] (also used in rhsForcing safe_cap)
 
-    // Cloud-base mass-flux coefficient (fix #3, 2026-06-23). The old seed M_u,base = ρ·u
-    // used the RESOLVED vertical velocity (~cm/s at the LCL) → M_u≈0.03 kg/m²s, below
-    // coeff_recurr(0.1) in 100% of columns → the updraft branch never activated → P_conv≡0
-    // ([[project_convective_precip_zero]]). Convective updrafts are SUB-GRID: seed from the
-    // parcel buoyancy instead — M_u,base = ρ·c_mb·√(2·CAPE) (convective velocity scale
-    // w_b = c_mb·√(2·CAPE)). c_mb≈0.03 gives w_b~0.4–1.3 m/s and M_u~0.4–1.3 kg/m²s for
-    // CAPE~100–1000 J/kg (healthy ~0.3, clamp_M ceiling 3.0), and activates the branch for
-    // any CAPE≳6 J/kg. Cf. the CAPE-seed prototype in [[project_arabian_coast_precip_spike]].
     constexpr double c_mb = 0.003;                                      // [·] cloud-base mass-flux coefficient (0.03 over-drove: M_u pegged clamp, maxT→57C, stratiform→16mm/d; 10x down → M_u~0.3 healthy)
 }
 /*
@@ -507,7 +521,7 @@ private:
     // m.convection_perturbation (set in param.py / config XML):
     //
     //   0 – fixed offsets: δT = t_add_u, δq = q_v_u_add  for all columns
-    //   1 – Bechtold (2008) for shallow columns (cloud depth < p_stat_diff):
+    //   1 – Bechtold (2008) for shallow columns (cloud depth < f_stat_diff * m.p_stat.x[0][j][k]):
     //           δT = α · H_s / (ρ · c_p · w*)
     //           δq = α · E  / (ρ · w*)
     //       where w* = (g/T · z_BL · H_s/(ρ·c_p))^(1/3)  [Deardorff 1970]
@@ -565,14 +579,14 @@ private:
                 // instability, not surface fluxes → fixed T offset, CC-scaled moisture.
                 // convection_mode controls whether midlevel clouds are non-precipitating
                 // (updraftEntrainment), not how they are triggered.
-                if(m.p_stat.x[i_base][j][k] < p_stat_midlevel){
+                if(m.p_stat.x[i_base][j][k] < f_stat_midlevel * m.p_stat.x[0][j][k]){
                     delta_T_sfp[j][k] = t_add_u;
                     delta_q_sfp[j][k] = q_cap;
                     continue;
                 }
 
                 // Deep convection: leave at zero (Bechtold 2008: α = 0 for deep)
-                if((m.p_stat.x[i_base][j][k] - m.p_stat.x[i_lfs][j][k]) >= p_stat_diff)
+                if((m.p_stat.x[i_base][j][k] - m.p_stat.x[i_lfs][j][k]) >= f_stat_diff * m.p_stat.x[0][j][k])
                     continue;
 
                 // Part A — surface MOISTURE flux from the T-responsive Dalton evaporation
@@ -657,7 +671,7 @@ private:
                     auto [dcdr, dcdthe, dcdphi, c_ijk] = entrainmentGradients(i, j, k);
 
                     if((m.p_stat.x[local_i_Base][j][k]
-                        - m.p_stat.x[local_i_LFS][j][k]) >= p_stat_diff) {
+                        - m.p_stat.x[local_i_LFS][j][k]) >= f_stat_diff * m.p_stat.x[0][j][k]) {
                         m.E_u.x[i][j][k] =                              // local moisture convergence by entrainment
                             - r_h_i / c_ijk
                             * (m.u.x[i][j][k] * dcdr
@@ -717,7 +731,7 @@ private:
                     auto [dcdr, dcdthe, dcdphi, c_ijk] = entrainmentGradients(i, j, k);
 
                     if((m.p_stat.x[local_i_Base][j][k]
-                        - m.p_stat.x[local_i_LFS][j][k]) >= p_stat_diff) {
+                        - m.p_stat.x[local_i_LFS][j][k]) >= f_stat_diff * m.p_stat.x[0][j][k]) {
                         m.E_u.x[i][j][k] =                              // local moisture convergence by entrainment
                             - r_h_i / c_ijk
                             * (m.u.x[i][j][k] * dcdr
@@ -762,7 +776,7 @@ void findCloudBaseLFS() {
             for (int k = 0; k < m.km; k++) {
 
                 for (int i = 0; i < m.im; i++) {
-                    if (m.p_stat.x[i][j][k] <= p_stat_beg) {
+                    if (m.p_stat.x[i][j][k] <= f_stat_beg * m.p_stat.x[0][j][k]) {
                         i_deep_beg_local[j][k] = i;
                         m.Deep_beg.x[i][j][k]  = height_table[i];
                         break;
@@ -770,7 +784,7 @@ void findCloudBaseLFS() {
                 }
 
                 for (int i = m.im - 1; i >= 0; i--) {
-                    if (m.p_stat.x[i][j][k] >= p_stat_end) {
+                    if (m.p_stat.x[i][j][k] >= f_stat_end * m.p_stat.x[0][j][k]) {
                         i_deep_end_local[j][k] = i;
                         m.Deep_end.x[i][j][k]  = height_table[i];
                         break;
@@ -779,17 +793,17 @@ void findCloudBaseLFS() {
 
 
 
-                // Both scans above may find nothing, leaving the index at its -1 sentinel:
-                // the first fires only where p_stat <= p_stat_beg (1000 hPa), which on an
-                // atmosphere whose whole column sits above that threshold never happens.
-                // The two other consumers of this index (initUpdraft, CloudBaseUpdate)
-                // already guard the sentinel; these two loops did not, and indexed
-                // t.x[-1][j][k]. On Earth the scan always fires by level 1 (p_surf ~1013 hPa)
-                // so the defect is latent there; ATHAD's 250 bar column makes it live.
-                // NOTE: skipping the column is only a bounds fix. The convective thresholds
-                // p_stat_beg/end/Cloud_Base/base (1000/970/900/800 hPa) are absolute
-                // Earth-surface pressures and are meaningless at 250 bar — they must become
-                // fractions of surface pressure. Until then deep convection is simply inactive.
+                // Both scans above may find nothing, leaving the index at its -1 sentinel.
+                // While the thresholds were absolute hPa the first scan fired only where
+                // p_stat <= 1000 hPa, which on a column that sits entirely above 1000 hPa
+                // never happens; the two other consumers of this index (initUpdraft,
+                // CloudBaseUpdate) already guarded the sentinel, these two loops did not,
+                // and indexed t.x[-1][j][k]. On Earth the scan always fires by level 1
+                // (p_surf ~1013 hPa) so the defect was latent there and live here.
+                // With the thresholds now fractions of p_surf the first scan fires by
+                // construction — p_stat falls below 0.9869 p_surf within the first layer of
+                // any column — so this guard is unreachable rather than universal. It stays:
+                // a bounds guard should not rest on an argument about the physics above it.
                 if (i_deep_beg_local[j][k] < 0 || i_deep_end_local[j][k] < 0) continue;
 
                 for (int i = i_deep_beg_local[j][k]; i < m.im; i++) {
@@ -813,7 +827,7 @@ void findCloudBaseLFS() {
                     if(m.q_c_u.x[i][j][k] <= 0.0) m.q_c_u.x[i][j][k] = 0.0;
 
                     if (m.q_v_u.x[i][j][k] >= scale * q_sat_col[i] && cloud_t_weight > 0.01
-                            && m.p_stat.x[i][j][k] <= p_stat_Cloud_Base) {  // cloud base must be above 900 hPa
+                            && m.p_stat.x[i][j][k] <= f_stat_Cloud_Base * m.p_stat.x[0][j][k]) {  // cloud base above 0.888 p_surf
                         i_Base_local[j][k]     = i;
                         m.CloudBase.x[i][j][k] = height_table[i] * cloud_t_weight;
                         break;
@@ -926,12 +940,12 @@ void findCloudBaseLFS() {
 
                 // Shallow and midlevel convection are non-precipitating:
                 // set delta_i_c beyond any reachable cloud depth so K_p stays zero.
-                // Midlevel: cloud base above p_stat_midlevel (700 hPa), Bechtold (2001).
+                // Midlevel: cloud base above f_stat_midlevel * p_surf (0.69), Bechtold (2001).
                 bool is_shallow   = m.convection_mode >= 1
                                     && (m.p_stat.x[i_base][j][k]
-                                        - m.p_stat.x[i_lfs][j][k]) < p_stat_diff;
+                                        - m.p_stat.x[i_lfs][j][k]) < f_stat_diff * m.p_stat.x[0][j][k];
                 bool is_midlevel  = m.convection_mode >= 2
-                                    && m.p_stat.x[i_base][j][k] < p_stat_midlevel;
+                                    && m.p_stat.x[i_base][j][k] < f_stat_midlevel * m.p_stat.x[0][j][k];
                 double delta_i_c  = (is_shallow || is_midlevel) ? 1.0e9
 //                                  : (is_land_surf_jk ? 3000.0 : 1500.0); // Tiedtke (1989)
                                   : (is_land_surf_jk ? 1000.0 : 500.0); // Bechtold (2001)
@@ -971,7 +985,7 @@ void findCloudBaseLFS() {
                         auto [dcdr, dcdthe, dcdphi, c_ijk] = entrainmentGradients(i, j, k);
 
                         if((m.p_stat.x[i_base][j][k]
-                            - m.p_stat.x[i_lfs][j][k]) >= p_stat_diff) {
+                            - m.p_stat.x[i_lfs][j][k]) >= f_stat_diff * m.p_stat.x[0][j][k]) {
                             m.E_u.x[i][j][k] =                          // local moisture convergence by entrainment
                                 - r_h_i / c_ijk
                                 * (m.u.x[i][j][k] * dcdr
@@ -1632,7 +1646,7 @@ void findCloudBaseLFS() {
 */
     // Compute i_Base_local[j][k] = first i where ∫ -c·E_u dz becomes positive, per column.
     // Integrates from i_deep_beg_local[j][k] to i_LFS_local[j][k].
-    // Rejects high-altitude results: cloud base must be below p_stat_base (800 hPa).
+    // Rejects high-altitude results: cloud base must be below f_stat_Cloud_Base * p_surf.
     void CloudBaseUpdate() {
         using namespace AtomMoistConvection;
         #pragma omp parallel for collapse(2) schedule(static)
@@ -1643,7 +1657,8 @@ void findCloudBaseLFS() {
                 if(i_beg < 0 || i_end <= i_beg) continue;
                 const int i_simpson = simpsonCxEu(j, k, i_beg, i_end);
                 if(i_simpson >= 0 && i_simpson < m.im
-                        && m.p_stat.x[i_simpson][j][k] <= p_stat_Cloud_Base   // reject high-altitude outliers
+                        && m.p_stat.x[i_simpson][j][k]
+                           <= f_stat_Cloud_Base * m.p_stat.x[0][j][k]   // reject high-altitude outliers
                         // Cause #8: old condition (i_simpson > i_Base_local) only raised
                         // i_base, widening the stale-initUpdraft region below cloud base
                         // on every call.  Take the lowest (surface-nearest) valid base instead.

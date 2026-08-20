@@ -480,12 +480,16 @@ void cAtmosphereModel::paraview_vtk_radial(string &Name_Bathymetry_File,
     dump_radial("TauLayer", tau_layer, 1.0, i_radial, Atmosphere_vtk_radial_File);
     dump_radial("BruntVaisala_N2", brunt_N2, 1.0, i_radial, Atmosphere_vtk_radial_File);
     dump_radial("PsiMerid", Psi, 1.0, i_radial, Atmosphere_vtk_radial_File);
-    dump_radial("Ubud_pgf", ubud_pgf, 1.0, i_radial, Atmosphere_vtk_radial_File);
-    dump_radial("Ubud_cor", ubud_cor, 1.0, i_radial, Atmosphere_vtk_radial_File);
-    dump_radial("Ubud_advv", ubud_advv, 1.0, i_radial, Atmosphere_vtk_radial_File);
-    dump_radial("Ubud_advh", ubud_advh, 1.0, i_radial, Atmosphere_vtk_radial_File);
-    dump_radial("Ubud_diff", ubud_diff, 1.0, i_radial, Atmosphere_vtk_radial_File);
-    dump_radial("Ubud_buoy", ubud_buoy, 1.0, i_radial, Atmosphere_vtk_radial_File);
+    // Ubud_* dropped from the VTK output 2026-08-20: six radial-momentum-budget fields
+    // per slice was a third of the file for a diagnostic that is read as min/max in
+    // Results_Atm, not as a field. The arrays are still computed and still printed
+    // there; only the dumps are off. Uncomment to put them back.
+//  dump_radial("Ubud_pgf", ubud_pgf, 1.0, i_radial, Atmosphere_vtk_radial_File);
+//  dump_radial("Ubud_cor", ubud_cor, 1.0, i_radial, Atmosphere_vtk_radial_File);
+//  dump_radial("Ubud_advv", ubud_advv, 1.0, i_radial, Atmosphere_vtk_radial_File);
+//  dump_radial("Ubud_advh", ubud_advh, 1.0, i_radial, Atmosphere_vtk_radial_File);
+//  dump_radial("Ubud_diff", ubud_diff, 1.0, i_radial, Atmosphere_vtk_radial_File);
+//  dump_radial("Ubud_buoy", ubud_buoy, 1.0, i_radial, Atmosphere_vtk_radial_File);
 
     dump_radial_2d("Tropopause", Tropopause, 1.0, Atmosphere_vtk_radial_File);
 
@@ -746,12 +750,16 @@ void cAtmosphereModel::paraview_vtk_zonal(string &Name_Bathymetry_File,
     dump_zonal("TauLayer", tau_layer, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
     dump_zonal("BruntVaisala_N2", brunt_N2, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
     dump_zonal("PsiMerid", Psi, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
-    dump_zonal("Ubud_pgf", ubud_pgf, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
-    dump_zonal("Ubud_cor", ubud_cor, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
-    dump_zonal("Ubud_advv", ubud_advv, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
-    dump_zonal("Ubud_advh", ubud_advh, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
-    dump_zonal("Ubud_diff", ubud_diff, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
-    dump_zonal("Ubud_buoy", ubud_buoy, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
+    // Ubud_* dropped from the VTK output 2026-08-20: six radial-momentum-budget fields
+    // per slice was a third of the file for a diagnostic that is read as min/max in
+    // Results_Atm, not as a field. The arrays are still computed and still printed
+    // there; only the dumps are off. Uncomment to put them back.
+//  dump_zonal("Ubud_pgf", ubud_pgf, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
+//  dump_zonal("Ubud_cor", ubud_cor, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
+//  dump_zonal("Ubud_advv", ubud_advv, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
+//  dump_zonal("Ubud_advh", ubud_advh, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
+//  dump_zonal("Ubud_diff", ubud_diff, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
+//  dump_zonal("Ubud_buoy", ubud_buoy, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
 
     dump_zonal("Topography", h, 1.0, k_zonal, Atmosphere_vtk_zonal_File);
     dump_zonal("height", aux_t, 1e-3, k_zonal, Atmosphere_vtk_zonal_File);
@@ -968,12 +976,16 @@ void cAtmosphereModel::paraview_vtk_longal(string &Name_Bathymetry_File,
     dump_longal("TauLayer", tau_layer, 1.0, j_longal, Atmosphere_vtk_longal_File);
     dump_longal("BruntVaisala_N2", brunt_N2, 1.0, j_longal, Atmosphere_vtk_longal_File);
     dump_longal("PsiMerid", Psi, 1.0, j_longal, Atmosphere_vtk_longal_File);
-    dump_longal("Ubud_pgf", ubud_pgf, 1.0, j_longal, Atmosphere_vtk_longal_File);
-    dump_longal("Ubud_cor", ubud_cor, 1.0, j_longal, Atmosphere_vtk_longal_File);
-    dump_longal("Ubud_advv", ubud_advv, 1.0, j_longal, Atmosphere_vtk_longal_File);
-    dump_longal("Ubud_advh", ubud_advh, 1.0, j_longal, Atmosphere_vtk_longal_File);
-    dump_longal("Ubud_diff", ubud_diff, 1.0, j_longal, Atmosphere_vtk_longal_File);
-    dump_longal("Ubud_buoy", ubud_buoy, 1.0, j_longal, Atmosphere_vtk_longal_File);
+    // Ubud_* dropped from the VTK output 2026-08-20: six radial-momentum-budget fields
+    // per slice was a third of the file for a diagnostic that is read as min/max in
+    // Results_Atm, not as a field. The arrays are still computed and still printed
+    // there; only the dumps are off. Uncomment to put them back.
+//  dump_longal("Ubud_pgf", ubud_pgf, 1.0, j_longal, Atmosphere_vtk_longal_File);
+//  dump_longal("Ubud_cor", ubud_cor, 1.0, j_longal, Atmosphere_vtk_longal_File);
+//  dump_longal("Ubud_advv", ubud_advv, 1.0, j_longal, Atmosphere_vtk_longal_File);
+//  dump_longal("Ubud_advh", ubud_advh, 1.0, j_longal, Atmosphere_vtk_longal_File);
+//  dump_longal("Ubud_diff", ubud_diff, 1.0, j_longal, Atmosphere_vtk_longal_File);
+//  dump_longal("Ubud_buoy", ubud_buoy, 1.0, j_longal, Atmosphere_vtk_longal_File);
 
     dump_longal("Topography", h, 1.0, j_longal, Atmosphere_vtk_longal_File);
 

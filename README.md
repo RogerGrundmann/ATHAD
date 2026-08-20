@@ -4406,6 +4406,89 @@ the measurement.
     by "measured basaltic-melt albedos are 0.05–0.10" **in both trees**, and in ATHAD_COND that
     justification does not apply — open, and a physics decision rather than a repair.
 
+63. **The convective triggers are fractions of surface pressure now — it changes nothing in
+    ATHAD, and it is the reason ATHAD_COND's updraft condenses for the first time.**
+
+    **The defect.** `p_stat_beg/end/Cloud_Base/base/diff/midlevel` were
+    1000/970/900/800/200/700 **hPa**, absolute Earth surface pressures, inside every scan that
+    locates the convective column. At 250 bar the whole column sits above 1000 hPa except its
+    top ~70 km, so each scan ran in the **top** few levels instead of the bottom few. They are
+    now fractions of the column's own surface pressure (`f_stat_* = Earth value / 1013.25`,
+    times `p_stat.x[0][j][k]`), which is what they always meant and which reproduces Earth's
+    geometry exactly on Earth.
+
+    **ATHAD_COND already had this repair** — made when the fork was cut, unconditional, with a
+    comment explaining that at 60 bar the broken triggers do not merely fail, they *fire in the
+    wrong place*. ATHAD was the straggler, carrying the defect with a note saying so. Ported
+    verbatim rather than re-derived, so the two files now agree line for line.
+
+    **MEASURED IN ATHAD — 40 iterations, and it is a null:**
+
+    | | absolute hPa | fractions of p_surf |
+    |---|---|---|
+    | dominant cloud base / LFS | level 37 / 38, **99 of 173 columns** | **identical** |
+    | second most common | 37–38 / 38–39, 39 columns | **identical** |
+    | cells with `\|M_u\|` > `coeff_recurr` | 7 of 7421 | **7** |
+    | `max c_u` | 0.000000 | **0.000000** |
+    | OLR @40 | 323.49 W/m² | 323.75 (+0.08 %, inside the item-61 envelope) |
+    | `Psi_max` | 105588.89 | 105588.86 |
+
+    **WHY IT IS A NULL, AND WHY THAT IS THE RESULT: INVARIANT 2 PINS THE CLOUD BASE, NOT THE
+    GATE.** The cloud-base test is `q_v_u >= scale·q_sat`, and this column's own startup profile
+    prints `condensation possible from i = 37 (236.4 km) upward` — water is supercritical below
+    ~177 km and sub-saturated to 236 km, so **no threshold setting can put a cloud base lower**.
+    The pressure gate was a second lock on a door the thermodynamics had already bolted.
+
+    **Item 61's closing claim is corrected.** It ended "the blocker is the trigger levels, not
+    the thermodynamics" and made fixing them the top microphysics job. Fixed, they move nothing:
+    ATHAD's convective layer is one cell deep because its **condensing** layer is four cells
+    deep and the LNB sits one level above the base. That is a property of a 250 bar supercritical
+    column, not a defect.
+
+    **THE SAME REPAIR IS LOAD-BEARING NEXT DOOR, WHICH IS HOW THE NULL BECAME INFORMATIVE.**
+    Same code, same fractions, opposite outcome, because the regime differs:
+
+    | | ATHAD (250 bar, supercritical) | ATHAD_COND (60 bar, 513 K sea) |
+    |---|---|---|
+    | cloud base | 236.4 km | **1786–2200 m**, at the sea |
+    | LFS | 256.0 km — one level up | **20 517–28 130 m** |
+    | convecting cells, zonal slice | 7 of 7421 | **5218 of 11041** |
+    | `max \|M_u\|` | 0.135 kg/m²s | **3.0000 — pinned at `M_max`** |
+
+    **AND OVER THAT 20 km COLUMN, `g·z` FINALLY DOES SOMETHING.** Item 52 found the geopotential
+    missing from the static energy, item 53 predicted that adding it would let the updraft cool
+    and condense, and item 61 added it and got nothing — in ATHAD, where there is no ascent.
+    Run in ATHAD_COND (`ATM_MC_GEOPOTENTIAL=1`, 40 iterations, one binary, env-only A/B):
+
+    | | off | on |
+    |---|---|---|
+    | **`max c_u`** | **0.000000 g/kg/s** | **7.19e-04 @ 24 854 m, 37°S** |
+    | `max s_u`, and where | 2.5460 at **661 m** | 2.9111 at **24 854 m** |
+    | `max MC_t` | 1.030e-03 K/s | 1.175e-03 (+14 %) |
+    | `max q_c_u` | 7.0537 g/kg at 1017 m | 7.1392 at 1785 m |
+    | OLR, photosphere, `Psi_max`, precipitable water | 273.70, 65.9 km, 40515.96, 160626.497 | **all identical** |
+
+    **The updraft condenses for the first time in either fork**, and it does so 25 km up, which
+    is where a parcel that has cooled at g/cp_l = 4.81 K/km for 23 km should first saturate. The
+    `max s_u` location moving from the cloud base to the top of the column is the same statement
+    read off the other field: with the geopotential in, static energy is largest where `g·z` is
+    largest, as a static energy must be. **Nothing integrated moves** — OLR, photosphere, Ψ and
+    the water column are identical to every printed digit — which is the albedo wall again, and
+    expected: the deck is already saturated at `albedo_cloud`.
+
+    **What this closes and what it opens.** Closed: the three-item chain 52 → 53 → 61 about the
+    geopotential now has its demonstration, in the fork whose geometry allows one. Open: `M_u`
+    is **pinned at `M_max` = 3.0 kg/(m²s)** in ATHAD_COND, so half that model's convective mass
+    flux is a cap rather than a result — the next Earth constant to size, and the third time this
+    file has found a cap standing where a measurement should be.
+
+    **VTK bookkeeping in the same pass, both trees:** the six `Ubud_*` dumps per slice are
+    commented out (a third of the file for a diagnostic read as a min/max in `Results_Atm`,
+    which still prints it), and `Q_Latent`/`Q_Sensible` are written in all three writers —
+    ATHAD_COND's **zonal** pair was still commented while its radial and longal were live, so
+    the slice most looked at was the one missing them. Both trees now emit 84 scalar fields per
+    zonal slice, verified against freshly written files.
+
 ## Remaining work
 
 - **The updraft is one grid level deep, and that is now the top microphysics job** (item 61).

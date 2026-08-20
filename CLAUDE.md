@@ -358,8 +358,11 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   companions: `tau_layer` (per-layer dtau, the resolution measure), `ubud_*` (the **radial**
   momentum budget, absent while θ and φ both had one — item 28's spurious 293-rms radial
   acceleration was invisible for exactly this reason), `brunt_N2` (measures "neutrally stratified by
-  construction" instead of asserting it, and tests invariant 4), and `Psi` as a field. All in
-  ParaView and Results.
+  construction" instead of asserting it, and tests invariant 4), and `Psi` as a field. In
+  ParaView and Results — except `ubud_*`, whose six VTK dumps per slice were dropped on
+  2026-08-20 (a third of the file for a diagnostic that is read as a min/max, not as a field).
+  The arrays are still computed and still printed by `Results_Atm`; only the dumps are
+  commented out, in one block per writer, so restoring them is a four-line edit.
   **Field names changed in item 61**: the Brunt-Vaisala frequency squared is `brunt_N2` in the code
   and `BruntVaisala_N2` in the VTK files — it used to be `N2`, in the same file as nitrogen's
   `q_N2`. The eight species are written under bare names (`H2O CO2 N2 CH4 NH3 H2 CO SO2`), all
@@ -409,8 +412,11 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   holds in **one level and 7 of 181 columns**. So item 53's "the only thing between this scheme and an
   updraft that condenses" is **retracted: the blocker is geometry, not thermodynamics.** The one place
   the geopotential does act is the DOWNDRAFT, which descends from the LFS to the surface, and it moves
-  `MC_t` by 5× — peak heating −81 %, peak cooling ×33. Improving a term nothing consumes is why the
-  knob stays off: fix the trigger levels first.
+  `MC_t` by 5× — peak heating −81 %, peak cooling ×33.
+  **ITEM 63 FIXED THE TRIGGER LEVELS AND ATHAD DID NOT MOVE — invariant 2 is what pins the base here,
+  not the gate. The demonstration is in ATHAD_COND**, whose 20 km convective column turns `max c_u`
+  from 0 to 7.19e-04 g/kg/s at 24.9 km with the knob on, nothing integrated moving. So the knob is
+  right and ATHAD is simply not a place it can pay.
 - **The radial momentum balance is the pressure gradient and nothing else** (item 42, measured): `ubud_pgf` 1.15 against `ubud_cor` **exactly 0** (non-traditional Coriolis is genuinely off, not just documented off), `ubud_advh` 0.0085, and `ubud_buoy` **1e-6** — item 34's extra `*dt` measured, the buoyancy body force is ~1e6 down and effectively absent. **`ATM_BUOY_CONSISTENT=1` corrects it and is default off** (item 50): the consistent coefficient is 2e7× the shipped one and 7.2× the 336 recorded as having driven a polar vertical runaway. It also repairs the Boussinesq reference temperature — the shipped term divides the anomaly by `t_0` = 273.15 K instead of `T_ref`, overstating the force 5.49× at the surface and 0.96× at the top. With (a) alone at 20 iterations, `ubud_buoy` goes 0 → −34.6 (~4× the pressure gradient), the radial wind rises 19.5 % and Ψ moves 0.0002 %; `buoyancy_ramp` was 0.067 there, so that is **not** a stability result. `brunt_N2` — the Brunt-Vaisala frequency squared, renamed from `N2` in item 61 so it cannot be read as nitrogen — confirms invariant 4: 0 through the column, 2.74e-4 s⁻² only in the isothermal skin — **but read item 55 before quoting it**: `brunt_N2` is formed at the end of `densities()` from the `t` and `p_stat` that same call just wrote, so it re-reads the prescribed profile and is identical to 0.03–0.5 % across runs whose `p_dyn` radial structure differs by **2500×**. Below the skin its non-zero part is a **second-order truncation error** of the adiabat integration (`brunt_N2/dz²` constant to ±30 % over a 12× range of `dz`), i.e. the grid stretch, not stratification. It measures the atmosphere only under `ATM_PROGNOSTIC_T=1`.
 - **The imbalance is not a second number** (item 43). `t_skin` is **262.95 K at every one of ten
   diagnostics across 200 iterations** while the OLR falls 338.85 → 281.59, so σT_skin⁴ = 271.2 is
@@ -555,12 +561,17 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   one of those runs and `t_skin` is 262.96 in every one. Treat any OLR number as a statement
   about `t_skin` until that is broken. (The 0.9 %-over-8× figure this file used to carry was
   written before any scan existed — see item 29.)
-- **Deep convection is inactive, and item 61 measures how inactive.** Its trigger thresholds
-  (1000/970/900/800 hPa) are absolute Earth surface pressures and never fire at 250 bar; they need to
-  become fractions of surface pressure. What that produces is a "deep" convective layer **one grid
-  level thick** — cloud base 236.4 km, LFS 256.0 km, adjacent levels in the majority of columns — so
-  the updraft recurrence never executes, no parcel ascends, and `c_u` is identically zero for a reason
-  that has nothing to do with the microphysics. **This is now the top microphysics job**, ahead of the
-  geopotential, which is written and waiting for it.
+- **The convective triggers are fractions of surface pressure now (item 63), and the convective
+  layer is STILL one grid level thick — because invariant 2 pins it, not the triggers.** The
+  thresholds were 1000/970/900/800/700/200 hPa, absolute Earth surface pressures, so every scan ran
+  in the top few levels of a 250 bar column; they are `f_stat_* * p_stat.x[0][j][k]` now, ported from
+  ATHAD_COND which had the repair from the day it was forked. **Measured: nothing moves** — cloud base
+  level 37, LFS 38, the same 99 of 173 columns, the same 7 active cells, `c_u` still 0. The cloud-base
+  test is `q_v_u >= scale*q_sat` and this column cannot saturate below 236.4 km, so no threshold can
+  put a base lower. **Item 61's "the blocker is the trigger levels" is withdrawn**: ATHAD's convective
+  layer is thin because its CONDENSING layer is thin. The same repair is load-bearing in ATHAD_COND
+  (base at the sea, LFS at 20-28 km, 47 % of columns convecting), and it is there that
+  `ATM_MC_GEOPOTENTIAL` finally produces updraft condensation — `max c_u` 0 -> 7.19e-04 g/kg/s at
+  24.9 km. **The geopotential needed an ascent to act on, and ATHAD has none.**
 - `time_start/end/step` remain because the time-slice loop is still structural, though only
   one slice ever runs.
