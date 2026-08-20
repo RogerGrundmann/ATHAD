@@ -4365,6 +4365,47 @@ the measurement.
     `python/run_rename40` for (c); `python/run_gz_ctrl`, `python/run_null_same` and
     `python/run_null_23t` for (d).
 
+62. **The startup energy-balance check was lit by 62 % of the model's own insolation, and the
+    albedo in it was a literal.** Four lines of a printout, both defects in
+    `cAtmosphereModel.cpp`:
+
+    **(1) The planetary mean of a latitude parabola is not the average of its endpoints.**
+    `short_wave_radiation[]` is `P(φ) = pole + (equator − pole)·(1 − (2φ/π)²)`, and a flux's
+    planetary mean is its cos(latitude)-weighted mean, which integrates in closed form to
+    `equator·8/π² + pole·(1 − 8/π²)`. At the shipped 298/0 that is **241.55 W/m² = S/4** for
+    S = 0.71·1361 — exactly what `param.py` says the pair was *fitted* to deliver. The shipped
+    `0.5·(equator + pole)` gave **149.0**, 61.7 % of it.
+
+    **(2) The albedo was a bare `0.08` commented "molten surface"**, duplicating the
+    `albedo_surface` parameter that exists for it — and inherited unchanged into ATHAD_COND,
+    whose surface is a 240 °C **ocean**. `param.py`'s own complaint about `albedo_pole`/
+    `albedo_equator` being "configuration theatre" applies in reverse: a literal beside a
+    parameter of the same meaning is a second source of truth, and it is the one nobody edits.
+
+    | | shipped | repaired |
+    |---|---|---|
+    | TOA mean | 149.00 W/m² | **241.55** |
+    | absorbed + geothermal | 287.08 W/m² | **372.23** |
+    | implied `t_skin` | 266.75 K | **284.64 K** |
+    | reported gap to the configured 254 K | 12.75 K | **30.64 K** |
+
+    **Diagnostic-only, and that is the whole of the good news.** `planetaryShortWave()` has
+    always done the cos-weighting correctly, so the `t_skin` fixed point, the OLR and every
+    result in this file are untouched — verified: the runtime line still reads `absorbed +
+    geothermal 271.63 W/m² from albedo 0.4965`, i.e. 241.6 W/m² of insolation, as it always
+    did. But this estimate is *the* line that judges whether the configured `t_skin` is
+    consistent with the budget, and it was **17.9 K out** in the reassuring direction. The
+    print now also states the insolation and the albedo it used, so the next reader can check
+    it without reading the source.
+
+    Found by asking whether `rad_equator_short`/`rad_pole_short` could be wrong "because the
+    surface is water" in ATHAD_COND. They cannot — they are TOA fluxes, and the surface-absorbed
+    error they are suspected of is one this file already fixed once (the 116/71 pair). **The
+    suspicion was right about the neighbourhood and wrong about the parameter**, which is how
+    the two defects above turned up. `albedo_surface` = 0.08 is still justified in `param.py`
+    by "measured basaltic-melt albedos are 0.05–0.10" **in both trees**, and in ATHAD_COND that
+    justification does not apply — open, and a physics decision rather than a repair.
+
 ## Remaining work
 
 - **The updraft is one grid level deep, and that is now the top microphysics job** (item 61).
