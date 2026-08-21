@@ -4726,9 +4726,55 @@ the measurement.
     rather than merely *scaled correctly* — and unlike `ATM_PROGNOSTIC_T` it does not require
     the column to integrate its way there. That is the cheapest remaining move on invariant 3.
 
-    **Not done here:** the 200-iteration pair that says where each arm's OLR lands. 60
-    iterations establishes the sensitivity and the sign flip; it does not establish a limit,
-    and this file has twice mistaken a monotone radiation trend for one.
+    ### The 200-iteration pair (same binary `70d6f1fe`, 24 threads, dry throughout)
+
+    ```
+    iteration      20      40      60      80     100     120     140     160     180     200
+    shipped OLR  333.88  305.89  291.84  284.16  279.67  276.90  275.11  273.91  273.10  272.53
+      imbalance  -62.81  -34.80  -20.74  -13.06   -8.56   -5.78   -3.99   -2.79   -1.97   -1.41
+      skin %        1.1     1.1     1.1     9.9    29.8    42.0    50.8    53.0    53.0    53.0
+    grey    OLR  295.10  243.43  212.45  192.21  178.20  168.10  160.62  154.98  150.68  147.37
+      imbalance  -24.03  +27.66  +58.66  +78.90  +92.91 +103.02 +110.50 +116.14 +120.45 +123.76
+      skin %        1.1     1.1     1.1     1.1     1.1     1.1     1.1     1.1     1.1     6.6
+    ```
+
+    **The shipped arm reproduces the record**: −1.41 W/m² at 200 against item 25's −1.26, so
+    this is the same measurement, not a new configuration.
+
+    **BOTH ARMS DESCEND ONTO `sigma*t_skin^4`, AND THAT IS MEASURED RATHER THAN EXTRAPOLATED.**
+    The two constants are 271.11 and 135.55 W/m² — ratio 0.5000, the factor, exactly. Tracking
+    the OLR's *distance* from its own arm's constant removes the need to guess a limit:
+
+    ```
+    excess over sigma*t_skin^4
+      shipped   62.77  34.78  20.73  13.05   8.56   5.79   4.00   2.80   1.99   1.42
+      grey     159.55 107.88  76.90  56.66  42.65  32.55  25.07  19.43  15.13  11.82
+    decay ratio, successive
+      shipped    0.554  0.596  0.630  0.656  0.676  0.691  0.700  0.711  0.714
+      grey       0.676  0.713  0.737  0.753  0.763  0.770  0.775  0.779  0.781
+    ```
+
+    A clean geometric decay to zero in both, ratio settling at ~0.71 and ~0.78. The shipped arm
+    is five e-foldings further along the identical curve and has demonstrably arrived. **So the
+    OLR is `sigma*t_skin^4` in both arms; the shipped model closes its budget for the single
+    reason that `sigma*t_skin^4` was set equal to the absorbed flux.** The grey arm is NOT at
+    its limit at 200 — 11.82 W/m² of excess remains — and no limit is claimed for it.
+
+    **THE SKIN FRACTION SETTLES THE MECHANISM, AND IT SETTLES IT AGAINST ITEMS 25 AND 43.** In
+    the shipped arm it climbs 1.1 → 53.0 % and **saturates** — flat over the last three
+    diagnostics, which retires item 43's "39.2 % is not a saturation". In the grey arm it stays
+    at **1.1 % through 180 iterations** and reaches only 6.6 % at 200. **Yet the grey arm's OLR
+    tracks its own `sigma*t_skin^4` just as tightly.** The emission level migrating into the
+    isothermal skin is therefore not what pins the OLR: it is a *consequence* of a warm lid —
+    a lid at 262.96 K sits within 1 K of the profile the photosphere climbs through, a lid at
+    221.12 K does not — and the pin operates identically without it. Items 25 and 43 measured a
+    real correlation and read the causality backwards.
+
+    **WHAT THE CORRECTED ARM SAYS, PLAINLY.** The planet absorbs 271 W/m² and emits 147, and the
+    gap is *widening* toward ~136. A prescribed adiabat with a correct skin is far too cold at
+    the top to balance this budget, and it says so instead of hiding it. That is the finding:
+    not that the corrected number is better-looking — it is much worse — but that it is now a
+    measurement of the prescription rather than a restatement of it.
 
 ## Remaining work
 

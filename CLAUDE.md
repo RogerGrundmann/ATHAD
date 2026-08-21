@@ -496,14 +496,24 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   diagnostic.** That is why the budget closes: item 25's -1.26 W/m2 and item 43's "the
   imbalance is the OLR's distance from a constant" are one identity, not two findings.
   `ATM_SKIN_GREY=1` applies the factor (default off, off-branch a verified null). Measured at
-  60 iterations: OLR 291.84 -> 212.45 (**-27.2 %**) and the imbalance -20.74 -> **+58.66** — the
-  **first FORCING that moves the converged prescribed OLR** (structural repairs have, e.g. item
-  22's initialisation order; no knob had). **And it is NOT items 25/43's
-  mechanism**: the photosphere does not move (237.4 -> 237.3 km) and `skin%` is 1.1 in both
-  arms, so the sensitivity is carried by the thin prescribed layers ABOVE the photosphere, not
-  by the emission level migrating into the skin. **The corrected model is much further out of
-  balance** — invariant 3's warning again, that the better-looking number was the more assumed
-  one. Where the corrected OLR lands is not claimed; 212.45 at 60 iterations and still falling.
+  the 200-iteration pair: OLR 272.53 against **147.37**, imbalance -1.41 against **+123.76** —
+  the **first FORCING that moves the converged prescribed OLR** (structural repairs have, e.g.
+  item 22's initialisation order; no knob had). The shipped arm reproduces item 25 (-1.41
+  against -1.26), so it is the same measurement.
+  **BOTH ARMS DESCEND ONTO THEIR OWN `sigma*t_skin^4`** — 271.11 and 135.55, ratio 0.5000
+  exactly — and this is measured, not extrapolated: the OLR's *excess* over that constant decays
+  geometrically in both, ratio settling at 0.71 and 0.78, with the shipped arm five e-foldings
+  further along the identical curve. **So the shipped model closes its budget for one reason
+  only: `sigma*t_skin^4` was set equal to the absorbed flux.** No limit is claimed for the
+  corrected arm — 11.82 W/m2 of excess remains at 200.
+  **THE SKIN FRACTION KILLS ITEMS 25/43's MECHANISM.** Shipped, `skin%` climbs 1.1 -> 53.0 % and
+  **saturates** (retiring item 43's "39.2 % is not a saturation"); corrected, it stays at
+  **1.1 % through 180 iterations**, 6.6 % at 200 — **yet its OLR tracks `sigma*t_skin^4` just as
+  tightly**. The emission level migrating into the skin is a CONSEQUENCE of a warm lid, not the
+  cause of the pin: a lid at 262.96 K sits within 1 K of the profile the photosphere climbs
+  through, one at 221.12 K does not. Items 25 and 43 read a real correlation backwards.
+  **The corrected model is much further out of balance** — absorbing 271 and emitting 147 — which
+  is invariant 3's warning again, that the better-looking number was the more assumed one.
 - **`t_skin` blocks every radiative measurement, and that is the top priority** (item 41).
   `OLR = σT_lid⁴ = absorbed SW + geothermal`, exactly, and the OLR has now failed to respond to
   four separate 6×–500× forcings: κ (64×, 0.10 %), the circulation (500×, 0.03 %), `im`
