@@ -100,6 +100,61 @@ cAtmosphereModel::~cAtmosphereModel(){
 }
  
 #include "cAtmosphereDefaults.cpp.inc"
+
+/*
+*
+*/
+// THE SKIN TEMPERATURE OF A GREY ATMOSPHERE IS NOT ITS EFFECTIVE TEMPERATURE.
+//
+// Both sites that set t_skin — the startup estimate in the composition printout and the
+// fixed-point relaxation in updateSkinTemperature() — solve
+//
+//     sigma * t_skin^4 = absorbed SW + geothermal = F                             (WRONG)
+//
+// which is the definition of the EFFECTIVE EMISSION temperature T_eff: the temperature a
+// black body would need to radiate the planet's whole budget. It is not the temperature of
+// the top of the column. The optically thin top sees no downward flux at all, so it absorbs
+// only the upward stream and re-emits half of it up and half of it down:
+//
+//     sigma * T_skin^4 = F / 2   ->   T_skin = T_eff / 2^(1/4)                    (RIGHT)
+//
+// This model already contains that result, twice. MultiLayerRadiation's flux sweep reduces
+// at the top, where dn -> 0, to sigma*T^4 = up/2 — and its comment says so in as many words,
+// "the classical skin temperature, which this model has until now been PRESCRIBING as
+// t_skin". The direct solver's validated eps -> 0 limit is T_i = T_s/2^(1/4), the same
+// factor. So the radiation solver and the prescription that overwrites its answer disagree
+// by 2^(1/4), and the prescription wins every iteration.
+//
+// The history is visible in the startup comment above: the first version took
+// T_skin = (OLR/2sigma)^(1/4) and was replaced because the OLR it read was itself a model
+// output, which is circular. The circularity was the real defect and removing it was right.
+// The factor of 2 went out with it, and nothing put it back.
+//
+// WHY THIS IS THE t_skin/OLR PROBLEM AND NOT MERELY A 42 K ERROR. densities() sets the whole
+// upper column to max(t_skin, T_ad), so the lid is exactly t_skin and the reported OLR
+// descends onto sigma*t_skin^4. Choosing t_skin so that sigma*t_skin^4 equals F makes
+// "OLR -> absorbed" an ALGEBRAIC IDENTITY: the budget closes because the top was assigned the
+// temperature at which it closes. That is the -1.26 W/m2 residual of README item 25 and the
+// "the imbalance is identically the OLR's distance from a constant" of item 43 — one missing
+// factor of 2, in the one place where it converts a diagnostic into a tautology. With F/2 the
+// identity cannot form: sigma*T_skin^4 = F/2 != F, so the model's distance from balance
+// becomes something it has to earn.
+//
+// NOT BY THE MECHANISM ITEMS 25 AND 43 PROPOSED. They blamed the photosphere migrating into
+// the isothermal skin. Measured across the A/B (README item 67), the photosphere does not move
+// — 237.4 -> 237.3 km — and "emission from isothermal skin" is 1.1 % of columns in BOTH arms,
+// while the OLR moves 27 %. The sensitivity is carried by the optically thin prescribed layers
+// ABOVE the photosphere. Item 43's rising skin fraction is real; it is not the carrier.
+//
+// ATM_SKIN_GREY=1 applies the factor. Default off and bit-identical when unset, per this
+// repo's convention for a knob still being measured.
+static double skinTargetFromFlux(double F_net, double sigma)
+{
+    static const bool grey_skin = [](){
+        const char* e = getenv("ATM_SKIN_GREY"); return e && atoi(e) != 0; }();
+    return std::pow(F_net / ((grey_skin ? 2.0 : 1.0) * sigma), 0.25);
+}
+
 /*
 *
 */
@@ -218,11 +273,18 @@ void cAtmosphereModel::initComposition(){
     // Skin temperature of the optically thin top, DERIVED from the energy budget rather
     // than prescribed.
     //
-    // The top of the column is isothermal and radiative, and in equilibrium it must emit
-    // what the planet absorbs: sigma*T_skin^4 = SW_absorbed + geothermal. Setting t_skin
-    // by hand is circular — the first attempt took T_skin = (OLR/2sigma)^(1/4) from a
-    // previously MEASURED OLR, and the model then dutifully reproduced an OLR of
-    // sigma*T_skin^4, which says nothing except that the arithmetic is consistent.
+    // The top of the column is isothermal and radiative, and in equilibrium the PLANET must
+    // emit what it absorbs. That is a statement about the whole column, and the sentence
+    // that used to stand here turned it into one about the top layer:
+    // sigma*T_skin^4 = SW_absorbed + geothermal. It is not — that is the effective emission
+    // temperature T_eff, and the top layer is at T_eff/2^(1/4). See skinTargetFromFlux()
+    // above (README item 67); ATM_SKIN_GREY=1 applies the factor.
+    //
+    // Setting t_skin by hand is circular — the first attempt took T_skin = (OLR/2sigma)^(1/4)
+    // from a previously MEASURED OLR, and the model then dutifully reproduced an OLR of
+    // sigma*T_skin^4, which says nothing except that the arithmetic is consistent. THE
+    // CIRCULARITY WAS THE MEASURED OLR, NOT THE FACTOR OF 2, and removing the first took the
+    // second out with it.
     //
     // This is a one-shot estimate, not an iterated fixed point: the albedo it uses is the
     // clear-sky SURFACE value, whereas the cloud deck that forms above the condensation
@@ -260,7 +322,7 @@ void cAtmosphereModel::initComposition(){
         constexpr double w_cos = 0.8105694691387022;
         const double sw_mean   = w_cos * rad_equator_short + (1.0 - w_cos) * rad_pole_short;
         const double absorbed  = (1.0 - albedo_surface) * sw_mean + geothermal_flux;
-        const double t_skin_eq = std::pow(absorbed / sigma, 0.25);
+        const double t_skin_eq = skinTargetFromFlux(absorbed, sigma);
 
         cout << "        TOA insolation (cos-weighted) .... = " << sw_mean << " W/m2"
              << "   (equator " << rad_equator_short << ", pole " << rad_pole_short << ")" << endl;
@@ -327,10 +389,19 @@ bool cAtmosphereModel::planetaryShortWave(double& albedo_mean, double& sw_mean,
 // One relaxation step of the t_skin fixed point.
 //
 // t_skin is the temperature of the isothermal top that ThermoAtm::densities() imposes
-// wherever the adiabat falls below it. That top is optically thick, so the emission level
-// sits there and the OLR the model reports is identically sigma*t_skin^4 — verified by
-// running the model at 254 K and at 240 K and getting 236.01 and 188.13 W/m2, against
-// sigma*T^4 = 236.01 and 188.13. Prescribing t_skin therefore prescribes the OLR.
+// wherever the adiabat falls below it, and the OLR the model reports descends onto
+// sigma*t_skin^4 — verified by running the model at 254 K and at 240 K and getting 236.01
+// and 188.13 W/m2, against sigma*T^4 = 236.01 and 188.13. Prescribing t_skin therefore
+// prescribes the OLR.
+//
+// README ITEM 67 CORRECTS THE TARGET THIS RELAXES TOWARD. The line below solved
+// sigma*target^4 = F, which is T_eff; the top layer of a grey atmosphere is at
+// T_eff/2^(1/4). The consequence was not a 42 K error in a corner: it made
+// "the energy budget closes" an identity, because the lid was being assigned the very
+// temperature whose emission equals the planet's whole energy input. Measured at the
+// shipped configuration, eps at the lid is 0.0068 and sigma*T_lid^4 came out 271.10 W/m2
+// against an absorbed SW + geothermal of 271.10 W/m2 — six figures, every iteration.
+// See skinTargetFromFlux() and ATM_SKIN_GREY.
 //
 // This does not repair that. What it repairs is the CONSISTENCY of the prescription: the
 // configured 254 K came from a one-shot estimate using the clear-sky albedo (0.08), while
@@ -352,7 +423,7 @@ void cAtmosphereModel::updateSkinTemperature(bool report)
     const double in_mean = abs_mean + geothermal_flux;
     if(!(in_mean > 0.0)) return;
 
-    const double target = std::pow(in_mean / sigma, 0.25);
+    const double target = skinTargetFromFlux(in_mean, sigma);
     const double t_old  = t_skin;
     t_skin += std::min(1.0, t_skin_relax) * (target - t_skin);
 

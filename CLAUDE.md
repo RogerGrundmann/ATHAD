@@ -123,7 +123,7 @@ the outputs predictions. These are inputs, in rough order of how much they move 
 | `kappa_H2O` / `kappa_CO2` / `kappa_bg` | 0.01 / 0.001 / 1e-6 m²/kg | Factor-of-2 uncertain, and **not a lever on the converged OLR at all**: 64× moves it 0.10 % (item 29), confirmed with a converged solver — 0.14 % over 16× (item 30) |
 | `geothermal_flux` | 150 W/m² | Open. The ≥195 W/m² argument is retracted, and item 25 makes it worse: it enters the `t_skin` fixed point, so it helps set the very flux it was being compared against |
 | `t_surf_equator` / `t_surf_pole` | 1500 / 1450 K | **Prescribed, not solved** |
-| `t_skin` | 254.0 K start, relaxes to 262.96 | **Now the prime suspect** (item 25): it is a fixed point of σT⁴ = absorbed, the prescribed profile's top is isothermal at it, and the converged OLR falls onto it |
+| `t_skin` | 254.0 K start, relaxes to 262.96 | **The prime suspect, and item 67 says why**: its fixed point solves σT⁴ = absorbed, which is T_eff, where the grey skin value T_eff/2^(1/4) belongs — so the lid is assigned the planet's whole energy input as its emission and the budget closes by construction. 2^(1/4) too warm; `ATM_SKIN_GREY=1` corrects it |
 | insolation | 0.71 S₀ | Faint young Sun at 4.4 Ga |
 | `omega` | 3.17e-4 (5.5 h day) | Earth–Moon angular-momentum inversion (item 40): 5.5 h **is** the Moon at 5.95 R_E, 4.35× modern. Robust for a good reason — the Moon from 3 to 10 R_E spans only 5.0–6.1 h, so the bracket needs no tidal chronology. **Two Hadean-specific torques are omitted and neither is bounded**: thermal atmospheric tides on ~250× Earth's air mass (on Venus they spin the planet the *other* way) and dissipation in a molten surface. And the high-angular-momentum impact scenarios (Ćuk & Stewart 2012, Canup 2012) break conservation outright, toward a *shorter* day. Nothing observational reaches 4.4 Ga |
 | `cell_lat_scale` | 0.33, scaling the **Hadley edge only** | Config parameter since item 32; **default was Earth's 1.0 for everything measured before it**. Held–Hou puts the edge at 5.1° because Ro_T is **1/12.5 of** Earth's (0.0048 against 0.0598) — smaller, so the cells are narrower; read the other way the argument inverts. Item 36: scaling every anchor left cells 10/40/40° wide with the extratropics a bare ramp, so item 31's scan compared layouts that differed in more than width |
@@ -238,6 +238,16 @@ traces are ~71 % of the background by mass.
 C++ class, file and function names are kept **identical to `ATOM_Precipitation`** so fixes
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
 `config_athad.xml`, `pyathad`). Preserve that.
+
+**Twenty-four defects found so far. The twenty-fourth is the first that is not inherited at all
+— ATHAD wrote it** (item 67): `t_skin`'s fixed point solves `sigma*T^4 = F` where the grey skin
+relation is `sigma*T^4 = F/2`, so the transparent lid is assigned the planet's entire energy
+input as its emission and the energy budget closes by construction. It has the twenty-first's
+shape rather than the Earth-constant shape — a wrong formula with the right one written in a
+comment nearby, here in the very file the prescription overwrites — and it arrived through a
+*correct* repair that removed a circular measured-OLR reference and took the `/2` out with it.
+**The lesson: when you remove a bad term from an expression, check what else was in the
+parentheses.**
 
 **Twenty-three defects found in the inherited code so far, all latent on Earth and live here.**
 The pattern is consistent and worth expecting: *Earth's numbers as bare literals inside
@@ -472,6 +482,28 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   **Open**: the effective emission temperature is 476 K against 368 K at `tau_above = 1`, so
   emission comes from deeper and hotter than the photosphere. Understand that before spending
   more integration. Also: `restart_stride = 0` did NOT disable the restart dump.
+- **THE `t_skin` PIN HAS A CAUSE AND IT IS A MISSING FACTOR OF 2** (item 67). Both sites that
+  set `t_skin` solve `sigma*t_skin^4 = absorbed SW + geothermal`, which is the planet's
+  EFFECTIVE EMISSION temperature; the top layer of a grey atmosphere is at `T_eff/2^(1/4)`,
+  because it sees no downward flux and re-emits half of what passes up through it. 263.07 K
+  against 221.22 K. **All shortwave is deposited at the surface** (one site, MLR's surface
+  balance), so this is the classical skin problem and `sigma*T_skin^4 = F/2` is exact, not a
+  fit. **`MultiLayerRadiation` already contains the right relation twice** — the flux sweep's
+  top boundary reduces to `sigma*T^4 = up/2` and its comment says so, and the direct solver's
+  validated `eps -> 0` limit is `T_s/2^(1/4)` — so the solver and the prescription that
+  overwrites it disagree by 2^(1/4) every iteration. **Consequence: a lid of emissivity 0.0068
+  is prescribed to emit 271.10 W/m2 against an absorbed 271.10 W/m2, six figures, every
+  diagnostic.** That is why the budget closes: item 25's -1.26 W/m2 and item 43's "the
+  imbalance is the OLR's distance from a constant" are one identity, not two findings.
+  `ATM_SKIN_GREY=1` applies the factor (default off, off-branch a verified null). Measured at
+  60 iterations: OLR 291.84 -> 212.45 (**-27.2 %**) and the imbalance -20.74 -> **+58.66** — the
+  **first FORCING that moves the converged prescribed OLR** (structural repairs have, e.g. item
+  22's initialisation order; no knob had). **And it is NOT items 25/43's
+  mechanism**: the photosphere does not move (237.4 -> 237.3 km) and `skin%` is 1.1 in both
+  arms, so the sensitivity is carried by the thin prescribed layers ABOVE the photosphere, not
+  by the emission level migrating into the skin. **The corrected model is much further out of
+  balance** — invariant 3's warning again, that the better-looking number was the more assumed
+  one. Where the corrected OLR lands is not claimed; 212.45 at 60 iterations and still falling.
 - **`t_skin` blocks every radiative measurement, and that is the top priority** (item 41).
   `OLR = σT_lid⁴ = absorbed SW + geothermal`, exactly, and the OLR has now failed to respond to
   four separate 6×–500× forcings: κ (64×, 0.10 %), the circulation (500×, 0.03 %), `im`

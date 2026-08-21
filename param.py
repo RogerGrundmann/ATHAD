@@ -135,6 +135,19 @@ def main():
             # previously MEASURED OLR, which is circular — the model then reproduced an OLR of
             # sigma*T_skin^4 and confirmed nothing but its own arithmetic.
             #
+            # THE FORMULA ABOVE IS WRONG AND README ITEM 67 IS THE CORRECTION. sigma*T^4 = F
+            # gives the EFFECTIVE EMISSION temperature of the planet, not the temperature of
+            # its top layer. All shortwave in this model is deposited at the surface (one
+            # site, MultiLayerRadiation.h's surface energy balance), so the atmosphere is a
+            # pure grey long-wave medium and the classical skin result is exact:
+            # sigma*T_skin^4 = F/2, i.e. T_skin = T_eff/2^(1/4), 41.9 K colder at this budget.
+            # The repair that removed the circularity above removed the /2 with it — the
+            # circular part was reading a measured OLR, never the factor of 2.
+            #
+            # So this 254.0 is 2^(1/4) too warm, and so is everything the fixed point below
+            # relaxes it to. It is kept as the default because ATM_SKIN_GREY is default-off
+            # while the long run is being made; the corrected start would be 213.6 K.
+            #
             # This is now the STARTING value of an iterated fixed point, not a fixed input.
             # With t_skin_relax > 0 the model re-derives it in the loop against its OWN mean
             # albedo — the clear-sky value here is only where the iteration begins.
@@ -145,7 +158,9 @@ def main():
             # identically sigma*t_skin^4. Measured: t_skin = 254 K -> OLR 236.01 W/m2;
             # t_skin = 240 K -> OLR 188.13 W/m2; sigma*T^4 = 236.01 and 188.13. The OLR is an
             # INPUT wearing an output's clothes. Closing the fixed point below makes it equal
-            # the absorbed flux — which is then true by construction, not by test. Making the
+            # the absorbed flux — which is then true by construction, not by test, and item 67
+            # shows the construction is also the wrong physics: it is what makes the closure an
+            # identity rather than a result. Making the
             # OLR a genuine prediction requires letting the top find its own temperature
             # radiatively instead of having it prescribed. See the README.
             #

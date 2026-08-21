@@ -4622,6 +4622,114 @@ the measurement.
     converge, and every prognostic number measured without it — items 45, 46, 47 — was measured
     on a solver known since item 30 to be 4× wrong. Redo them, do not extend them.
 
+67. **THE t_skin/OLR PROBLEM IS A MISSING FACTOR OF 2. `t_skin` holds the planet's EFFECTIVE
+    EMISSION temperature where the top layer's SKIN temperature belongs, so the model assigns
+    its transparent lid the whole planetary energy input as its emission — and "the energy
+    balance closes" becomes an identity.**
+
+    Both sites that set `t_skin` — the startup estimate in the composition printout and the
+    fixed-point relaxation in `updateSkinTemperature()` — solve
+
+        sigma * t_skin^4 = absorbed SW + geothermal = F
+
+    That is the definition of `T_eff`, the temperature a black body needs to radiate the whole
+    budget. It is not the temperature of the top of the column. An optically thin top sees no
+    downward flux, so it absorbs only the upward stream and re-emits half up and half down:
+
+        sigma * T_skin^4 = F / 2   ->   T_skin = T_eff / 2^(1/4)
+
+    At this budget that is **263.07 K against 221.22 K — 41.9 K too warm, and a factor of two
+    in the emission.**
+
+    **THE MODEL ALREADY CONTAINS THE RIGHT RELATION, TWICE, IN THE FILE THAT THE PRESCRIPTION
+    OVERWRITES.** `MultiLayerRadiation`'s flux sweep reduces at the top, where `dn -> 0`, to
+    `sigma*T^4 = up/2`, and its comment says in as many words: *"the classical skin
+    temperature, which this model has until now been PRESCRIBING as t_skin"*. The direct
+    solver's validated `eps -> 0` limit is `T_i = T_s/2^(1/4)`, the same factor. So the
+    radiation solver and the prescription that overwrites its answer every iteration disagree
+    by 2^(1/4), and the prescription wins.
+
+    **It is exact here, not an approximation being quibbled over.** All shortwave is deposited
+    at the surface — `SW_abs` appears in exactly one place, `MultiLayerRadiation.h`'s surface
+    energy balance, and nowhere in the column — so the atmosphere is a pure grey long-wave
+    medium over a shortwave-heated surface. That is the classical skin problem, where
+    `sigma*T_skin^4 = F/2` is the exact result rather than a fit.
+
+    **WHY IT IS THE t_skin/OLR PROBLEM AND NOT A 42 K ERROR IN A CORNER.** `densities()` sets
+    the whole upper column to `max(t_skin, T_ad)`, so the lid is exactly `t_skin`. Measured at
+    the shipped configuration, 60 iterations, 24 threads:
+
+    | | shipped | `ATM_SKIN_GREY=1` |
+    |---|---|---|
+    | lid emissivity | 0.0068 | 0.0066 |
+    | `t_skin` | 262.95 K | **221.12 K** |
+    | `sigma*T_lid^4` | **271.10 W/m²** | 135.55 W/m² |
+    | absorbed SW + geothermal | **271.10 W/m²** | 271.10 W/m² |
+
+    **A layer of emissivity 0.0068 is prescribed to emit the planet's entire energy input, to
+    six figures, at every diagnostic.** That is the defect in one line. And since the OLR
+    descends onto `sigma*t_skin^4`, choosing `t_skin` so that `sigma*t_skin^4 = F` makes
+    "OLR -> absorbed" **arithmetic**. Item 25's −1.26 W/m² residual and item 43's "the
+    imbalance is identically the OLR's distance from a constant" are the same event seen
+    twice: the constant is `F`, and it is `F` because the lid was assigned the temperature at
+    which the budget closes.
+
+    **THE OLR MOVES WITH IT, AND THE IMBALANCE CHANGES SIGN.** Same binary, same 24 threads,
+    the only difference the factor of 2:
+
+    ```
+    iteration        20        40        60
+    shipped OLR   333.88    305.89    291.84     imbalance  -62.81  -34.80  -20.74
+    grey    OLR   295.10    243.43    212.45     imbalance  -24.03  +27.66  +58.66
+    ```
+
+    −27.2 % at iteration 60, and the reported imbalance goes from −20.74 to **+58.66 W/m²**.
+    **This is the first FORCING that moves the converged prescribed OLR.** It has failed to
+    respond to kappa at 64x (0.10 %), the circulation at 500x (0.03 %), `im`, and the grid
+    stretch at 6x (0.36 %) — items 29, 27, 39, 41. (Structural repairs have moved it before —
+    item 22's initialisation order halved it — but nothing that was turned as a knob.) The
+    lever was never opacity or resolution. It was the number the profile is clamped to.
+
+    **AND IT IS NOT THE MECHANISM ITEMS 25 AND 43 BLAMED.** Those attributed the pin to the
+    photosphere migrating into the isothermal skin. Here the photosphere does not move —
+    237.4 → 237.3 km, `T_ph` 370.50 → 369.84 K — and `emission from isothermal skin` is
+    **1.1 % of columns in BOTH arms**. So the OLR's sensitivity to `t_skin` is carried by the
+    optically thin layers *above* the photosphere, which are prescribed too, not by the
+    emission level sitting in the skin. Item 43's rising skin fraction is real; it is not what
+    makes the OLR follow `t_skin`.
+
+    **THE HISTORY IS IN THE REPOSITORY'S OWN COMMENTS.** `param.py` records that an earlier
+    `t_skin` of 231.3 K came from `T_skin = (OLR/2sigma)^(1/4)` and was replaced because the
+    OLR it read was a model output — circular, and correctly removed. **The circular part was
+    reading a measured OLR. The factor of 2 was never the circular part, and it went out with
+    it.** The repair is to keep the budget as the source of `F` and put the `/2` back.
+
+    **WHAT THIS DOES NOT DO.** It does not free the OLR: the top is still prescribed, just at
+    the right value, and the OLR still descends onto `sigma*t_skin^4`. It makes the closure
+    *falsifiable* rather than automatic — and the honest consequence is that the corrected
+    model is **much further out of balance**, which is invariant 3's warning arriving again:
+    the better-looking of the two numbers was the more assumed one. Where the corrected OLR
+    lands is not claimed here; at 60 iterations it is 212.45 and still falling, and this file
+    has twice been caught extrapolating a monotone radiation trend (items 30 and 45/66).
+
+    `ATM_SKIN_GREY=1` applies the factor, in `skinTargetFromFlux()`, covering both sites.
+    **Default off**, per this repo's convention for a knob still being measured, and the
+    off-branch is a verified null: every printed radiative diagnostic is identical to the
+    pre-change binary's, though the rebuild reproduces item 61's ~3e-7 residuum divergence.
+
+    **THE FOLLOW-UP THIS OPENS, AND IT IS NOW CHEAP.** An isothermal top is not the grey
+    radiative-equilibrium solution either — that is `sigma*T^4 = (F/2)(1 + 3*tau/2)`, of which
+    `F/2` is only the `tau -> 0` end. The prescription `max(t_skin, T_ad)` is the first term of
+    a profile whose second term the model can now evaluate, because item 42 made `tau_above` a
+    real array. Replacing the clamp with `max(T_rad(tau_above), T_ad)` costs one line, keeps
+    the adiabat wherever it is warmer, and gives the prescribed branch a top that is *right*
+    rather than merely *scaled correctly* — and unlike `ATM_PROGNOSTIC_T` it does not require
+    the column to integrate its way there. That is the cheapest remaining move on invariant 3.
+
+    **Not done here:** the 200-iteration pair that says where each arm's OLR lands. 60
+    iterations establishes the sensitivity and the sign flip; it does not establish a limit,
+    and this file has twice mistaken a monotone radiation trend for one.
+
 ## Remaining work
 
 - **The updraft is one grid level deep, and that is now the top microphysics job** (item 61).
