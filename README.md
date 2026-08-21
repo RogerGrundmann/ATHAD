@@ -74,6 +74,18 @@ are in [CLAUDE.md](CLAUDE.md).
 Under construction. This section records what has actually been measured — including
 the measurements that did not work out — rather than what is intended.
 
+> **BEFORE QUOTING ANY OLR OR IMBALANCE FROM THIS FILE (2026-08-21, item 67).** `t_skin` was
+> solving `sigma*T^4 = F` where the grey skin relation `sigma*T^4 = F/2` belongs — so the
+> transparent lid was assigned the planet's entire energy input as its emission, and "the
+> energy balance closes" was an identity rather than a result. The factor is in, and **on by
+> default**. Consequence: the model now absorbs 271 W/m² and emits **147** at 200 iterations,
+> imbalance **+123.76 and widening**, where before it closed to −1.41.
+>
+> **Every OLR and imbalance figure recorded below before that date was measured on the old
+> branch.** None is retracted — they are correct measurements of a branch still reachable with
+> `ATM_SKIN_GREY=0` — but none describes the shipped model. Item 67 carries the paired series
+> that does.
+
 1. **Bootstrap (done).** The tree builds and links as `libathad.a` + `cli/had`.
    Hydrosphere, paleogeography and the NASA/Scotese data pipeline are removed.
 
@@ -4712,10 +4724,32 @@ the measurement.
     lands is not claimed here; at 60 iterations it is 212.45 and still falling, and this file
     has twice been caught extrapolating a monotone radiation trend (items 30 and 45/66).
 
-    `ATM_SKIN_GREY=1` applies the factor, in `skinTargetFromFlux()`, covering both sites.
-    **Default off**, per this repo's convention for a knob still being measured, and the
-    off-branch is a verified null: every printed radiative diagnostic is identical to the
-    pre-change binary's, though the rebuild reproduces item 61's ~3e-7 residuum divergence.
+    `ATM_SKIN_GREY` applies the factor, in `skinTargetFromFlux()`, covering both sites.
+    **DEFAULT ON as of 2026-08-21**; `ATM_SKIN_GREY=0` restores the old branch, and that branch
+    is a verified null — every printed radiative diagnostic identical to the pre-change
+    binary's, though the rebuild reproduces item 61's ~3e-7 residuum divergence.
+
+    **Why this one is flipped on a single pair, when this repo's convention is measure-then-
+    wait.** The convention exists for knobs that are choices — `ATM_RAD_DIRECT`, `mc_M_max`,
+    `n_cells_hemisphere` — where the measurement decides which value is better. This is not one
+    of those. `sigma*T^4 = F` for a layer of emissivity 0.0068 is the wrong equation, and the
+    right one is written in `MultiLayerRadiation`'s own comments, twice. There is no
+    configuration in which the old branch is the physics. The pair was run to find out what the
+    correction *costs*, not whether to make it.
+
+    **WHAT IT COSTS, STATED PLAINLY.** The model is now far out of balance: 271 W/m² absorbed
+    against 147 emitted, imbalance +123.76 W/m² and widening, where before it closed to −1.41.
+    **Every OLR and imbalance figure recorded in this README and in CLAUDE.md before this date
+    was measured with the knob off.** None of them is retracted — they are correct measurements
+    of a branch still reachable with `ATM_SKIN_GREY=0` — but none of them describes the shipped
+    model any more. The paired series above is the one that does.
+
+    **And the `t_skin` = 254.0 default is still derived by the old formula.** The consistent
+    start is 213.6 K. It is left alone deliberately: 254.0 is what the measured pair above began
+    from, and changing it would mean the shipped default is described by no measurement in this
+    file. It is a fixed-point *start* that relaxes to 221.12 within a handful of radiation
+    calls, so it costs a short transient and nothing else — but it is an open inconsistency and
+    the next person to touch `t_skin` should close it and re-measure together.
 
     **THE FOLLOW-UP THIS OPENS, AND IT IS NOW CHEAP.** An isothermal top is not the grey
     radiative-equilibrium solution either — that is `sigma*T^4 = (F/2)(1 + 3*tau/2)`, of which

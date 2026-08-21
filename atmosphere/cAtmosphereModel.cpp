@@ -146,12 +146,22 @@ cAtmosphereModel::~cAtmosphereModel(){
 // while the OLR moves 27 %. The sensitivity is carried by the optically thin prescribed layers
 // ABOVE the photosphere. Item 43's rising skin fraction is real; it is not the carrier.
 //
-// ATM_SKIN_GREY=1 applies the factor. Default off and bit-identical when unset, per this
-// repo's convention for a knob still being measured.
+// DEFAULT ON since the 200-iteration pair (README item 67). This is not the usual
+// measure-then-maybe-flip case: sigma*T^4 = F for a layer of emissivity 0.0068 is not a
+// tuning choice that happened to be measured unfavourably, it is the wrong equation, and the
+// right one is written in MultiLayerRadiation's own comments. `ATM_SKIN_GREY=0` restores the
+// old behaviour for A/B.
+//
+// WHAT THE FLIP COSTS, STATED UP FRONT: the model is now far OUT of balance — 271 W/m2
+// absorbed against 147 emitted at 200 iterations, and the gap still widening — where before it
+// closed to -1.41. That is the point. The old closure was the identity this factor creates;
+// the new number measures the prescribed adiabat instead of restating the prescription. EVERY
+// OLR AND IMBALANCE FIGURE RECORDED BEFORE THIS COMMIT WAS MEASURED WITH THE KNOB OFF.
 static double skinTargetFromFlux(double F_net, double sigma)
 {
+    // Default 1. Set ATM_SKIN_GREY=0 for the legacy sigma*T^4 = F behaviour.
     static const bool grey_skin = [](){
-        const char* e = getenv("ATM_SKIN_GREY"); return e && atoi(e) != 0; }();
+        const char* e = getenv("ATM_SKIN_GREY"); return e ? atoi(e) != 0 : true; }();
     return std::pow(F_net / ((grey_skin ? 2.0 : 1.0) * sigma), 0.25);
 }
 

@@ -144,9 +144,16 @@ def main():
             # The repair that removed the circularity above removed the /2 with it — the
             # circular part was reading a measured OLR, never the factor of 2.
             #
-            # So this 254.0 is 2^(1/4) too warm, and so is everything the fixed point below
-            # relaxes it to. It is kept as the default because ATM_SKIN_GREY is default-off
-            # while the long run is being made; the corrected start would be 213.6 K.
+            # So this 254.0 is 2^(1/4) too warm. ATM_SKIN_GREY IS DEFAULT-ON as of 2026-08-21,
+            # so the fixed point below now relaxes to 221.12 K rather than to 262.96 — but THIS
+            # STARTING VALUE IS STILL DERIVED BY THE OLD FORMULA. The consistent start is
+            # 213.6 K.
+            #
+            # It is left alone deliberately, not by oversight: 254.0 is what item 67's measured
+            # 200-iteration pair started from, and changing it would leave the shipped default
+            # described by no measurement in the README. It is a fixed-point START that relaxes
+            # within a handful of radiation calls, so it costs a short transient and nothing
+            # else. Close it and re-measure together, not separately.
             #
             # This is now the STARTING value of an iterated fixed point, not a fixed input.
             # With t_skin_relax > 0 the model re-derives it in the loop against its OWN mean
