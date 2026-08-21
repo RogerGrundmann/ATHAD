@@ -51,7 +51,33 @@ private:
 
     // Precomputed constants
     static constexpr double fade_K        = 5.0;                        // transition half-width in Kelvin
-    static constexpr int    iter_prec_end = 20;
+    // ATM_SAT_ITERS — THE NEWTON LOOP'S ITERATION COUNT, AND IT IS AN EARTH CONSTANT.
+    //
+    // The loop is a DAMPED Newton iteration: each pass sets
+    //     q_v_hyp = q_v_b + omega*(q_v_target - q_v_b),   omega = 1/(1+G)
+    // and applies that as the next step, so each pass closes only a fraction omega of the
+    // remaining gap and the residual after n passes goes as (1 - omega)^n.
+    //
+    // omega is small here for the reason this file already documents at the top:
+    // G = (L/cp)*dq_sat/dT is enormous in a water-dominated atmosphere, L/cp being ~1225 K.
+    // Twenty passes therefore move the vapour only part of the way to saturation, and 20 is
+    // an Earth number — the same defect class as README item 30's n_lambda = 4 radiation
+    // sweeps, which was adequate on a 1 bar column and 4x wrong on a 250 bar one. A loop
+    // bound does not read like an Earth assumption, which is why it survives.
+    //
+    // MEASURED IN ATHAD_COND, sampled immediately after this routine: in the 138008
+    // supercooled-liquid cells, c/q_v_target runs 0.147 .. 0.9977 — the cells are left at
+    // 15-99.8 % of THEIR OWN target. Since q_v_target/q_Ice is 1.000 .. 1.292, c never
+    // reaches q_Ice, and every ice source needs c > q_Ice. That is why max S_i = 0.000000.
+    //
+    // Default 20, so unset is bit-identical.
+    static int satIters() {
+        static const int n = [](){
+            const char* e = getenv("ATM_SAT_ITERS");
+            const int v = e ? atoi(e) : 20;
+            return (v > 0) ? v : 20; }();
+        return n;
+    }
 
     // ATM_SAT_TRACE=1 — print the Newton loop for ONE cell, to answer why this routine leaves
     // ATHAD supersaturated at levels 37/38 (README item 16: q_v = 3.6x q_sat at 236.4 km and
@@ -225,7 +251,7 @@ private:
                         double q_v_hyp = q_v_b;
                         const double T_original = t_row[k] * m.t_0;
 
-                        for (int iter = 1; iter <= iter_prec_end; iter++) {
+                        for (int iter = 1; iter <= satIters(); iter++) {
                             double CND = std::max(0.0, std::min(1.0,
                                 (T - m.t_00) * t_range_inv));
                             double DEP = 1.0 - CND;
@@ -583,11 +609,11 @@ private:
                       << "   height_sat[m] = " << m.get_layer_height(i_sat)
                       << "   saturation[g/kg] = " << saturation * 1e3 << std::endl;
 
-        if (iter_prec >= iter_prec_end)
+        if (iter_prec >= satIters())
             std::cout << std::endl
                       << "      no convergent solution found in SaturationAdjustment"
                       << std::endl
-                      << "      iter_prec_end = " << iter_prec_end << std::endl
+                      << "      iter_prec_end = " << satIters() << std::endl
                       << "      iter_prec = "     << iter_prec     << std::endl
                       << "      results see above" << std::endl;
     }
