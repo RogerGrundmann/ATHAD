@@ -140,7 +140,7 @@ These are inputs, in rough order of how much they move the answer:
 | insolation | 0.71 S₀ | Faint young Sun at 4.4 Ga |
 | `omega` | 3.17e-4 (5.5 h day) | Earth–Moon angular-momentum inversion (item 40): 5.5 h **is** the Moon at 5.95 R_E, 4.35× modern. Robust for a good reason — the Moon from 3 to 10 R_E spans only 5.0–6.1 h, so the bracket needs no tidal chronology. **Two Hadean-specific torques are omitted and neither is bounded**: thermal atmospheric tides on ~250× Earth's air mass (on Venus they spin the planet the *other* way) and dissipation in a molten surface. And the high-angular-momentum impact scenarios (Ćuk & Stewart 2012, Canup 2012) break conservation outright, toward a *shorter* day. Nothing observational reaches 4.4 Ga |
 | `cell_lat_scale` | 0.33, scaling the **Hadley edge only** | Config parameter since item 32; **default was Earth's 1.0 for everything measured before it**. Held–Hou puts the edge at 5.1° because Ro_T is **1/12.5 of** Earth's (0.0048 against 0.0598) — smaller, so the cells are narrower; read the other way the argument inverts. Item 36: scaling every anchor left cells 10/40/40° wide with the extratropics a bare ramp, so item 31's scan compared layouts that differed in more than width |
-| `n_cells_hemisphere` | **5** (Earth is 3) | Default since item 38; **everything measured before it used 3**. Three unconverged arguments: 20° bands against the Rhines ~22°, no 40°-wide-cell artefact, and Ψ maxima still on their prescribed cores at 400 iterations where n = 3's migrate off. **The Rhines argument rests on `omega`** (item 40): at the nominal 5.5 h the estimate is 4.5 cells/hemisphere, selecting 4 or 5 equally, and only the short end of the 4–6 h range makes 5 clear. So n = 5 is inside the rotation uncertainty, not selected by it; the other two grounds are the stronger pair. Not a claim the model *sustains* five cells — nothing maintains an indirect cell here |
+| `n_cells_hemisphere` | **5** (Earth is 3) | Default since item 38; **everything measured before it used 3**. Three unconverged arguments: 20° bands against the Rhines ~22°, no 40°-wide-cell artefact, and Ψ maxima still on their prescribed cores at 400 iterations where n = 3's migrate off. **The Rhines argument rests on `omega`** (item 40): at the nominal 5.5 h the estimate is 4.5 cells/hemisphere, selecting 4 or 5 equally, and only the short end of the 4–6 h range makes 5 clear. So n = 5 is inside the rotation uncertainty, not selected by it; the other two grounds are the stronger pair. Not a claim the model *sustains* five cells — nothing maintains an indirect cell here. **AND UNTIL ITEM 69 FOUR OF THE FIVE TURNED THE SAME WAY**: `centreAmp` fills every middle cell with a Ferrel copy and Earth's polar template already carries the Ferrel's sense, so the prescribed `v_trop` was −3.0/+4.0/+4.0/+4.0/+0.5 and the initial Ψ was single-signed over almost the whole hemisphere. `ATM_CELL_ALTERNATE=1` imposes the parity `edgeRadialCoeff` already assumed; default off, off-branch bit-identical. So every cell-count argument above was made about a layout that was not a multi-cell circulation |
 | `cell_amp_mode` | 0 (off) | Item 33. Scaling latitudes without amplitudes multiplies the initial meridional shear by 1/s. The decay tracks the **zonal jet**, not the overturning |
 | `mc_M_max` | 100 kg/(m²s) | Convective mass-flux ceiling, a parameter since 2026-08-20 (was a bare 3.0 in **two** places). Earth's 3.0 implies σw = 2.5 m/s; ×42.97 kg/m³ here gives 107. **Never binds in ATHAD** — largest \|M\| over a 40-iteration run is 0.654, 153× below it — unlike ATHAD_COND, where 3.0 was pinned through the whole convective column |
 | `cosmo_lapse_fraction` | 1.0 (dry adiabat) | Justified: nothing condenses in the deep column |
@@ -256,7 +256,7 @@ C++ class, file and function names are kept **identical to `ATOM_Precipitation`*
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
 `config_athad.xml`, `pyathad`). Preserve that.
 
-**Twenty-four defects found so far. The twenty-fourth is the first that is not inherited at all
+**Twenty-eight defects found so far. The twenty-fourth is the first that is not inherited at all
 — ATHAD wrote it** (item 67): `t_skin`'s fixed point solves `sigma*T^4 = F` where the grey skin
 relation is `sigma*T^4 = F/2`, so the transparent lid is assigned the planet's entire energy
 input as its emission and the energy budget closes by construction. It has the twenty-first's
@@ -357,6 +357,32 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 `ffd0e0e`); report failures and limits in the README (ATURAN `74b4ded`, ATNEPT `34286b8`).
 
 ## Open risks
+
+- **THE MERIDIONAL STREAMFUNCTION DOES NOT CLOSE AT THE GROUND, AND THE VIOLATION IS 2.1× THE
+  CIRCULATION IT HIDES** (item 68). `Psi(ground)` must be 0 — `u` at `i = 0` is identically
+  0.0000 m/s at every latitude and `|Psi|` at the lid is ~0, so the column-integrated meridional
+  mass flux is forced to vanish. Measured: **9.891e13 kg/s against a 4.733e13 interior maximum**.
+  **98.7 % of it is present at iteration 1**, so it is written by the initial velocity profile,
+  not by the dynamics. Three nulls: the time-loop solver (`ATM_PRESS_SWEEPS` 64× → +0.3 %, wrong
+  direction), **`exp_rm` (a `zeta` scan to the exactly-correct metric at `ln(1.5)` → no trend,
+  and that arm is the worst of four)**, and the cell compression (ratio invariant at 2.08–2.40
+  while absolute Ψ moves 4.5×). The lever is `ATM_PROJ_SWEEPS`, the **initial** projection,
+  default **1**: 10 sweeps cut the RMS **52.5 %**, 100 sweeps 55.9 % — **it plateaus, so ~44 % is
+  structural and unexplained**. Grid-scale noise is excluded (2Δ oscillation index 0.006–0.2,
+  where a checkerboard is ~4). **Method: `Psi(ground)` must be read as an RMS over latitude, not
+  a max** — the max sits inside the Hadley cell, so a change localised elsewhere reads as
+  bit-identical to nine figures while the field moves 55 %.
+- **EVERY ZONAL (LATITUDE–HEIGHT) FIGURE MADE BEFORE 2026-08-22 WAS DRAWN ON A DISTORTED AXIS**
+  (item 70). `paraview_vtk_zonal` wrote the vertical coordinate as **level index**, which on this
+  exponentially stretched grid stretches the bottom and squashes the top by **18.6×**, varying
+  with altitude so no ParaView aspect setting could undo it. Contours, glyph angles and
+  streamline curvature all inherited it. Two smaller defects went with it: the glyph vector was
+  scaled `1/u_0` where the scalars beside it used `u_0` (**64× = u_0², direction unaffected**),
+  and it was raw m/s on an index-space geometry. Fixed: the axis is true height (plot-x/height
+  constant to 1.000000), and `uv_plot` carries the field in plot units per day. Verified against
+  physics — velocity and `dPsi/dz` agree in sign at **100 %** of sampled points, magnitudes to
+  0.2 %. **No physics reads these fields**, so no computed result changes; but any conclusion
+  drawn by eye from an older zonal plot should be re-examined.
 
 - **Drag is eliminated as the cell-decay driver, and the argument that eliminates it removes
   more than drag** (item 49). The four-arm scan returned `Psi_max` agreeing to **eight

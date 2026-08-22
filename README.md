@@ -4809,6 +4809,188 @@ the measurement.
     the top to balance this budget, and it says so instead of hiding it. That is the finding:
     not that the corrected number is better-looking — it is much worse — but that it is now a
     measurement of the prescription rather than a restatement of it.
+68. **The meridional streamfunction does not close at the ground, the violation carries TWICE
+    the mass flux of the circulation it hides, and it is written by the INITIAL VELOCITY
+    PROFILE — not by the dynamics, not by the solver, and not by `exp_rm`.**
+
+    `Psi` is a mass streamfunction, so it must vanish at the ground: no mass flows through the
+    surface. Both boundaries were checked rather than assumed — the radial velocity `u` at
+    `i = 0` is **identically 0.0000 m/s at every latitude**, and `|Psi|` at the top three levels
+    is ~0 — so the column-integrated meridional mass flux across every latitude circle is
+    forced to be zero. It is not:
+
+        Psi at the lid ......................... 0            (by construction)
+        Psi at the ground ...................... 9.891e+13 kg/s   <- must be 0
+        max |Psi| above 20 km (the real cells).. 4.733e+13 kg/s
+        ratio .................................. 2.09
+
+    So the field ParaView draws is dominated 2:1 by a continuity violation, peaked sharply at
+    +-5 deg latitude. **That is why the cells never looked like they hand off to one another:
+    there were no closed cells to see.** It decays at 0.04 %/iteration — 1.0636e14 to 9.891e13
+    over 180 iterations — i.e. it is not a transient the run works off.
+
+    **IT IS THERE BEFORE THE TIME LOOP RUNS.** A 4-iteration probe:
+
+        iteration 1 ...... Psi(ground) 1.0703e+14   ratio 2.343
+        iteration 40 ..... Psi(ground) 1.0567e+14   ratio 2.313
+
+    **98.7 % of the final non-closure is present at iteration 1.** The dynamics add essentially
+    nothing.
+
+    **THREE NULLS, EACH KILLING A PLAUSIBLE STORY.** Every arm below is byte-identical apart
+    from `output_path`; the knobs are environment variables.
+
+    - **The time-loop pressure solver is not the cause.** `ATM_PRESS_SWEEPS` 1/4/16/64 at 40
+      iterations moves the RMS of `Psi(ground)` from 2.8409e13 to 2.8502e13 — **+0.3 %, in the
+      wrong direction.** The knob is live (output is not bit-identical and runtime rises), so
+      this is a real null. Item 30's under-converged-solver shape does not repeat here.
+      Incidentally the pressure solve is only **0.104 % of the step cost per sweep**: sweeps
+      are nearly free, which is worth knowing on its own.
+    - **`exp_rm` is not the cause, and this is the first measured consequence it demonstrably
+      does NOT have.** A `zeta` scan sweeping the metric error from 13.4x to **exactly 1.00x**
+      (`zeta = ln(1.5)`, where the quadratic-stretch Jacobian is correct by construction):
+      RMS 2.841 / 3.011 / 3.029 / 2.966 e13 at `zeta` 3.0 / 2.0 / 1.5 / 0.405. No trend, and
+      the arm where the metric is exact is **the worst of the four**. `exp_rm` remains live and
+      unrepaired elsewhere (item 39); it is simply not what breaks continuity.
+    - **The cell compression is not the cause.** `cell_lat_scale` 0.33 vs 1.0 crossed with
+      `cell_amp_mode` 0 vs 1 moves absolute `Psi` by 4.5x while the closure ratio stays at
+      **2.08-2.40**. The non-closure scales with the circulation instead of being caused by the
+      compression, so it is in the profile's SHAPE at any amplitude.
+
+    **THE LEVER IS THE INITIAL PROJECTION, AND IT WAS NEVER SCANNED BECAUSE IT IS A DIFFERENT
+    KNOB.** `project_initial_velocity` exists precisely to remove "the unphysical dilatational
+    artefact of the analytical profile", runs 200 passes x **1** sweep, and was deliberately
+    decoupled from `ATM_PRESS_SWEEPS` (item 5c9a516) so that knob varies the time loop alone.
+    Measured at iteration 1:
+
+        ATM_PROJ_SWEEPS      RMS Psi(ground)     vs default
+              1 (shipped)      2.910e+13            -
+             10               1.383e+13          -52.5 %
+            100               1.284e+13          -55.9 %
+
+    **It plateaus rather than closing.** Ten sweeps buy 52 %, a further 10x buys 3.4 more, so
+    ~44 % of the non-closure is **structural and outside the projection's reach entirely**.
+    That residual is unexplained. The likeliest candidate — that the projection enforces
+    `div(rho_bar u) = 0` on a BASE-STATE density while `Psi` integrates the actual `r_humid` —
+    is a hypothesis and nothing more; five hypotheses died in the course of this item and it
+    has not been tested.
+
+    **Grid-scale noise is ruled out** as a contributor: the 2-delta oscillation index of `u`,
+    `v` and `Psi` is **0.006-0.2** across the column where a checkerboard would be ~4. Odd-even
+    decoupling on the collocated grid would have explained the residual neatly. It is not there.
+
+    **TWO METHOD NOTES, BOTH EARNED THE HARD WAY.**
+
+    - **`Psi` is the trustworthy witness and it was already in the output.** It integrates with
+      the TRUE layer thickness (`get_layer_height(i+1) - get_layer_height(i)`) and the real
+      `r_humid`, touches `exp_rm` nowhere, is antisymmetric to **0.01 %** (invariant 1), and is
+      **thread-count independent** — 8 vs 24 threads reproduce it to every printed digit, unlike
+      the OLR, which item 61 found moving 0.51 % across a thread change. Every number in this
+      item came from re-reading VTK files that had been sitting in `output_Hadean/` unexamined.
+    - **A max is the wrong norm.** `Psi(ground)` was first measured as a max over latitude, and
+      the max sits at +-5 deg inside the Hadley cell. A change localised to other cells then
+      reads as *bit-identical to nine significant figures* while the field underneath it moves
+      by 55 %. The RMS over latitude is the norm this quantity needs. Both nulls above were
+      re-verified with it and both survive.
+
+69. **Four of the five prescribed circulation cells turn the SAME WAY, because ATOM_Precipitation
+    only has three cell templates and Earth's polar cell already carries the Ferrel's sense.**
+
+    `VelocityInitializer::centreAmp` gives cell 0 the Hadley template, cell `n-1` the polar one,
+    and every cell between them a **Ferrel copy**. At the shipped `n_cells_hemisphere = 5` the
+    prescribed meridional amplitudes are
+
+        cell     0        1        2        3        4
+        v_trop  -3.0    +4.0    +4.0    +4.0    +0.5
+                Hadley  Ferrel  Ferrel  Ferrel  polar
+
+    Only cell 0 opposes the rest. The alternation cannot simply be read off the inherited table
+    either, and `6afb2a1` said so at the time: **Earth's polar template is `+0.5`, the Ferrel's
+    sign, not the Hadley's** — so the three-cell layout this was ported from is not a
+    direct/indirect/direct sequence to begin with. The port is incomplete for the plainest of
+    reasons: *"the formula only supplies edges Earth has no value for."*
+
+    Measured in the field rather than inferred from the table: at iteration 1 the northern
+    hemisphere is single-signed over almost its whole depth, with **3 sign bands at the surface,
+    not 5**, the rest being 1-5 deg slivers at cell edges.
+
+    **THE SAME FILE ALREADY ASSUMES THE ALTERNATION IT DOES NOT IMPOSE.** `edgeRadialCoeff`
+    returns `(k % 2 == 0) ? mag : -mag` — the ascent and descent branches at the cell EDGES
+    alternate by parity, which is only correct if the CORES alternate too. Shipped, `u`
+    alternates and `v` does not, so the two components disagree about how many cells there are.
+
+    **`ATM_CELL_ALTERNATE=1` imposes the parity**, matching `edgeRadialCoeff`: even `k` direct,
+    odd `k` indirect. Each template keeps its own magnitude; only the sense is imposed, by
+    flipping `v_trop` and `v_surf` together so the cell's vertical structure survives and only
+    its rotation reverses. **`w` is deliberately NOT flipped** — the zonal wind is the jet
+    structure, set by thermal-wind balance rather than by the overturning sense, and flipping it
+    would confound the measurement. Default OFF; the off-branch is **bit-identical** at all four
+    diagnostics.
+
+    **IT SURVIVES.** Counting only bands at least 8 deg wide, so edge slivers cannot inflate the
+    count, northern hemisphere:
+
+                     9km  13km  23km  36km  55km  79km
+        OFF  it10      3     3     3     1     1     2
+        OFF  it40      3     3     2     1     1     1
+        ON   it10      4     4     4     4     4     5
+        ON   it40      4     4     4     4     4     3
+
+    The shipped arm collapses to a **single hemispheric overturning above ~23 km** and keeps
+    eroding. The alternating arm holds **four counter-rotating bands from 9 to 55 km, stable
+    across all four diagnostics**. Band widths at 36.5 km: `+84` (one band, the whole
+    hemisphere) against `-14 +18 -20 +29`. `max |Psi|` is **1.057e+14 in both arms** — this is
+    a change in organisation, not in strength.
+
+    **IT IS NOT THE CONTINUITY FIX.** Mean `|Psi(ground)|` improves 7 % and the RMS 0.66 %,
+    because the dominant non-closure sits at 10 deg N in cell 0, whose sense was already
+    correct. Item 68's residual is untouched.
+
+    **What this does and does not establish.** It establishes that the co-rotating templates
+    were why the cells never turned coherently, and that the corrected state is self-consistent
+    rather than being torn apart the way the co-rotating one is. It does **not** establish that
+    the model would maintain these cells: 40 iterations is minutes of physical time (item 47),
+    and nothing here supplies the baroclinic eddy momentum flux that drives an indirect cell.
+    The honest claim is that the initial state is now coherent, which it demonstrably was not.
+
+70. **The zonal ParaView writer had three defects, and the worst of them has been distorting
+    every latitude-height figure this project has produced.**
+
+    All three are output-only — no physics reads these fields — but every zonal plot in this
+    repository's history was made through them.
+
+    - **`inv_u_0` where `u_0` belongs.** The arrays hold non-dimensional `u/u_0`, so m/s is
+      `* u_0`, which is what `dump_zonal` writes for the u/v/w SCALARS three lines above. The
+      VECTORS field divided instead, giving `u/u_0^2`. Measured in a shipped file: the scalar
+      `v-Component` and the vector's y-component differ by **exactly 64 = u_0^2** at
+      `u_0 = 8 m/s`. A uniform factor cannot rotate an arrow, so this never moved a direction —
+      it made every magnitude 64x too small and inconsistent with the scalars plotted beside it.
+      Present in `u-v-Cell`, `u-v-Updraft` and `u-v-Downdraft`.
+    - **Velocities in m/s drawn on an index-space geometry.** The points were written at
+      `x = i*dx` per LEVEL and `y = j*dy` per LATITUDE INDEX, while the vector was raw m/s. The
+      two axes are compressed by wildly different factors, so glyph angles had no relation to
+      the geometry they were drawn on. `uv_plot` is the same field converted into plot units per
+      day, so glyphs and the stream tracer share one coordinate system.
+    - **THE VERTICAL AXIS WAS LEVEL INDEX, NOT HEIGHT.** On this exponentially stretched grid
+      that is not a height axis at all: layer 0 is 1.2 km and layer 39 is 22.8 km, so index
+      space stretched the bottom of the atmosphere and squashed the top by **18.6x** — and the
+      distortion varies with altitude, so no aspect-ratio setting in ParaView could undo it.
+      Contours, glyph angles and streamline curvature all inherited it. The axis is now
+      `get_layer_height(i)` mapped onto the same span: the plot-x to height ratio is constant to
+      **1.000000** across the column, and the vertical exaggeration is one number (~30x) instead
+      of a function of height.
+
+    **VERIFIED AGAINST THE PHYSICS, NOT JUST AGAINST ITSELF.** The velocity field and
+    `dPsi/dz` agree in sign at **100 %** of sampled points with magnitudes matching to **0.2 %**
+    (0.63608 from the field against 0.63500 from the streamfunction). This family has had sign
+    errors in its diagnostics while its dynamics were correct — the Coriolis case in the
+    traps list — so the check was worth making explicitly.
+
+    With all three fixed, one cell traced around its loop reads as a closed circulation for the
+    first time: `v` reverses between surface and top on both flanks (-1.09 to +0.95 at 58 N,
+    the mirror at 38 N), `u` carries opposite signs on the two flanks at every height
+    (-0.11 against +0.10), and `Psi` crosses zero exactly where `v` does, at the cell core.
+
 
 ## Remaining work
 
