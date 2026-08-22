@@ -370,13 +370,37 @@ public:
                 // gives F = sigma*T_s^4 and T_i = T_s/2^(1/4), the classical skin
                 // temperature of a freely radiating surface.
                 //
-                // DEFAULT OFF while it is being measured, per this repo's convention, and
-                // because it does not merely change the prognostic path: the PRESCRIBED
-                // path's OLR is what 4 sweeps produce starting from the adiabat that
-                // densities() re-imposes every iteration, so converging the solver moves
-                // that number too. See README item 30 before reading any OLR across it.
+                // **DEFAULT ON SINCE 2026-08-22 (README item 71). `ATM_RAD_DIRECT=0` restores
+                // the 4-sweep Lambda iteration; every OLR recorded before that date used it.**
+                //
+                // It was default-off "while it is being measured". It has now been measured,
+                // and the Lambda iteration converges monotonically onto this solver — which is
+                // the test that matters, because it makes the closed form the ANSWER the sweeps
+                // are trying to reach rather than an alternative to them. 40 iterations,
+                // 24 threads, arms identical apart from output_path:
+                //
+                //     n_lambda = 4 (was shipped) .... 243.43 W/m2    +15.06 %
+                //     n_lambda = 64 ................. 227.55 W/m2     +7.55 %
+                //     n_lambda = 512 ................ 212.54 W/m2     +0.46 %
+                //     ATM_RAD_DIRECT=1 .............. 211.57 W/m2      0.00 %
+                //
+                // So the shipped default was **15 % high**, and the exact answer is FREE:
+                // 280.97 s against 277.34 s for the 4-sweep arm and 467 s for n_lambda = 512.
+                //
+                // This is the twentieth defect's bill: n_lambda = 4 is an Earth constant, a
+                // loop bound nobody reads as a physical assumption, adequate on a 1 bar column
+                // and 4x under-converged on a 250 bar one. Items 45-47 and 65 were produced
+                // with it, and item 66 already retracted item 45's 2927 W/m2 as its artefact.
+                //
+                // NOTE: item 30 recorded this as a 0.15 % change to the prescribed
+                // configuration. **That does not reproduce** — 13.09 % on the shipped branch
+                // and 8.69 % with ATM_SKIN_GREY=0, so item 67 amplified it but did not create
+                // it. Roughly fifteen defaults have changed since item 30 (items 38, 50-53,
+                // 57, 59, 60, 63, 67, 68, 70) and the discrepancy is not attributed. Recorded
+                // as unexplained rather than explained away.
                 static const bool rad_direct = [](){
-                    const char* e = getenv("ATM_RAD_DIRECT"); return e && atoi(e) != 0; }();
+                    const char* e = getenv("ATM_RAD_DIRECT");
+                    return !(e && atoi(e) == 0); }();
 
                 if (rad_direct) {
                     const int m1 = i_mount + 1, ntop = i_trop;

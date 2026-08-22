@@ -5009,6 +5009,42 @@ the measurement.
     (-0.11 against +0.10), and `Psi` crosses zero exactly where `v` does, at the cell core.
 
 
+71. **`ATM_RAD_DIRECT` is the default. The Lambda iteration converges onto it, so the closed
+    form is the ANSWER the sweeps were trying to reach — and the shipped 4 sweeps were 15 % high
+    at no saving in time.**
+
+    Item 30 wrote the closed-form solve and left it default-off "pending a longer measurement".
+    Item 66 ran that measurement on the prognostic column; the flag never moved. This is the
+    A/B on the *shipped prescribed* configuration, 40 iterations, 24 threads, arms identical
+    apart from `output_path`:
+
+        n_lambda = 4 (was shipped) .... 243.43 W/m2   +15.06 %   277.34 s
+        n_lambda = 64 ................. 227.55 W/m2    +7.55 %   301.10 s
+        n_lambda = 512 ................ 212.54 W/m2    +0.46 %   467.01 s
+        ATM_RAD_DIRECT=1 .............. 211.57 W/m2     0.00 %   280.97 s
+
+    **The convergence is the finding, not the difference.** Two solvers disagreeing says nothing
+    about which is right; a Lambda iteration marching 243.43 -> 227.55 -> 212.54 onto 211.57 as
+    its sweep count rises says the closed form is what the sweeps compute in the limit, and that
+    4 of them do not get there. The exact answer costs **1.3 % more wall clock than the cheapest
+    wrong one** and 40 % less than a still-unconverged 512 sweeps.
+
+    This is the twentieth defect's bill arriving. `n_lambda = 4` is an Earth constant of the
+    kind this file keeps finding, hidden where nobody looks for one — a loop bound does not read
+    as a physical assumption. Items 45-47 and 65 were all produced with it, and item 66 already
+    retracted item 45's 2927 W/m2 as its artefact.
+
+    **`ATM_RAD_DIRECT=0` restores the old branch** and is verified against it to the digit
+    (243.43 both). Every OLR in this file and in CLAUDE.md predates the flip.
+
+    **ONE DISCREPANCY, RECORDED RATHER THAN EXPLAINED.** Item 30 measured this as a **0.15 %**
+    change to the prescribed configuration. It does not reproduce: **13.09 %** on the shipped
+    branch and **8.69 %** with `ATM_SKIN_GREY=0`. So item 67 amplified the effect but did not
+    create it, and the first hypothesis — that `t_skin` had been pinning the OLR so the solver
+    could not move it — is **wrong**, measured. Roughly fifteen defaults have changed since
+    item 30 (items 38, 50-53, 57, 59, 60, 63, 67, 68, 70) and no run has been spent attributing
+    it. It is a loose end, not a resolved one.
+
 ## Remaining work
 
 - **The updraft is one grid level deep, and that is now the top microphysics job** (item 61).

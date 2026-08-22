@@ -91,7 +91,7 @@ asserted.
    at 1500 K, which flips the sign of any `p − E` denominator) and never the dilute
    `q_sat = ep·E/(p−E)` (water is the bulk gas, so there is no small parameter).
 
-3. **Radiation runs in mode 2** (direct σT⁴). Modes 0/1/3/4/5 all lean on the Scotese
+3. **Radiation runs in mode 2** (direct σT⁴), **and `ATM_RAD_DIRECT` is the default solver since 2026-08-22** (item 71): the Lambda iteration converges monotonically onto the closed form (243.43 → 227.55 → 212.54 → **211.57** W/m² at n_lambda 4/64/512/direct), so the shipped 4 sweeps were **15 % high** at no saving in time. `ATM_RAD_DIRECT=0` restores it; **every OLR in this file predates the flip**. Item 30's "0.15 %" does not reproduce (13.09 % shipped, 8.69 % with `ATM_SKIN_GREY=0`) and is unattributed. Modes 0/1/3/4/5 all lean on the Scotese
    snapshot or the 280 ppm CO₂ reference; neither exists at 4.4 Ga. Radiation must *set*
    the profile, not nudge it toward a prescribed one — **and by default it still does not**:
    `ThermoAtm::densities()` re-imposes the adiabat on `t` every iteration, overwriting
