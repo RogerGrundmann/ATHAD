@@ -4875,6 +4875,23 @@ the measurement.
     is a hypothesis and nothing more; five hypotheses died in the course of this item and it
     has not been tested.
 
+    **`ATM_PROJ_SWEEPS` DEFAULTS TO 10 SINCE 2026-08-22, AND `Psi_max` NO LONGER MEANS WHAT IT
+    MEANT.** 10 is the knee of the curve above, not a converged value; `ATM_PROJ_SWEEPS=1`
+    restores the old branch exactly. Measured at 40 iterations, 24 threads:
+
+        RMS Psi(ground) ........ 2.841e13 -> 1.325e13    -53.3 %
+        max |Psi| above 20 km .. 4.569e13 -> 5.222e13    +14.3 %   the real circulation
+        max |Psi| ANYWHERE ..... 1.057e14 -> 5.222e13    -50.6 %
+        closure ratio .......... 0.622    -> 0.254       -59.2 %
+
+    **The two maxima COINCIDE on the new default and did not on the old one.** The global
+    maximum of `Psi` has moved off the ground and into the interior — so at one sweep the
+    largest value in the streamfunction was the spurious surface flux itself, and **`Psi_max`
+    was reporting the defect rather than the circulation.** That is the whole reason `Psi_max`
+    falls 50 % while the circulation it is supposed to measure rises 14 %. Every Ψ figure in
+    this file and in CLAUDE.md predates the change; do not compare across it. **The OLR is
+    unmoved — 243.43 W/m² in both arms** — which is item 27's null again, not a surprise.
+
     **Grid-scale noise is ruled out** as a contributor: the 2-delta oscillation index of `u`,
     `v` and `Psi` is **0.006-0.2** across the column where a checkerboard would be ~4. Odd-even
     decoupling on the collocated grid would have explained the residual neatly. It is not there.

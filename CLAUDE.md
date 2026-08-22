@@ -371,7 +371,12 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   structural and unexplained**. Grid-scale noise is excluded (2Δ oscillation index 0.006–0.2,
   where a checkerboard is ~4). **Method: `Psi(ground)` must be read as an RMS over latitude, not
   a max** — the max sits inside the Hadley cell, so a change localised elsewhere reads as
-  bit-identical to nine figures while the field moves 55 %.
+  bit-identical to nine figures while the field moves 55 %. **`ATM_PROJ_SWEEPS` DEFAULTS TO
+  10 SINCE 2026-08-22** (`=1` restores the old branch): RMS Ψ(ground) −53.3 %, the real
+  circulation above 20 km **+14.3 %**, and `Psi_max` −50.6 % — because at one sweep the global
+  maximum of Ψ *was the spurious surface flux*, so **`Psi_max` was reporting the defect, not the
+  circulation**. The two maxima coincide now and did not before. **Every Ψ figure in this file
+  predates it.** The OLR is unmoved (243.43 W/m² both arms).
 - **EVERY ZONAL (LATITUDE–HEIGHT) FIGURE MADE BEFORE 2026-08-22 WAS DRAWN ON A DISTORTED AXIS**
   (item 70). `paraview_vtk_zonal` wrote the vertical coordinate as **level index**, which on this
   exponentially stretched grid stretches the bottom and squashes the top by **18.6×**, varying
