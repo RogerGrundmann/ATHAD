@@ -5045,7 +5045,87 @@ the measurement.
     item 30 (items 38, 50-53, 57, 59, 60, 63, 67, 68, 70) and no run has been spent attributing
     it. It is a loose end, not a resolved one.
 
+72. **Item 68's 44 % residual is STRUCTURAL, and the proof is that 64x the sweeps changes the
+    divergence by nothing at all. The projection has converged — to a fixed point that is not
+    divergence-free. NOT SOLVED; five mechanisms measured and excluded.**
+
+    Item 68 left `ATM_PROJ_SWEEPS = 10` as the knee of a curve that plateaus rather than closing,
+    with ~44 % of the non-closure beyond the projection's reach. This is the attempt to find out
+    why, and it does not find out why. What it establishes is the SHAPE of the thing, which is
+    worth more than the five guesses it killed.
+
+    **THE ONE MEASUREMENT THAT MATTERS.** The solver's own residual diagnostic, at 4 iterations,
+    24 threads, everything else identical:
+
+        ATM_PRESS_SWEEPS = 1   ->  div(u) rms 3.984e-02   div(rho u)/rho rms 1.611e-02
+        ATM_PRESS_SWEEPS = 64  ->  div(u) rms 3.984e-02   div(rho u)/rho rms 1.611e-02
+
+    **Identical to four significant figures under 64x the work**, on a knob that is demonstrably
+    live (item 68 verified it: output is not bit-identical and runtime rises). A relaxation that
+    does not improve with 64x more sweeps is not converging slowly — it has CONVERGED, and its
+    fixed point has non-zero divergence. That is a statement about the operator pair, not about
+    the iteration: the discrete divergence and the discrete gradient are not adjoint on this
+    stencil, so the Poisson solve finds a pressure whose correction leaves divergence behind no
+    matter how exactly it is found.
+
+    **THE MODEL HAS BEEN PRINTING THIS NUMBER ALL ALONG.** `div(rho u)/rho rms = 1.611e-02`,
+    identical at the first diagnostic and the last, appears in every run log this project has
+    ever produced. The information was never missing; it had simply never been connected to
+    `Psi(ground)`. Same lesson as item 68's — the evidence was in the output, not in a run that
+    still needed doing.
+
+    **FIVE MECHANISMS, MEASURED AND EXCLUDED.**
+
+    - **The base-state density is not it.** The projection enforces `div(rho_bar u) = 0` with
+      `m_dlnrho_dr`, which is **1-D** — a function of radius only — while `Psi` integrates the
+      full 3-D `r_humid`. Rebuilding `Psi` from the same slice with `rho_bar(r)` instead of
+      `r_humid` moves the ground RMS by **1.0 %**. The density is horizontally uniform to
+      0.3–3 % through the bulk of the mass; it varies 11 % only at 218 km, where rho = 0.25
+      kg/m³ and carries no flux.
+    - **`exp_rm` is not it, and this is the SECOND independent measurement exonerating it.**
+      Item 68's zeta scan could not see the residual because the under-converged part dominated.
+      Re-run at the new `ATM_PROJ_SWEEPS = 10` default, where the residual IS the signal:
+      RMS 1.377e13 / 1.444e13 / **1.840e13** at `zeta` = 3.0 / 1.5 / 0.405, closure ratio
+      0.273 / 0.358 / **0.486**. Making the metric EXACT makes the residual **worse**. (The arms
+      differ in grid as well as metric — at `zeta = 0.405` the surface layer is 6.1 km against
+      1.2 km — so the magnitude is confounded; the direction is not.)
+    - **It is not a grid-scale mode in the velocity.** 2-delta oscillation index of `u`, `v` and
+      `Psi` is **0.006–0.2** where a checkerboard is ~4.
+    - **It is not a Nyquist mode in `Psi(ground)` or in the pressure either.** 2-delta index
+      **0.076** for `Psi(ground)` across latitude and **0.002** for `p_dyn` at every level
+      sampled, 0.000 in the vertical. Everything is smooth.
+    - **It is not a boundary artefact.** Per-layer RMS contribution to `Psi(ground)` is
+      distributed through the entire column — the bottom four layers (0–7 km) carry **11.1 %**,
+      the 80–160 km band about **33 %**, and the top four layers (218–300 km) **0.5 %**. Every
+      layer between contributes 1.5–4.5 %.
+
+    **WHAT IT POINTS AT, AND WHY THAT IS NOT A CONCLUSION.** `PressureSolverAtm.h` already names
+    the un-done work, in the note beside `ATM_POISSON_METRIC_FIX`: *"this repairs the metric
+    POWER only; the collocated checkerboard (Rhie-Chow face reconstruction) is a separate,
+    larger port not done here."* The metric-power half was repaired and bought 18 %
+    (rms 2.625e-02 -> 2.153e-02). The Rhie-Chow half never was, and a non-idempotent collocated
+    projection is exactly a projection whose fixed point is not divergence-free.
+
+    **But the checkerboard that story predicts is not present** — see the two nulls above — so
+    it is a partial match at best and is recorded as a lead, not a diagnosis. **The residual is
+    not attributed.**
+
+    **The consequence for the model is not small.** `div(rho u)/rho` at rms 1.6e-02 and max
+    1.6e-01 is the state every ATHAD run has integrated in, and it is why `ATM_PROJ_SWEEPS = 10`
+    is a knee rather than a cure. Curing it is a numerical-methods port — face-based velocity
+    reconstruction — not a constant to correct, and it is the largest single piece of unbuilt
+    machinery this file has named.
+
 ## Remaining work
+
+- **Rhie-Chow face reconstruction is the largest piece of unbuilt machinery here** (item 72).
+  The pressure projection has CONVERGED to a fixed point that is not divergence-free —
+  `div(rho u)/rho` rms 1.611e-02 is bit-identical under 64x the sweeps — so the discrete
+  divergence and gradient are not adjoint on this collocated stencil. Five mechanisms are
+  measured and excluded (base-state density 1.0 %, `exp_rm` worse when exact, no checkerboard in
+  velocity or pressure, not a boundary artefact). `ATM_PROJ_SWEEPS = 10` is a knee, not a cure,
+  and item 68's 44 % residual is this. **It is a numerical-methods port, not a constant to fix**,
+  and the residual is NOT attributed — the checkerboard the collocated story predicts is absent.
 
 - **The updraft is one grid level deep, and that is now the top microphysics job** (item 61).
   Cloud base 236.4 km, LFS 256.0 km — adjacent levels in 99 of 173 convecting columns — so the

@@ -368,8 +368,7 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   and that arm is the worst of four)**, and the cell compression (ratio invariant at 2.08–2.40
   while absolute Ψ moves 4.5×). The lever is `ATM_PROJ_SWEEPS`, the **initial** projection,
   default **1**: 10 sweeps cut the RMS **52.5 %**, 100 sweeps 55.9 % — **it plateaus, so ~44 % is
-  structural and unexplained**. Grid-scale noise is excluded (2Δ oscillation index 0.006–0.2,
-  where a checkerboard is ~4). **Method: `Psi(ground)` must be read as an RMS over latitude, not
+  structural and unexplained**. Grid-scale noise is excluded (2Δ oscillation index 0.006–0.2, where a checkerboard is ~4). **ITEM 72 SHOWS THE RESIDUAL IS STRUCTURAL AND DOES NOT ATTRIBUTE IT**: `div(rho u)/rho` rms **1.611e-02 is bit-identical under 64× the sweeps**, so the projection has CONVERGED to a fixed point that is not divergence-free — the discrete div and grad are not adjoint on this collocated stencil. Five mechanisms excluded (base-state density 1.0 %; `exp_rm` **worse when made exact** — a second independent exoneration; no Nyquist mode in velocity, `Psi` or `p_dyn`; not a boundary artefact — it is distributed, 11 % in the bottom 7 km and 33 % at 80–160 km). The lead is **Rhie-Chow face reconstruction**, named as un-done in `PressureSolverAtm.h`, but the checkerboard that story predicts is absent, so it is a lead and not a diagnosis. **The model has been printing this residual in every run log all along.** **Method: `Psi(ground)` must be read as an RMS over latitude, not
   a max** — the max sits inside the Hadley cell, so a change localised elsewhere reads as
   bit-identical to nine figures while the field moves 55 %. **`ATM_PROJ_SWEEPS` DEFAULTS TO
   10 SINCE 2026-08-22** (`=1` restores the old branch): RMS Ψ(ground) −53.3 %, the real
