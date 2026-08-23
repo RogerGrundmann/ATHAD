@@ -385,6 +385,23 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **THE FREE-RUNNING MOIST COLUMN ESCAPES THE `t_skin` PIN AND LANDS AT HALF THE DRY COLUMN'S
+  FLUX** (item 79). 400 iterations, `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1`, moist from iteration 0:
+  OLR **102.99 W/m2** against `sigma*t_skin^4` = 135.5, with `skin%` **0.0 at all twenty
+  diagnostics**, and a photosphere that moves **half a kilometre and two kelvin** in 400
+  iterations (282.6 -> 283.1 km, 260.6 -> 260.1 K). That is the first moist emission level in
+  this model held by the column's own opacity rather than by the lid — against the prescribed
+  arm, where 79 % of columns radiate from the lid. Half of item 66's dry 223.8 W/m2, because
+  items 75-77 made the condensate real. Imbalance **+168 W/m2**: absorbing 271, emitting 103.
+  **NOT CONVERGED** — the OLR bottoms at 90.58 by iteration 100 and rises monotonically to 102.99,
+  still +0.47 over the last 20, and this file has been caught extrapolating that shape twice.
+  Stable otherwise: water conserved to +0.0007 %, surface floats to 1491.6 K. **Open and rising:
+  `max q_v` = 794.7 g/kg, still climbing, where the prescribed arm plateaued at 778.15.**
+- **`restart_stride = 0` AND `checkpoint_save_iter = -1` STILL WRITE RESTART DUMPS** (item 79) —
+  four 593 MB `.bin` files with both knobs off, 2.3 GB per run. Item 45 recorded half of this as
+  an aside; it is live. And the output file indices key off `total_iter_count`, so a
+  400-iteration run writes `panorama_900.vts`. A full-output run is 15 GB, of which 8.3 GB is the
+  panorama (`paraview_panorama_vts_flag`, independent of `checkpoint`).
 - **THE PRESCRIBED PROFILE DISCARDS THE LATENT HEATING, NOT JUST THE RADIATION'S ANSWER**
   (item 78). Invariant 3 says `densities()` overwrites what the radiation computed. Measured, it
   also overwrites what the LATENT HEAT RELEASE computed: the same cell at 256 km is **221 K in

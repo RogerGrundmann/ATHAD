@@ -5696,6 +5696,78 @@ the measurement.
     items 75-77 have made the condensate real, is not measured. **That is the run this line of
     work has been walking toward**, and it is the one to do next rather than another probe.
 
+79. **THE FREE-RUNNING MOIST COLUMN: the OLR is decoupled from `t_skin` at last, the photosphere
+    is a real emission level that barely moves, and the flux is HALF the dry column's — 103
+    against item 66's 223.8 W/m2. It is NOT converged and no limit is claimed.**
+
+    Every moist OLR this file carries is `sigma*t_skin^4` read back out (items 43, 67, 73), and
+    item 75 made it worse rather than better: with the condensate real, **79 % of columns** radiate
+    from the prescribed lid against 1.1 % before. `ATM_PROGNOSTIC_T=1` removes the lid, and item
+    66 measured that branch's DRY column converging at 223.8 W/m2. What it does with the moist
+    physics on — now that items 75-77 have made the condensate survive an iteration — had never
+    been run. 400 iterations, `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1`, `moist_phys_start_iter = 0`,
+    24 threads, 44.5 min.
+
+    ### The measurement
+
+    ```
+    iter   20    40    60    80   100   120   140   160   180   200
+    OLR  92.61 91.85 91.39 91.12 90.58 90.63 91.32 91.96 92.70 92.95
+    iter  220   240   260   280   300   320   340   360   380   400
+    OLR  94.24 95.54 96.61 97.52 98.62 99.19 100.33 101.50 102.52 102.99
+
+    photosphere  282.6 -> 283.1 km      T_ph  260.58 -> 260.13 K
+    emission from isothermal skin       0.0 % at ALL TWENTY diagnostics
+    absorbed SW + geothermal            270.96 W/m2      imbalance +167.98
+    ```
+
+    **THE PIN IS GONE, AND THIS TIME WITHOUT THE COLUMN FLYING OFF.** `sigma*t_skin^4` is
+    135.5 W/m2 and this column sits at 103, never approaching it, with `skin%` at 0.0 throughout —
+    the mechanism items 43 and 73 measured cannot operate where there is no isothermal lid. Item
+    45 reached the same escape and found 2927 W/m2 still falling; item 66 showed that was the
+    `n_lambda = 4` solver. With the converged solver AND the moist physics, the escape lands
+    somewhere physical instead.
+
+    **THE PHOTOSPHERE IS THE STRONGEST PART.** 282.6 -> 283.1 km and 260.6 -> 260.1 K across 400
+    iterations: **half a kilometre and two kelvin**. That is a genuine radiating level, held by the
+    column's own opacity, and it is what a converged photosphere should look like. Contrast the
+    prescribed arm, where the "emission level" is 79 % lid.
+
+    **AND IT IS NOT CONVERGED.** The OLR falls to a minimum of 90.58 at iteration 100, then rises
+    monotonically for 300 iterations, still gaining **+0.47 W/m2 over the last 20**. A rising,
+    slightly decelerating trend is exactly what items 30 and 45/66 were each caught extrapolating.
+    **No limit is claimed. 102.99 is where it is at 400, not where it is going.**
+
+    ### What it says, stated carefully
+
+    - **The moist prognostic column radiates less than half the dry one** — 103 against 223.8 at
+      the same iteration count and solver. That is the condensate items 75-77 made real: the
+      photosphere sits at 283 km where the air is 260 K, instead of in the dry column's warmer,
+      lower emission region.
+    - **The imbalance is +168 W/m2**: absorbing 271 and emitting 103, so the column radiates
+      **38 %** of what it takes in. Worse-looking than the prescribed arm's +135.5 and more
+      honest than it, which is invariant 3's warning arriving for the fourth time.
+    - **Stable, not merely finite.** Surface floats 1498.7 -> 1491.6 K, max cloud water 30.9 g/kg,
+      cloud ice 14.0 g/kg, water conserved to **+0.0007 %** with 0.000000 kg/kg deleted at the
+      `c` ceiling. Item 64's free-running top at supersaturation ratio 1934 does not recur.
+    - **Open, and rising: `max q_v` reaches 794.7 g/kg** and is still climbing, where the
+      prescribed arm plateaued at 778.15 (item 75). Retained supersaturation is the cost of item
+      75's whole-step rejection, and on this branch it has not plateaued within 400 iterations.
+
+    ### Two defects on the output side, found by running with plots on
+
+    - **`restart_stride = 0` AND `checkpoint_save_iter = -1` do not disable the restart dump.**
+      Four `atm_restart_0Ma_*.bin` at 593 MB each were written with both knobs off. Item 45
+      recorded the first half of this as an aside — *"`restart_stride = 0` did NOT disable the
+      restart dump"* — and it is a live defect costing **2.3 GB per run**, not a footnote.
+    - **The output file indices do not match the iteration count.** A 400-iteration run wrote
+      `panorama_900.vts` and `atm_restart_0Ma_800.bin`, so the writers key off `total_iter_count`
+      rather than the loop index. Match a file to a diagnostic with care.
+    - Sizes, for planning: 15 GB total, of which the panorama is **8.3 GB in 9 files**
+      (`paraview_panorama_vts_flag`, independent of `checkpoint`), the zonal/radial/longal slices
+      4.1 GB in 138 files, and the restarts 2.3 GB. Turning the panorama off cuts a run to ~6 GB
+      without touching the slices anything here is actually read from.
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative
