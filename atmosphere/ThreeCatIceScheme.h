@@ -131,6 +131,11 @@ public:
         applyTopography();
 
         printReport();
+        if (cap_probe)
+            printf("      CAP PROBE: P_rain cells at the cap %lld, largest value the recurrence"
+                   " wanted %.6e kg/(m2 s)  (cap %.6e)\n",
+                   g_cap_hits, g_max_want, 3.0e-3 * precip_cap_scale),
+            g_cap_hits = 0, g_max_want = 0.0;
         cout << "      ThreeCategoryIceScheme ended" << endl;
 
         auto end = std::chrono::high_resolution_clock::now();
@@ -146,6 +151,14 @@ private:
     // P_rain/P_snow/P_graupel assignment.
     static inline const bool precip_bands_fix = [](){
         const char* e = getenv("ATM_PRECIP_BANDS"); return e ? (atoi(e) != 0) : true; }();
+    // Multiplier on P_max_flux (item 77). Default 1.0 = the shipped 3.0e-3 kg/(m2 s).
+    static inline const double precip_cap_scale = [](){
+        const char* e = getenv("ATM_PRECIP_CAP");
+        const double v = e ? atof(e) : 1.0; return (v > 0.0) ? v : 1.0; }();
+    static inline const bool cap_probe = [](){
+        const char* e = getenv("ATM_ICE_CENSUS"); return e && atoi(e) != 0; }();
+    static inline long long g_cap_hits = 0;
+    static inline double g_max_want = 0.0;
 
     // diagnostic output state (set during computeColumns)
     bool rain = false;
@@ -561,7 +574,13 @@ private:
                         // inf, so the scheme stays finite (over-precipitates at worst, like the
                         // other untuned schemes — usable, not NaN). ~260 mm/d, well above any
                         // physical precip.
-                        constexpr double P_max_flux = 3.0e-3;        // kg/(m2*s) ~260 mm/d hard cap
+                        // ATHAD README item 77: the cap is a KNOB now, because it BINDS here.
+                        // 3.0e-3 kg/(m2 s) ~ 260 mm/d is "well above any physical precip" on
+                        // Earth; in ATHAD `max P_rain` sits exactly ON it (item 76). This file's
+                        // own rule, learned from item 52's MC_t: when a cap binds, find out what
+                        // it is holding back before trusting the field beneath it.
+                        // ATM_PRECIP_CAP scales it; unset = 1.0 = the shipped 3.0e-3.
+                        const double P_max_flux = 3.0e-3 * precip_cap_scale;   // kg/(m2*s)
                         // ATHAD README item 76: THE PHASE BANDS ARE EARTH'S, AND THEY DO TWO
                         // JOBS AT ONCE.
                         //
@@ -600,8 +619,14 @@ private:
                                 ? m.r_humid.x[i+1][j][k] * m.S_s.x[i+1][j][k] * step_i : 0.0;
                             const double prod_g = (t_u <  m.t_0 && t_u >= m.t_00)
                                 ? m.r_humid.x[i+1][j][k] * m.S_g.x[i+1][j][k] * step_i : 0.0;
-                            m.P_rain.x[i][j][k]    = std::min(P_max_flux, std::max(0.0,
-                                m.P_rain.x[i+1][j][k]    + prod_r));
+                            const double want_r = std::max(0.0, m.P_rain.x[i+1][j][k] + prod_r);
+                            if (cap_probe && want_r >= P_max_flux) {
+                                #pragma omp atomic
+                                g_cap_hits++;
+                                #pragma omp critical(capmax)
+                                { if (want_r > g_max_want) g_max_want = want_r; }
+                            }
+                            m.P_rain.x[i][j][k]    = std::min(P_max_flux, want_r);
                             m.P_snow.x[i][j][k]    = std::min(P_max_flux, std::max(0.0,
                                 m.P_snow.x[i+1][j][k]    + prod_s));
                             m.P_graupel.x[i][j][k] = std::min(P_max_flux, std::max(0.0,

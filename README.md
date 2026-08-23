@@ -5545,8 +5545,13 @@ the measurement.
     with **0.000000 kg/kg** deleted at the `c` ceiling, in a 200-iteration run. The water that
     falls is not lost; it is returned to the vapour a few kilometres down.
 
-    **So ATHAD's dry surface is a RESULT, not an absence.** Rain forms in this atmosphere, at the
-    maximum rate the scheme allows, and evaporates before it can arrive. That is the physical
+    **So ATHAD's dry surface is a RESULT, not an absence.** ~~Rain forms in this atmosphere, at
+    the maximum rate the scheme allows, and evaporates before it can arrive.~~ **CORRECTED BY
+    ITEM 77: that describes the FIRST ice-scheme call only.** The cap binds on call 1, on
+    `initCloudIce`'s deck, and never again — from call 2 onward no rain flux is produced at all,
+    so there is nothing falling for the supercritical column to evaporate. The conclusion stands
+    and its mechanism does not: the flux is never launched rather than launched and evaporated.
+    A maximum quoted without asking WHEN it occurred. That is the physical
     distinction between this epoch and ATHAD_COND's, and the model computes it rather than
     asserting it.
 
@@ -5556,6 +5561,71 @@ the measurement.
     the flux by its SURFACE value, which in ATHAD is structurally zero, so the collection kernels
     see `P/1e-6`. `ATM_PRECIP_DIMENSIONAL` exists for exactly this and is default off. Neither is
     measured.
+
+77. **THE P_rain CAP IS HOLDING BACK NOTHING — it binds on the FIRST ice-scheme call and never
+    again. Which corrects item 76: rain is not "forming at its cap and evaporating", it is not
+    being produced at all after the initial deck is consumed, because the only cells with a rain
+    SOURCE are 50 K too cold for liquid.**
+
+    Item 52's rule is that a binding cap must be interrogated, because `MC_t` sat pinned at
+    `MCt_max` while updraft parcels ran at 46 000 K and every plot looked physical. Item 76 saw
+    `max P_rain` sitting exactly on `P_max_flux` and named it as the next thing to check.
+    `ATM_PRECIP_CAP` scales the cap (default 1.0 = the shipped 3.0e-3 kg/(m2 s) ~ 260 mm/d), and
+    the census counts cells at it and the largest value the recurrence wanted.
+
+    ### The measurement, 8 iterations, 24 threads
+
+    ```
+    ice-scheme call 1:  52 055 cells at the cap,  largest wanted 8.484496e-03   (2.83x the cap)
+    ice-scheme call 2:       0 cells,             largest wanted 0.000000e+00
+    ice-scheme call 3:       0 cells,             largest wanted 0.000000e+00
+    ice-scheme call 4:       0 cells,             largest wanted 0.000000e+00
+    ice-scheme call 5:       0 cells,             largest wanted 0.000000e+00
+    ```
+
+    **It binds once.** The first call autoconverts `initCloudIce`'s 37.5 g/kg deck and the
+    recurrence asks for 2.83x the cap; from the second call onward the rain flux is not capped,
+    it is **absent**. So this cap is not item 52's shape: nothing is hiding underneath it, and
+    the field beneath it is trustworthy — which is a real answer, not a null result, because the
+    alternative was a scheme running pinned against a backstop forever.
+
+    ### The correction to item 76
+
+    Item 76 reported `max P_rain = 3.0e-3` measured inside `ThreeCatIceScheme` and concluded that
+    **"rain forms at the maximum rate the scheme allows and evaporates before it can reach a
+    1490 K ground"**. That number came from the FIRST call. It is right about the first call and
+    **wrong as a statement about the model's state**: after iteration 1 no rain flux is produced
+    anywhere, so there is nothing for the supercritical column to evaporate.
+
+    What is NOT retracted is item 76's conclusion that the dry surface is a computed result: the
+    condensate is real, it is removed where it cannot exist, and the water budget closes to
+    -0.0004 % over 200 iterations. What changes is the mechanism — **the flux does not fall and
+    evaporate; it is never launched.**
+
+    ### Why, and the new question it opens
+
+    `prod_r` is gated on `t_u >= t_0` = 273.15 K, and the gate is correct: there is no liquid
+    rain at 221 K. The rain SOURCE, however, is nonzero exactly there —
+
+    ```
+    max S_r = 0.019869 g/kg/s  at 0 N, 256 027 m    (T ~ 221-230 K)
+    max S_s = 0.016272 g/kg/s  at 65 S, 277 192 m
+    max S_c = 0.000032 g/kg/s
+    ```
+
+    **A rain source 50 K below freezing is the thing to explain.** `S_c_au`, the autoconversion,
+    carries its own `t_u >= m.t_0` guard and cannot be the contributor; `S_r` is a sum, so the
+    nonzero part must come from accretion or from snow/graupel shedding — every one of which
+    needs liquid water that cannot exist at 221 K. **Not diagnosed here.** The candidates are
+    exactly the terms item 76 flagged as unexamined, and the normalisation beneath them
+    (`P_rain_0 = max(P_rain.x[0][j][k], 1e-6)`, dividing by a surface flux that is structurally
+    zero in this model) is still default-off behind `ATM_PRECIP_DIMENSIONAL`.
+
+    **Method note.** The cap census was three lines and answered in 80 seconds a question that
+    two runs and a README item had been circling. It also caught the item-76 error, which was
+    mine: I quoted a maximum without asking WHEN it occurred. Item 68's lesson was that a max
+    hides a field; this is the same lesson in time rather than space — **a maximum over a run is
+    not a property of the run.**
 
 ## Remaining work
 
