@@ -3500,8 +3500,18 @@ the measurement.
     identical, `Psi_max` identical to all eight digits. Same wall as item 51's local `cp`
     (−18 % on rain, +0.02 % on OLR) and item 42's `H_crit` (0.18 %): **the reflectivity
     saturates on the presence of condensate, so nothing about its amount or rate can reach the
-    radiation.** Anything that only changes microphysical rates is unmeasurable in this model
-    until `albedo_cloud` responds to something.
+    radiation.** ~~Anything that only changes microphysical rates is unmeasurable in this model
+    until `albedo_cloud` responds to something.~~
+
+    **THE SENTENCE ABOVE IS REFUTED BY ITEM 75 (2026-08-23), AND THE FOUR NULLS THAT PRODUCED IT
+    WERE MEASURING AN ANNIHILATION.** The albedo clause is right — reflectivity does saturate on
+    presence — but the conclusion drawn from it is wrong: condensate reaches the OLR through the
+    LONG-WAVE cloud opacity `k_liq*LWP + k_ice*IWP`, which responds to AMOUNT. That path read as
+    dead because `SaturationAdjustment` was manufacturing condensate into superheated cells and
+    `ThreeCatIceScheme` deleted all of it every iteration (item 74), so there was no condensate
+    left downstream for any rate change to act on. With it alive, one repair moved the OLR
+    **−49.4 %** and the photosphere **44 km**. *Four consecutive nulls should have prompted a
+    check that the field being varied still existed where it was supposed to matter.*
 
     **BIT-IDENTITY WHEN OFF: achieved and checked against a foreign run.** `run_s_base`
     reproduces `run_cplocal` (item 51's baseline, built before this knob existed) at iteration
@@ -5874,14 +5884,23 @@ the measurement.
   and `g·z` is the *larger* term above ~157 km here, so the updraft never cools as it rises),
   `MC_t`'s second term carrying an extra `t_0`, `q_v_u` reaching 3.5 kg/kg, and the cubic lid
   extrapolation that gives `s` negative values — a negative absolute temperature — at 300 km.
-- **Three microphysical corrections have now died at the same wall, and the wall is the
-  albedo** (item 51). Making `cp` local in `MoistConvection` moves rain and snow production by
+- **~~Three microphysical corrections have now died at the same wall, and the wall is the
+  albedo~~ — THE WALL WAS AN ANNIHILATION, REFUTED BY ITEM 75** (item 51). Making `cp` local in
+  `MoistConvection` moves rain and snow production by
   **−18 %** and the OLR by **+0.02 %**, with Ψ, the photosphere and the albedo bit-identical or
-  unchanged; `initCloudIce`'s H_crit repair was 0.18 % (item 42). The reflectivity saturates on
+  unchanged; `initCloudIce`'s H_crit repair was 0.18 % (item 42). ~~The reflectivity saturates on
   the **presence** of condensate, so nothing about condensate *amount or rate* can reach the
-  radiation. **`albedo_cloud` is not merely the biggest lever after the opacities — it is the
+  radiation.~~ ~~**`albedo_cloud` is not merely the biggest lever after the opacities — it is the
   only path condensate has to the OLR**, and any further microphysics work should expect to be
-  unmeasurable until that parameterisation responds to something.
+  unmeasurable until that parameterisation responds to something.~~
+  **REFUTED BY ITEM 75.** The ALBEDO half is right and the conclusion drawn from it was wrong:
+  condensate reaches the OLR through the LONG-WAVE cloud opacity `k_liq*LWP + k_ice*IWP`, which
+  responds to amount. That path looked dead because `SaturationAdjustment` was manufacturing
+  condensate into superheated cells and the ice scheme was deleting all of it every iteration
+  (item 74) — so the five repairs that "died at the albedo" were measuring an annihilation, not a
+  wall. With the condensate alive, one repair moved the OLR **−49.4 %** and the photosphere 44 km.
+  The lesson is not that the albedo is the only lever; it is that **five null results in a row
+  should have prompted a check that the field being varied still existed downstream.**
 - **`s_0` carries Earth's dry-air cp and is dead-code-protected** (item 51). `s_0` = 274515.75
   = 1005 × `t_0`, not ATHAD's 2040 × `t_0` = 557226, while `param.py` calls it "`cp_l * t_0`".
   It changes no result because `cp_l` cancels in the `s ↔ T` pair, and the one place the scale

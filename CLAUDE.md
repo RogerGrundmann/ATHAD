@@ -563,8 +563,17 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   identical to eight digits.
   **Item 51 makes that three for three**: a local mixture `cp` in `MoistConvection` (the constant `cp_l` = 2040 is the
   mixture cp at ~1101 K, so +30.5 % wrong in the skin where all the condensation happens) moves rain and snow production
-  **−18 %** and the OLR **+0.02 %**, with Ψ and the photosphere bit-identical. **`albedo_cloud` is the only path condensate
-  has to the radiation**, so expect microphysics work to be unmeasurable until that parameterisation responds to something.
+  **−18 %** and the OLR **+0.02 %**, with Ψ and the photosphere bit-identical. ~~**`albedo_cloud` is the only path condensate
+  has to the radiation**, so expect microphysics work to be unmeasurable until that parameterisation responds to something.~~
+  **REFUTED BY ITEM 75 (2026-08-23): condensate has a SECOND path and it is the larger one.** The
+  long-wave cloud opacity `k_liq*LWP + k_ice*IWP` in `MultiLayerRadiation` responds to condensate
+  AMOUNT, not merely to its presence. It looked inert only because the condensate was being
+  annihilated every iteration (item 74); with `ATM_SAT_SUPERHEAT` keeping it alive, the OLR moves
+  **−49.4 %** and the photosphere climbs 44 km. **The albedo half of the claim still stands** —
+  reflectivity does saturate on presence, `albedo_mean` is 0.4964 against `albedo_cloud` = 0.50 —
+  but "expect microphysics work to be unmeasurable" is wrong, and it is the reason five
+  consecutive repairs were read as confirming a wall that was not there. **Do not use this
+  paragraph to decide that a microphysics change cannot matter.**
   **Item 52 is the fourth**: repairing the `s` scaling in `MoistConvection` cuts `MC_t` by 2.9–3.5× and snow production
   by 5.9 %, and moves the OLR by −0.02 % with Ψ, albedo and photosphere identical.
 - **`s`, `s_u`, `s_d` are a normalised temperature, not entropy and not dry static energy** (item 52,
