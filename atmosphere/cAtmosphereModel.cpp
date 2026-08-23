@@ -1644,6 +1644,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 // everything after it is condensation, the ice scheme and the limiters.
                 ThermoAtm(*this).waterBudget(iter_n % diagnosticStride() == 0, "post-RK4");
 
+                iceCensusFn(*this, "A0 entering moist block, pre SaturationAdjustment");
                 SaturationAdjustment(*this).run();                      // based on the initial distribution, recomputation of the cloud water and cloud ice formation in case of saturated water vapour detected
 
                 // Sampled HERE as well as after the ice scheme, because this is the state the
@@ -1663,6 +1664,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 AtomUtils::damp_wiggles(c,     &i_topography, true, true, true);
                 AtomUtils::damp_wiggles(cloud, &i_topography, true, true, true);
 
+                iceCensusFn(*this, "A1 post damp_wiggles, pre ice scheme");
                 switch(CategoryIceScheme){                              // rain, snow graupel and precipitation production and reduction
                     case -1: cout << endl << endl << endl               // no CategoryIceScheme used
                         << "  no CategoryIceScheme used" << endl;
@@ -1677,6 +1679,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                         break;
                 }
 
+                iceCensusFn(*this, "A2 post ice scheme, pre MoistConvection");
                 AtomUtils::damp_wiggles(P_rain, &i_topography, true, true, true);
                 AtomUtils::damp_wiggles(P_snow, &i_topography, true, true, true);
 
@@ -1947,6 +1950,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                         }
                     }
                 }
+                iceCensusFn(*this, "B1 leaving moist block, post cloud_cap clamp");
             }  // moist_phys_active
 
             // ATHAD: water vapour's physical CEILING, enforced EVERY iteration.
@@ -2122,6 +2126,7 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 // stale and zero on the first (README item 42). The vtk written below was
                 // always correct; only the printed extrema were behind.
                 write_meridional_streamfunction(iter_n);   // Hadley/Ferrel cell strength (zonal-mean v + Ψ) per vtk checkpoint
+                iceCensusFn(*this, "B2 at the diagnostic print");
                 print_min_max_atm();
                 UtilsAtm(*this).writeFile(bathymetry_name, output_path, false);
                 cout << endl << "      AGCM: write_file in run_3D_loop atm ......................." << endl;

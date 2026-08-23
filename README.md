@@ -5256,6 +5256,108 @@ the measurement.
     form. Both are kept: they are the two readings of item 67's proposal, and the record of why
     neither is available is worth more than the four lines they cost.
 
+74. **`moist_phys_start_iter = 0` IS THE DEFAULT. The 300 was ATOM_Precipitation's, its
+    justification is an Earth diagnosis, and its stated purpose is unattainable here — and
+    running without it exposes a create-and-destroy cycle that had been invisible because the
+    diagnostic samples on the wrong side of it.**
+
+    ### Why the gate had no standing in this model
+
+    Three findings, none of which needed a run:
+
+    - **It was inherited, not chosen.** `moist_phys_start_iter` entered on the fork commit
+      `9984458`; `ATOM_Precipitation/param.py` carries the identical parameter, the identical
+      default 300 and a description string identical to the character. Nobody sized it for a
+      250 bar water-vapour atmosphere.
+    - **Its justification is an Earth surface classification.** The comment reads: *"too stiff
+      during the initial velocity transient — a single tropical maritime column repeatedly
+      drove q_c, q_i and S_s into runaway"*. Invariant 1 says there is no land, no sea and no
+      maritime anything here.
+    - **Its stated purpose is not attainable.** The gate waits for "the circulation to form on
+      a dry field". Item 18 measured that it does not form: the pressure gradient that should
+      balance the meridional wind is at 1.8 % of the Coriolis term after 400 iterations and
+      growing linearly, putting geostrophic adjustment of order **1e4** iterations away. The
+      gate waits 300 iterations for an event two orders of magnitude further off, then starts
+      the stiff physics into a state no more settled than iteration 0 — which is plausibly why
+      item 66 saw the onset swing the OLR 223.8 -> 1022 -> 767 -> 751 -> 1036 -> 782.
+
+    And the gate has been open in ATHAD many times already: items 52, 53, 61, 63 and 64 all ran
+    at `moist_phys_start_iter = 0` (nm = 5-40), which is how the moist repairs were measured at
+    all. **ATHAD_COND has shipped 0 since it was forked.**
+
+    ### The measurement: 200 iterations, 24 threads, no runaway
+
+    23.6 min, exit 0, `q_c`/`q_i`/`S_s` finite throughout — the Earth-inherited runaway is not
+    reproduced at five times the length it had ever been tested here.
+
+    **WHAT IT COSTS, AND IT IS NOT SMALL. The moist column does not converge.** Against arm A
+    of item 73, identical in every other respect:
+
+    ```
+                        iter 140    160     180     200
+    dry   (300)  OLR      135.85  135.94  136.05  136.19   arrived at 120, excess 0.01 W/m2
+    moist (0)    OLR      189.47  180.97  173.90  168.01   still falling, 32 W/m2 above sigma*t_skin^4
+    ```
+
+    The photosphere RISES (239.0 -> 242.8 km) where the dry arm's falls, and the albedo freezes
+    at 0.4964 for all ten diagnostics where the dry arm's drifts 0.4986 -> 0.4927. **So every
+    dry-column number in this file, item 73's identity included, now belongs to
+    `moist_phys_start_iter = 300`**, which is one `<moist_phys_start_iter>300</...>` away.
+
+    ### What the gate was hiding: condensate is created and destroyed every iteration
+
+    The log reports `max cloud water = 0.000000 g/kg` from the first diagnostic onward, which
+    reads as "the moist physics deleted the initial deck". **It is a sampling artefact — the
+    print sits after the whole moist block.** Sampling inside it (`ATM_ICE_CENSUS=1`, five new
+    probe sites) gives the cycle, per iteration:
+
+    ```
+    entering the moist block ...................  66 785 cells with cloud water
+    post SaturationAdjustment .................. 131 404      (+65 000, it CONDENSES)
+    post damp_wiggles .......................... 263 530      (+132 000, a SMOOTHER)
+    post ice scheme ............................   6 486      (-257 000)
+    post MoistConvection .......................   6 486
+    post the cloud_cap clamp ...................   6 486
+    ```
+
+    Bisected inside the ice scheme, the loss is entirely in `computeColumns` (263 530 -> 6 486,
+    **192 065 cells written to exactly zero**) with the peak value untouched at 37.500000 g/kg.
+    Buffer aliasing was excluded first — all 14 array bases distinct — and the S-terms are zero
+    at the affected cells, so it is not the microphysics.
+
+    **The routine is `IceSchemeCommon::evaporateWhereImpossible`, called behind `canCondense`,
+    and it is CORRECT.** There is no rate and no `dt` in it because there is no phase to relax:
+
+        canCondense = (t_u < T_CRIT_H2O) && (qSatWater < 1.0)
+
+    supercritical or superheated (`p_sat > p`), and in either state a droplet cannot exist at
+    all, so the condensate returns to vapour in one step. That is invariant 2 being enforced,
+    and the water budget confirms it — total H2O conserved to **-0.0003 %** with precipitation
+    identically zero. The zeroed sample cell is at 218.2 km and ~280 K, far below 647 K, so it
+    fails the *superheated* test: the air is too thin for water to saturate at any mixing ratio.
+
+    **THE FINDING IS THE DISAGREEMENT UPSTREAM OF IT.** `SaturationAdjustment` condenses into
+    ~65 000 cells that `canCondense` then rules impossible, and `damp_wiggles` — a *numerical*
+    de-checkerboarding smoother, not a physical process — spreads condensate into another
+    ~132 000 of them. Two routines in the same block disagree about where a condensed phase can
+    exist, and the ice scheme is the one that is right. **The cycle is not a runaway and not a
+    leak; it is work being done and undone every iteration**, and it is why the cloud field
+    looks static while the albedo still sees condensate mid-iteration.
+
+    **NOT FIXED, and the next step is to make the two agree** — either `SaturationAdjustment`
+    gains the `canCondense` test at its entry, or `damp_wiggles` stops being applied to
+    condensate in cells that cannot hold it. Which one is the smaller change is not yet
+    measured. What is not in question is the direction: a smoother must not manufacture a phase
+    the thermodynamics forbids.
+
+    ### Method note, and it is the third instance
+
+    `max cloud water = 0.000000` was the number on screen, and it was the wrong number: the
+    diagnostic sits on the far side of the routine that does the work. Item 42 found this with
+    `Psi`, item 68 with `Psi(ground)`'s max-versus-RMS, and here the axis is CALL ORDER rather
+    than statistic or coordinate. **Before explaining a field that will not move, find out where
+    in the iteration it is being read.**
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative
@@ -5537,10 +5639,25 @@ the measurement.
 - **The OLR is not grid-converged either**: 519 W/m² at a 260 km shell against 581 at
   300 km, with `im` fixed at 61. Both figures predate item 22, so the check has to be redone
   as well as extended — refine vertically and repeat.
-- **`moist_phys_start_iter = 300`** means a 400-iteration run is dry for three quarters of
+- **~~`moist_phys_start_iter = 300`~~ — IT IS 0 SINCE 2026-08-23** (item 74). The 300 was
+  ATOM_Precipitation's, inherited on the fork commit, justified by "a single tropical maritime
+  column" — an Earth surface classification, in a model with no sea — and waiting for a
+  circulation that item 18 puts 1e4 iterations away. Measured at 200 iterations: no runaway.
+  **But the moist column does not converge where the dry one did** (OLR 168 and falling against
+  136 arrived), so every dry-column number in this file belongs to the old default; set
+  `<moist_phys_start_iter>300</moist_phys_start_iter>` to reproduce it. Original entry: it
+  means a 400-iteration run is dry for three quarters of
   its length. Deliberate (it lets the circulation form before the stiff microphysics
   starts), but it must be stated whenever a run is quoted — and it is why the 20-iteration
   measurements above are all made with sedimentation and the ice schemes switched off.
+- **Condensate is created and destroyed every iteration, and two routines disagree about where
+  it can exist** (item 74). `SaturationAdjustment` condenses into ~65 000 cells that
+  `IceSchemeCommon::canCondense` rules impossible, and `damp_wiggles` — a numerical smoother —
+  spreads it into ~132 000 more; `evaporateWhereImpossible` then deletes 257 000 cells' worth,
+  correctly, because the cells are superheated (`p_sat > p`) or supercritical. Water is
+  conserved to -0.0003 %. **The fix is to make the two agree** — the `canCondense` test at
+  `SaturationAdjustment`'s entry, or keeping the smoother off condensate in such cells — and
+  which is smaller is not yet measured.
 - **Thread-count dependence at ~1e-8 remains** (item 18). The races are gone and a fixed
   thread count is bit-identical run to run, but OpenMP reduction order still moves the last
   digit, and it re-enters the physics through the global means the column is rebuilt from.

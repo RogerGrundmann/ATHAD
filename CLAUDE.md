@@ -385,6 +385,26 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **`moist_phys_start_iter` IS 0 SINCE 2026-08-23, AND EVERY DRY-COLUMN NUMBER IN THIS FILE
+  BELONGS TO THE OLD 300** (item 74). The gate was ATOM_Precipitation's, inherited on the fork
+  commit, justified by "a single tropical maritime column" — an Earth surface classification in
+  a model with no sea — and waiting for a circulation item 18 puts 1e4 iterations away. At 200
+  iterations there is no runaway. **But the moist column does NOT converge where the dry one
+  did**: OLR 168.01 and still falling, 32 W/m2 above `sigma*t_skin^4`, against the dry arm's
+  arrival at 136.19 by iteration 120. Set `<moist_phys_start_iter>300</...>` to reproduce the
+  dry series, item 73's identity included.
+- **CONDENSATE IS CREATED AND DESTROYED EVERY ITERATION, AND THE DIAGNOSTIC SAMPLES ON THE
+  WRONG SIDE OF IT** (item 74). Per iteration: 66 785 cells with cloud entering the moist block,
+  131 404 after `SaturationAdjustment` condenses, **263 530 after `damp_wiggles`** — a numerical
+  smoother spreading condensate into cells that cannot hold it — and **6 486** after the ice
+  scheme. The remover is `IceSchemeCommon::evaporateWhereImpossible` and it is CORRECT: the
+  cells are superheated (`p_sat > p`) or supercritical, where no droplet can exist, so there is
+  no rate and no `dt` — invariant 2 enforced, water conserved to -0.0003 %. **The defect is the
+  disagreement upstream**: `SaturationAdjustment` and `damp_wiggles` both manufacture a phase
+  `canCondense` forbids. Not fixed. And note what it did to the instrument — `max cloud water`
+  prints **0.000000** because the diagnostic sits after the whole block, while the radiation
+  sees real condensate mid-iteration and returns albedo 0.4964. **Before explaining a field
+  that will not move, find out where in the iteration it is read.**
 - **THE PRESCRIBED ADIABAT AND THE GREY OPACITY ARE NOT COMPATIBLE DESCRIPTIONS OF THE SAME
   ATMOSPHERE, AND THEY DISAGREE BY THREE ORDERS OF MAGNITUDE IN FLUX** (item 73). Item 67's
   named follow-up — replace the isothermal clamp with `max(T_rad(tau_above), T_ad)`, the grey

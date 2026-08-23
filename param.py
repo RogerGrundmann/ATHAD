@@ -311,7 +311,18 @@ def main():
             ('inviscid_spinup_iters', 'cumulative iterations to run inviscid (Euler + free-slip mountains) before viscous physics activates; 0 disables', 'int', 0),
             ('inviscid_ramp_iters', 'iterations over which diffusion coefficient ramps from 0 to 1 after the inviscid phase', 'int', 20),
 
-            ('moist_phys_start_iter', 'cumulative iterations before moist physics (SaturationAdjustment, ice scheme, MoistConvection) activates; lets the velocity circulation form on a dry field first; 0 disables (always on)', 'int', 300),
+            # ATHAD: 0 SINCE 2026-08-23 — the 300 was ATOM_Precipitation's, inherited on the
+            # fork commit, and its justification is an Earth diagnosis: "a single tropical
+            # maritime column repeatedly drove q_c, q_i and S_s into runaway". There is no
+            # maritime column here (invariant 1), and the gate's stated purpose — "let the
+            # circulation form on a dry field first" — is not attainable either: item 18 puts
+            # geostrophic adjustment ~1e4 iterations away, so 300 waits for an event two
+            # orders of magnitude further off. Measured at 200 iterations, 24 threads: the run
+            # completes, no runaway, q_c/q_i/S_s finite throughout. ATHAD_COND has shipped 0
+            # since it was forked. CONSEQUENCE: the moist column does NOT converge in 200
+            # iterations (OLR 168 and still falling, against the dry column's arrival at 136),
+            # so every dry-column number in the README belongs to moist_phys_start_iter = 300.
+            ('moist_phys_start_iter', 'ATHAD: cumulative iterations before moist physics (SaturationAdjustment, ice scheme, MoistConvection) activates; 0 = always on, the ATHAD default since 2026-08-23', 'int', 0),
 
             ('checkpoint_save_iter', 'dump the full 3D prognostic state to output_path/atm_restart_<iter>.bin when total_iter_count reaches this, for a fast debug restart; -1 disables', 'int', 300),
 #            ('checkpoint_save_iter', 'dump the full 3D prognostic state to output_path/atm_restart_<iter>.bin when total_iter_count reaches this, for a fast debug restart; -1 disables', 'int', 200),
