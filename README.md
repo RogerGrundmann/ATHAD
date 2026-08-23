@@ -5778,6 +5778,115 @@ the measurement.
       4.1 GB in 138 files, and the restarts 2.3 GB. Turning the panorama off cuts a run to ~6 GB
       without touching the slices anything here is actually read from.
 
+80. **THE RADIAL METRIC IS REPAIRED AND THE REPAIR IS DEFAULT-OFF, BECAUSE THE CORRECT JACOBIAN
+    MAKES THE PROJECTION WORSE — measured unconfounded this time. `checkRadialMetric()` goes from
+    a 11.8x spread to 1.00x, the OLR does not move at all, and `div(rho u)/rho` triples.**
+
+    Item 39 identified `exp_rm = 1/(rm+1)` as the Jacobian of a QUADRATIC stretch applied to an
+    EXPONENTIAL grid, documented as the real thing in two files that agree with each other, and
+    left the repair as an open decision: replace it (~91 sites, moves every number) or cut `zeta`
+    to `ln(1.5)` so the wrong formula becomes accidentally right. This is the replacement.
+
+    ### What the metric actually is
+
+    `init_layer_heights()` builds `z(r) = (exp(zeta*(r - r0)) - 1) * L_atm`, so
+
+        J(r) = dz/d(rad.z) = zeta * L_atm * exp(zeta*(r - r0))        [m per rad.z unit]
+
+    and the core wants it dimensionless against its own length unit, `metricShellLength()`:
+
+        exp_rm_true = metricShellLength() / J(r)
+
+    which runs **6.36 at the surface to 0.317 at the top** against the shipped 0.5 -> 0.333.
+    That is **12.7x at the bottom and 0.95x at the top** — the 11.8x spread item 39 measured,
+    seen as an absolute error rather than a ratio.
+
+    ### AND THE SECOND DERIVATIVE WAS MISSING A TERM IN BOTH METRICS
+
+    Found while repairing the first. With `e = U/J`,
+
+        U^2 * d2f/dz2 = e^2 * ( d2f/dr2 - (J'/J) * df/dr )
+
+    and the core computes `d2f/dr2 * exp_2_rm` and stops. `J'/J` is **zeta** for the exponential
+    stretch and `1/(rm+1)` for the quadratic one, so the term is the same order as what is kept
+    under the true metric (zeta = 3) and merely small under the legacy one. **This is a second,
+    independent defect in the same expression**, and it is why the repair is not a substitution.
+    `metricCurv()` returns 0 on the legacy branch, so the legacy operator is left exactly as it
+    was and its own missing term is recorded rather than silently changed.
+
+    ### What was changed
+
+    - `metricExpRm(rm)`, `metricCurv(rm)`, `metricExact()` on `cAtmosphereModel`, one definition
+      for the whole model, replacing **11 sites** that each recomputed `1.0/(rm+1.0)` locally
+      (RungeKutta, PressureSolver x3, ThermoAtm x2, TurbulenceAtm x3, UtilsAtm, checkRadialMetric).
+      The other 84 `exp_rm` references are uses and needed no change.
+    - The curvature term at all **11 live second-derivative sites** in `RHS_Atm_Turb.cpp`:
+      `d2Xdr2 * exp_2_rm` -> `(d2Xdr2 - curv * dXdr) * exp_2_rm`.
+    - The **Poisson operator**: the radial Laplacian's first-derivative coefficient folds into the
+      existing anelastic off-diagonal, `num_a = exp_2_rm * (dlnrho - curv) * inv_2dr`. Same
+      7-point stencil, no new solver; the added ratio to `num1` is `curv*dr/2` = 0.0375.
+    - `TurbulenceAtm`'s two `exp_2_rm` are **dead** — declared, never used, and among the
+      unused-variable warnings the build has always printed. No curvature term needed there.
+
+    ### The off-branch null, stated precisely
+
+    40 iterations, 24 threads: OLR, max temperature, max water vapour and max cloud water
+    **identical to every printed digit**. `residuum_atm` differs in the last digit
+    (1.34243666 against 1.34243665, 1e-8). That is item 61's documented "rebuild that re-arranges
+    arithmetic in a physics loop" category — `(a - 0*b)*c` and `e*(x - 0)*y` reassociate — so this
+    is a null to the printed precision of the physics, **not a bit-identity claim.**
+
+    ### The repair is confirmed by the model's own instrument
+
+    ```
+    AGCM: radial metric check - core length unit runs 300287 m at the surface to
+          300287 m at the top, spread 1.00x   (1.00 = exp_rm is the Jacobian)
+    ```
+
+    Against 11.8x before. `checkRadialMetric()` is unit-free and was written in item 39, before
+    this fix existed, so it cannot have been tuned to it.
+
+    ### And the physics says: don't ship it yet
+
+    40 iterations, 24 threads, everything else identical:
+
+    | | legacy | exact metric |
+    |---|---|---|
+    | OLR | 135.52 | **135.52** |
+    | max water vapour | 778.109 | 775.538 g/kg |
+    | max cloud water | 40.087 | 39.998 g/kg |
+    | max v | 3.463 | 3.344 m/s |
+    | max w | 25.056 | 25.051 m/s |
+    | `div(rho u)/rho` rms | 2.739e-02 | **7.722e-02** |
+    | `Psi_max` | 52 153 @ lat 19, **z = 36 470 m** | 158 088 @ lat 5, **z = 0 m** |
+
+    **The OLR does not move at all** — a 12.7x change in the surface radial scaling, and the
+    radiative answer is identical to six figures. That is items 29/41/60 confirmed from a fifth
+    direction: the metric is not what the OLR was waiting for either.
+
+    **But the projection gets 2.8x worse, and `Psi_max` jumps to the GROUND** — item 68's
+    signature of a streamfunction that does not close. **This is item 72's zeta-scan observation
+    reproduced UNCONFOUNDED**: that scan changed the grid as well as the metric and could only
+    claim a direction; this changes one formula with the grid fixed, and the direction holds.
+
+    **Part of it is solver stiffness and part is not.** `exp_rm` = 5.90 at the surface against
+    0.169, so the radial coefficient `exp_2_rm*inv_dr2` grows ~1200x and the elliptic problem
+    becomes far more anisotropic. Measured:
+
+        exact metric, default sweeps ....... 7.722e-02
+        exact metric, ATM_PRESS_SWEEPS=64 .. 5.258e-02      (-32 %)
+
+    So unlike the legacy branch — where item 72 showed 64x the sweeps changes the divergence by
+    **nothing** — this operator IS under-converged and responds to more work. But 5.258e-02 is
+    still **~2x worse than the legacy 2.739e-02**, so stiffness is not the whole account.
+
+    **DEFAULT OFF, and for a measured reason rather than caution.** The formula is right and the
+    instrument agrees it is right; shipping it would triple the divergence the model integrates
+    in. The open question is what the residual 2x is: a genuinely harder elliptic problem that
+    needs a better solver, or a second inconsistency where something else in the discretisation
+    still assumes the quadratic form. **Item 72's Rhie-Chow lead and this residual are now the
+    same question**, and they should be worked together rather than separately.
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative

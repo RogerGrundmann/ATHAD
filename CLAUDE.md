@@ -385,6 +385,23 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **THE RADIAL METRIC IS REPAIRED, `ATM_METRIC_EXACT=1`, AND IT IS DEFAULT-OFF BECAUSE THE
+  CORRECT JACOBIAN MAKES THE PROJECTION WORSE** (item 80). `metricExpRm()` replaces the 11 sites
+  that each recomputed `exp_rm = 1/(rm+1)`; the true value is `metricShellLength()/J` with
+  `J = zeta*L_atm*exp(zeta*(r-r0))`, running **6.36 at the surface to 0.317 at the top** against
+  0.5 -> 0.333. `checkRadialMetric()` — unit-free, written in item 39 before the fix existed —
+  goes from a **11.8x spread to 1.00x**. **A second defect was found repairing the first**: the
+  Laplacian omits the `-(J'/J)*f'` curvature term in BOTH metrics (`J'/J` = `zeta` = 3 exact,
+  `1/(rm+1)` legacy), added at 11 RHS sites and folded into the Poisson operator's existing
+  anelastic off-diagonal; `metricCurv()` returns 0 on the legacy branch so that branch is
+  unchanged. **Measured at 40 iterations: the OLR does not move AT ALL (135.52 both) — items
+  29/41/60 confirmed from a fifth direction — while `div(rho u)/rho` rms goes 2.739e-02 ->
+  7.722e-02 and `Psi_max` jumps from 52 153 at 36 km to 158 088 AT THE GROUND**, item 68's
+  non-closure signature. This is item 72's zeta-scan direction reproduced **unconfounded** (same
+  grid, one formula). Partly solver stiffness — `ATM_PRESS_SWEEPS=64` brings it to 5.258e-02,
+  where the legacy branch does not respond to 64x at all — but ~2x worse survives. **The
+  residual and item 72's Rhie-Chow lead are now the same question.** Off-branch null: every
+  printed physics figure identical at 40 iterations, `residuum_atm` last digit only.
 - **THE FREE-RUNNING MOIST COLUMN ESCAPES THE `t_skin` PIN AND LANDS AT HALF THE DRY COLUMN'S
   FLUX** (item 79). 400 iterations, `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1`, moist from iteration 0:
   OLR **102.99 W/m2** against `sigma*t_skin^4` = 135.5, with `skin%` **0.0 at all twenty

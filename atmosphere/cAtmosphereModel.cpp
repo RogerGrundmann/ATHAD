@@ -854,7 +854,7 @@ void cAtmosphereModel::checkRadialMetric() const {
 
     for(int i = 1; i < im-1; i++){
         const double rm     = rad.z[i];
-        const double exp_rm = 1.0 / (rm + 1.0);
+        const double exp_rm = metricExpRm(rm);
         const double dz2    = m_layer_heights[i+1] - m_layer_heights[i-1];       // [m]
         if(!(dz2 > 0.0)) continue;
 
