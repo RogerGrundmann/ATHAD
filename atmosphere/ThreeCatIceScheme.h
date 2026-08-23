@@ -131,6 +131,15 @@ public:
         applyTopography();
 
         printReport();
+        if (cap_probe) {
+            printf("      S_r PROBE: max S_r %.6e at [%d][%d][%d]  t_u = %.2f K\n"
+                   "                 S_c_au %.3e  S_ac %.3e  -S_ev %.3e  S_s_shed %.3e  S_g_shed %.3e\n"
+                   "                 -S_r_cri %.3e  -S_r_frz %.3e  S_s_melt %.3e  S_g_melt %.3e\n",
+                   g_max_Sr, g_Sr_i, g_Sr_j, g_Sr_k, g_Sr_T,
+                   g_Sr_terms[0], g_Sr_terms[1], g_Sr_terms[2], g_Sr_terms[3], g_Sr_terms[4],
+                   g_Sr_terms[5], g_Sr_terms[6], g_Sr_terms[7], g_Sr_terms[8]);
+            g_max_Sr = 0.0;
+        }
         if (cap_probe)
             printf("      CAP PROBE: P_rain cells at the cap %lld, largest value the recurrence"
                    " wanted %.6e kg/(m2 s)  (cap %.6e)\n",
@@ -159,6 +168,8 @@ private:
         const char* e = getenv("ATM_ICE_CENSUS"); return e && atoi(e) != 0; }();
     static inline long long g_cap_hits = 0;
     static inline double g_max_want = 0.0;
+    static inline double g_max_Sr = 0.0, g_Sr_T = 0.0, g_Sr_terms[9] = {0};
+    static inline int g_Sr_i = -1, g_Sr_j = -1, g_Sr_k = -1;
 
     // diagnostic output state (set during computeColumns)
     bool rain = false;
@@ -562,6 +573,17 @@ private:
                                            - S_i_au - S_d_au - S_s_agg - S_g_agg - S_i_cri;
                         m.S_r.x[i][j][k] =  S_c_au + S_ac - S_ev + S_s_shed + S_g_shed
                                            - S_r_cri - S_r_frz + S_s_melt + S_g_melt;
+                        if (cap_probe && m.S_r.x[i][j][k] > 0.0) {
+                            #pragma omp critical(srmax)
+                            if (m.S_r.x[i][j][k] > g_max_Sr) {
+                                g_max_Sr = m.S_r.x[i][j][k];
+                                g_Sr_i = i; g_Sr_j = j; g_Sr_k = k; g_Sr_T = t_u;
+                                g_Sr_terms[0]=S_c_au; g_Sr_terms[1]=S_ac; g_Sr_terms[2]=-S_ev;
+                                g_Sr_terms[3]=S_s_shed; g_Sr_terms[4]=S_g_shed;
+                                g_Sr_terms[5]=-S_r_cri; g_Sr_terms[6]=-S_r_frz;
+                                g_Sr_terms[7]=S_s_melt; g_Sr_terms[8]=S_g_melt;
+                            }
+                        }
                         m.S_s.x[i][j][k] =  S_i_au + S_d_au + S_s_agg + S_s_rim + S_s_dep
                                            + S_i_cri + S_r_cri - S_s_melt - S_csg;
                         m.S_g.x[i][j][k] =  S_g_agg + S_g_rim + S_g_dep + S_i_cri + S_r_cri

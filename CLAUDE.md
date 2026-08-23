@@ -385,6 +385,18 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **THE PRESCRIBED PROFILE DISCARDS THE LATENT HEATING, NOT JUST THE RADIATION'S ANSWER**
+  (item 78). Invariant 3 says `densities()` overwrites what the radiation computed. Measured, it
+  also overwrites what the LATENT HEAT RELEASE computed: the same cell at 256 km is **221 K in
+  every diagnostic and 280.51 K inside `ThreeCatIceScheme`**, because the order per iteration is
+  radiation (line 1446) -> dynamics -> moist block (line 1685, condensation releases ~60 K) ->
+  `densities()` (line 2125, overwrites `t` with `max(t_skin, T_ad)`) -> diagnostics. **So a
+  250 bar water-vapour atmosphere condensing 40 g/kg at its top cannot raise its own temperature
+  by one kelvin between iterations, by construction**, and the microphysics runs on a field
+  nothing else ever reads. It also closes items 74-75's loop: the reset to 221 K is what makes
+  `SaturationAdjustment` condense hard on the next pass. `ATM_PROGNOSTIC_T=1` stops it; **what
+  that branch does with the moist physics on, now that items 75-77 made the condensate real, is
+  the run this line of work has been walking toward and is NOT measured.**
 - **`moist_phys_start_iter` IS 0 SINCE 2026-08-23, AND EVERY DRY-COLUMN NUMBER IN THIS FILE
   BELONGS TO THE OLD 300** (item 74). The gate was ATOM_Precipitation's, inherited on the fork
   commit, justified by "a single tropical maritime column" — an Earth surface classification in
@@ -407,10 +419,10 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   passes, only production is gated, and snow loses its -20 C floor) and the repair is
   **bit-identical at 40 iterations** — `prod_s > 0` in 0 cells, because every cell where the flux
   loop evaluates production is already above 273.15 K. Third time a suspected blocker was not the
-  blocker (items 63, 74, 76). **The open question is now a rain SOURCE 50 K below freezing**:
-  `max S_r = 0.0199 g/kg/s` at 256 km where the air is ~221 K, while `S_c_au` carries its own
-  `t_u >= t_0` guard and cannot contribute — so accretion or snow/graupel shedding is producing
-  it, and all of those need liquid that cannot exist there. Undiagnosed, as is `P_rain_0 =
+  blocker (items 63, 74, 76). **The "rain source 50 K below freezing" is WITHDRAWN** (item 78):
+  decomposed, `S_r` is entirely `S_c_au` at **280.51 K**, and the 221 K is what `densities()`
+  writes at the END of the iteration — the ice scheme reads the cell mid-iteration, 60 K warmer.
+  Still open is `P_rain_0 =
   max(P_rain.x[0], 1e-6)`, which normalises the flux by a surface value structurally zero here
   (`ATM_PRECIP_DIMENSIONAL`, default off).
 - **FIXED IN ITEM 75, AND IT IS THE LARGEST EFFECT IN THIS FILE: `SaturationAdjustment`'s

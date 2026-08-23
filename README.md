@@ -5613,6 +5613,11 @@ the measurement.
     max S_c = 0.000032 g/kg/s
     ```
 
+    **~~A rain source 50 K below freezing is the thing to explain.~~ WITHDRAWN BY ITEM 78:**
+    decomposed at the maximum, `S_r` is entirely `S_c_au` at **280.51 K** — the cell is above
+    freezing when the ice scheme reads it, and 221 K only after `densities()` overwrites `t` at
+    the end of the iteration. There is no anomaly; there was a comparison between two different
+    temperatures. The original claim follows.
     **A rain source 50 K below freezing is the thing to explain.** `S_c_au`, the autoconversion,
     carries its own `t_u >= m.t_0` guard and cannot be the contributor; `S_r` is a sum, so the
     nonzero part must come from accretion or from snow/graupel shedding — every one of which
@@ -5626,6 +5631,70 @@ the measurement.
     mine: I quoted a maximum without asking WHEN it occurred. Item 68's lesson was that a max
     hides a field; this is the same lesson in time rather than space — **a maximum over a run is
     not a property of the run.**
+
+78. **THERE IS NO RAIN SOURCE AT 221 K. There is a rain source at 280.5 K, in the same cell, in
+    the same iteration — because the moist physics heats the top of the column by ~60 K and
+    `densities()` discards that heating before anything else can read it.**
+
+    Item 77 closed the cap question and opened this one: `max S_r = 0.0199 g/kg/s` at 256 km,
+    where the diagnostics report ~221 K, with `S_c_au` provably gated off below `t_0`. Decomposed
+    at the maximum, under `ATM_ICE_CENSUS`:
+
+    ```
+    max S_r = 1.649e-05 kg/(kg s) at [38][38][358]   t_u = 280.51 K
+      S_c_au   1.649e-05      S_ac     0.000e+00     -S_ev     0.000e+00
+      S_s_shed 0.000e+00      S_g_shed 0.000e+00     -S_r_cri  0.000e+00
+      -S_r_frz 0.000e+00      S_s_melt 0.000e+00     S_g_melt  0.000e+00
+    ```
+
+    **The whole of `S_r` is `S_c_au`, at 280.51 K** — ordinary warm-rain autoconversion, in a cell
+    above freezing, exactly where that term is licensed to run. Every other contributor is
+    identically zero, as the gates say they must be. **Item 77's open question is withdrawn: it
+    was not a finding, it was a comparison between two different temperatures.**
+
+    The 221 K comes from `Results_Atm`, which reads `t` after `ThermoAtm::densities()` has
+    re-imposed the prescribed adiabat and its isothermal skin. The ice scheme reads `t` in the
+    middle of the same iteration. **Third instance this session of the same error** — after
+    `max cloud water = 0.000000` (item 74, the print sits after the whole moist block) and item
+    76's cap value (item 77, a maximum quoted without asking *when*). *Where a diagnostic samples
+    decides what it means, and the axis can be call order, space, or time.*
+
+    ### What is real, and it is a statement about invariant 3
+
+    The same cell is **221 K in every diagnostic and 280.5 K inside the ice scheme**, and the call
+    order in `run_3D_loop` says why:
+
+    ```
+    MultiLayerRadiation  (line 1446) ...... reads t as densities() left it: 221 K
+    RK4 dynamics
+    moist block          (line 1685) ...... SaturationAdjustment condenses, latent heat -> 280 K
+                                            ThreeCatIceScheme autoconverts at 280 K
+    ConvectiveAdjustment (line 2124)
+    ThermoAtm::densities (line 2125) ...... overwrites t with max(t_skin, T_ad): back to 221 K
+    diagnostics          (line 2129) ...... read 221 K
+    ```
+
+    **The latent heating exists in a window of one iteration and reaches nothing.** It is computed
+    every iteration, it drives the microphysics, and it is discarded before the radiation, the
+    diagnostics or the next iteration can see it.
+
+    CLAUDE.md's invariant 3 says the prescription overwrites *what the radiation computed*. This
+    is stronger and had not been stated: **it also overwrites what the LATENT HEAT RELEASE
+    computed, so the moist physics cannot warm this column at all, by construction.** A 250 bar
+    water-vapour atmosphere condensing 40 g/kg at its top is not permitted to raise its own
+    temperature by one kelvin between iterations.
+
+    And it closes the loop on items 74-75: `densities()` resets the cell to 221 K, which is far
+    below saturation for the vapour there, so `SaturationAdjustment` condenses hard on the next
+    pass, releases 60 K of latent heat, the ice scheme acts on the warmed cell, and `densities()`
+    resets it again. **The same work done and undone every iteration, one level up from item 74's
+    condensate cycle** — and this one is not a defect in a routine, it is the prescribed profile
+    doing exactly what it is written to do.
+
+    **`ATM_PROGNOSTIC_T=1` is the switch that stops it**, and item 66 measured that branch's dry
+    column converging at 223.8 W/m2. What that branch does with the moist physics on, now that
+    items 75-77 have made the condensate real, is not measured. **That is the run this line of
+    work has been walking toward**, and it is the one to do next rather than another probe.
 
 ## Remaining work
 
