@@ -5116,7 +5116,157 @@ the measurement.
     reconstruction — not a constant to correct, and it is the largest single piece of unbuilt
     machinery this file has named.
 
+73. **THE SHIPPED MODEL'S OLR CONVERGES, AND WHAT IT CONVERGES TO IS `F/2` EXACTLY — so the
+    imbalance is exactly half the energy input, and it has stopped widening. Item 67's
+    follow-up, the grey radiative-equilibrium top, is MEASURED AND DEAD: `T_rad(tau)` exceeds
+    the prescribed profile at all 41 levels, so there is no crossing to switch at.**
+
+    Two things were unmeasured after items 67 and 71. Item 67's 200-iteration pair was run with
+    `n_lambda = 4` and `ATM_PROJ_SWEEPS = 1`, both since replaced, so no long series described
+    the shipped defaults; and item 67 named a one-line follow-up — replace the isothermal clamp
+    `max(t_skin, T_ad)` with `max(T_rad(tau_above), T_ad)` — that nobody had run. This is both,
+    as a pair: 200 iterations, 24 threads, dry throughout (`moist_phys_start_iter = 300`),
+    19.5 min per arm, arms identical apart from `output_path` and the knob.
+
+    ### Arm A: the shipped defaults, for the first time
+
+    `ATM_SKIN_GREY` on, `ATM_RAD_DIRECT` on, `ATM_PROJ_SWEEPS = 10`:
+
+    ```
+    iter        20      40      60      80     100     120     140     160     180     200
+    OLR     270.62  211.57  177.20  155.13  140.96  135.77  135.85  135.94  136.05  136.19
+    sigma*t_skin^4
+            135.90  135.58  135.61  135.66  135.70  135.78  135.85  135.95  136.05  136.20
+    excess  134.72   75.99   41.59   19.47    5.26   -0.01   -0.00   -0.01    0.00   -0.01
+    imbal     0.48   59.59   94.03  116.19  130.48  135.80  135.86  135.96  136.08  136.23
+    F/2     135.55  135.58  135.62  135.66  135.72  135.78  135.85  135.95  136.06  136.21
+    ```
+
+    **THE DESCENT COMPLETES.** The OLR reaches `sigma*t_skin^4` at iteration 120 and stays
+    within 0.01 W/m2 of it for the last five diagnostics. Item 67 measured 11.82 W/m2 of excess
+    remaining at 200 and explicitly claimed no limit; that residual was the under-converged
+    Lambda solver, not the physics. Item 71's flip is what closed it, and this is the first
+    measurement that shows what the flip was worth over a long run: not a 15 % offset, but the
+    difference between an asymptote approached and an asymptote reached.
+
+    **AND IT LANDS ON AN IDENTITY.** `sigma*t_skin^4` IS `F/2` by construction under
+    `ATM_SKIN_GREY` (item 67), so the converged state is
+
+        OLR = F/2   and therefore   imbalance = F - F/2 = F/2
+
+    The last two rows above are the same number to 0.02 W/m2 at every diagnostic. **The
+    corrected model's imbalance is not "+123.76 and widening" — it is +136.23 and CONSTANT, and
+    it is constant because it is definitionally half the absorbed flux.** Item 67 said the
+    correction makes the closure falsifiable rather than automatic. It does; and the falsified
+    version is just as arithmetic as the old one, in the opposite direction. A prescribed
+    isothermal lid emits `sigma*t_skin^4` and the column delivers exactly that; whichever number
+    `t_skin` is set to, the OLR is that number and the imbalance is what is left over.
+
+    **Verified null, obtained for free.** Arm A's iteration-40 OLR is **211.57 W/m2**,
+    digit-for-digit item 71's `ATM_RAD_DIRECT=1` figure measured on the pre-change binary at the
+    same 24 threads. The `ATM_SKIN_TAU=0` branch introduced below is a null.
+
+    ### Arm B: `max(T_rad(tau), T_ad)` does not work, in either form
+
+    `ATM_SKIN_TAU` (default 0) implements item 67's follow-up. Under `ATM_SKIN_GREY`,
+    `sigma*t_skin^4` is `F/2`, so the profile needs no separate flux argument:
+
+        T_rad(tau) = t_skin * (1 + 3*tau/2)^(1/4)
+
+    Two modes, because the literal form is not the intended one here. Mode **2** is the literal
+    `max(T_rad(tau), T_ad)` over the whole column. Mode **1** is the minimal reading — the
+    adiabat is kept wherever it already wins (`T_ad >= t_skin`, bit-identical to shipped there)
+    and only the isothermal region follows `T_rad(tau)`.
+
+    **Mode 2, 4 iterations, 71 s.** Item 67 wrote the replacement as "keeps the adiabat wherever
+    it is warmer". `max tau_above` at the surface is **2.26e6** — printed in every run log this
+    project has ever produced — so `T_rad(tau_s) = 221.4*(1 + 1.5*2.26e6)^(1/4)` = **9496 K**
+    against a prescribed 1408 K. The literal form does not adjust a lid; it replaces the column.
+    And it does not merely sit at 9496 K, it runs away: hotter column -> the hydrostatic
+    integration carries more mass aloft -> `tau_above` rises -> hotter `T_rad`. Photosphere
+    9668.8 K at iteration 2 and 15 598.8 K at iteration 4; OLR 4.8e8 then 3.0e9 W/m2.
+
+    **Mode 1, 200 iterations.** Stable and sensible for ~150 iterations, then a runaway that
+    ignites at the poles. The OLR is never below 1374 W/m2, is non-monotone
+    (1809, 1374, 4054, 5554, 4678, 3915, 3205, 2595, 2075) and ends at **22 760**.
+
+    ```
+    236.4 km, 90N        it 20     it 100    it 200
+      T                   229 K     241 K    2729 K
+      tau_above          0.092      0.26        32
+    218.2 km, 90N
+      T                   327 K     274 K    2793 K
+    ```
+
+    Away from the poles the change is exactly what was intended: 236.4 km warms from a uniform
+    221.4 K to 239-265 K, smooth, symmetric about the equator to 0.1 K (invariant 1 intact).
+    **The ignition is geometric.** The pole holds FIVE levels at `t_skin` where the equator holds
+    four, because its adiabat starts 50 K colder; as the column cools through the run the
+    crossing descends onto level 36, where `tau` is **1850**, not the 0.15 of level 37. Mode 1
+    sets that level to ~1600 K, which puts mass above it, which raises `tau` at levels 37 and 38,
+    which sets those hot in turn. It propagates upward. At iteration 200, **18 of 181 latitudes
+    at 236.4 km are hotter than their own surface** — which is how the defect was spotted, in
+    ParaView, before any log had been read.
+
+    ### Why no version of it works, measured rather than argued
+
+    Arm A's own `tau_above` array, equator column, iteration 200, against
+    `T_rad(tau) = t_skin*(1+3*tau/2)^(1/4)`:
+
+    ```
+    level    h        T        tau_above    T_rad     T_rad/T
+       0      0.0 km  1407.5 K  2.26e+06    9495.8 K    6.75
+      10     17.6 km  1330.7 K  1.14e+06    7997.4 K    6.01
+      20     54.7 km  1161.3 K  2.28e+05    5352.5 K    4.61
+      30    133.4 km   767.9 K  3.99e+03    1946.7 K    2.54
+      36    218.2 km   279.7 K  1.63e+03    1555.9 K    5.56
+      37    236.4 km   221.4 K  4.97e-01     254.5 K    1.15
+      40    300.0 km   221.4 K         0     221.4 K    1.00
+    ```
+
+    **`T_rad(tau)` exceeds the profile at every one of the 41 levels** — 6.75x at the surface,
+    2.5-5.6x through the middle, 1.15x at the switch, and equal only at the lid. The standard
+    radiative-convective construction takes the adiabat below the crossing and the radiative
+    profile above it. **There is no crossing.** Mode 1's spike and mode 2's runaway are one fact
+    seen at two altitudes: a grey column of `tau_s` = 2.26e6 in radiative equilibrium at
+    `F/2` = 136 W/m2 requires a **9496 K** surface, and the model prescribes 1408 K. Read the
+    other way, the OLR a 1408 K surface can drive through `tau_s` = 2.26e6 in grey radiative
+    equilibrium is `2*sigma*1408^4/(1+1.5*tau_s)` = **0.13 W/m2**.
+
+    So item 67's "cheapest remaining move on invariant 3" is **withdrawn**, and what replaces it
+    is a statement about the model rather than about a boundary condition: **the prescribed
+    adiabat and the grey opacity are not compatible radiative descriptions of the same
+    atmosphere, and they disagree by three orders of magnitude in flux.** One of the three —
+    the 1500 K surface, `kappa`, or the greyness — has to give, and the choice cannot be made by
+    a one-line change to the top boundary.
+
+    ### One thing that belongs to item 39
+
+    Between level 36 (218.2 km) and level 37 (236.4 km), `tau_above` goes **1626 -> 0.497**.
+    That is `dtau` ~ 1600 across a single grid layer, where item 39 recorded 55 and called the
+    photosphere "poor, not broken" at three layers. On the current defaults it is worse by 30x,
+    the whole opaque-to-transparent transition happens inside one cell, and that is precisely
+    why mode 1's switch lands on the wrong side of `tau` = 1. Item 39's conclusion — the lever
+    is `zeta`, not `im` — is unaffected; its magnitude is.
+
+    ### The knob
+
+    `ATM_SKIN_TAU` in `ThermoAtm.h`, default **0**, off-branch verified null (see arm A's
+    iteration-40 match above). `=1` is the skin-region-only form, `=2` the literal whole-column
+    form. Both are kept: they are the two readings of item 67's proposal, and the record of why
+    neither is available is worth more than the four lines they cost.
+
 ## Remaining work
+
+- **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative
+  question** (item 73). Item 67's one-line follow-up is written, measured and withdrawn:
+  `T_rad(tau)` exceeds the prescribed profile at all 41 levels, so there is no
+  radiative-convective crossing to switch at, and `tau_s` = 2.26e6 at `F/2` = 136 W/m2 wants a
+  9496 K surface against the model's 1408 K. Meanwhile the shipped model's OLR converges to
+  `sigma*t_skin^4` = `F/2` to 0.01 W/m2, so its imbalance is definitionally half the energy
+  input. **Nothing radiative moves until one of the three gives — the prescribed surface
+  temperature, `kappa`, or the greyness** — and a top-boundary change is not one of the three.
+  `ATM_SKIN_TAU` (default 0) is kept as the record of what was tried.
 
 - **Rhie-Chow face reconstruction is the largest piece of unbuilt machinery here** (item 72).
   The pressure projection has CONVERGED to a fixed point that is not divergence-free —

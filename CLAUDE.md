@@ -119,14 +119,24 @@ was the least trustworthy number in it, because closing was what the `t_skin` fi
 guaranteed. It was worse than untrustworthy: it was an identity created by a missing factor of
 2. `t_skin` solved `sigma*T^4 = F`, the planet's EFFECTIVE temperature, where the grey skin
 value `F/2` belongs — so the lid was assigned the temperature whose emission equals the entire
-energy input, and the OLR duly descended onto it. With the factor in, the model absorbs 271
-W/m2 and emits **147** at 200 iterations, imbalance **+123.76 and still widening**. That number
-measures the prescribed adiabat; the old one restated the prescription.
+energy input, and the OLR duly descended onto it. With the factor in, the model absorbs 272
+W/m2 and emits **136** at 200 iterations, imbalance **+136.23**. That number measures the
+prescribed adiabat; the old one restated the prescription.
+
+**AND THE CONVERGED VALUE IS `F/2` EXACTLY, SO THE IMBALANCE IS EXACTLY HALF THE ENERGY INPUT**
+(item 73, the first 200-iteration series on the current defaults — item 67's pair predates both
+`ATM_RAD_DIRECT` and `ATM_PROJ_SWEEPS = 10`). The OLR reaches `sigma*t_skin^4` at iteration 120
+and stays within **0.01 W/m2** of it; item 67's "+123.76 and still widening" was the
+under-converged Lambda solver, and **is superseded, not merely extended**. `sigma*t_skin^4` IS
+`F/2` by construction, so the converged state is `OLR = F/2`, `imbalance = F/2` — 136.23 W/m2,
+constant. The corrected closure is as arithmetic as the old one, in the opposite direction:
+a prescribed isothermal lid emits `sigma*t_skin^4`, the column delivers exactly that, and
+whatever `t_skin` is set to is what the OLR becomes.
 
 **EVERY OLR AND IMBALANCE FIGURE ELSEWHERE IN THIS FILE AND IN THE README WAS MEASURED WITH
 `ATM_SKIN_GREY` OFF**, i.e. on the old default. They are not retracted — they are correct
 measurements of the old branch, reachable now with `ATM_SKIN_GREY=0` — but none of them
-describes the shipped model any more. The paired series in item 67 is the one that does.
+describes the shipped model any more. The series in item 73 is the one that does.
 
 The model reproduces its design targets exactly. None of this makes the outputs predictions.
 These are inputs, in rough order of how much they move the answer:
@@ -136,7 +146,7 @@ These are inputs, in rough order of how much they move the answer:
 | `kappa_H2O` / `kappa_CO2` / `kappa_bg` | 0.01 / 0.001 / 1e-6 m²/kg | Factor-of-2 uncertain, and **not a lever on the converged OLR at all**: 64× moves it 0.10 % (item 29), confirmed with a converged solver — 0.14 % over 16× (item 30) |
 | `geothermal_flux` | 150 W/m² | Open. The ≥195 W/m² argument is retracted, and item 25 makes it worse: it enters the `t_skin` fixed point, so it helps set the very flux it was being compared against |
 | `t_surf_equator` / `t_surf_pole` | 1500 / 1450 K | **Prescribed, not solved** |
-| `t_skin` | 254.0 K start, **relaxes to 221.12** (was 262.96) | Item 67, **default since 2026-08-21**. The fixed point used to solve σT⁴ = absorbed, which is T_eff, where the grey skin value T_eff/2^(1/4) belongs — the lid was assigned the planet's whole energy input as its emission, so the budget closed by construction. Now σT⁴ = F/2; `ATM_SKIN_GREY=0` restores the old branch. **The 254.0 start is still derived by the OLD formula** and the consistent value is 213.6 K; left alone deliberately so item 67's measured pair describes the shipped default exactly |
+| `t_skin` | 254.0 K start, **relaxes to 221.2-221.4** (was 262.96) | Item 67, **default since 2026-08-21**. The fixed point used to solve σT⁴ = absorbed, which is T_eff, where the grey skin value T_eff/2^(1/4) belongs — the lid was assigned the planet's whole energy input as its emission, so the budget closed by construction. Now σT⁴ = F/2; `ATM_SKIN_GREY=0` restores the old branch. **The 254.0 start is still derived by the OLD formula** and the consistent value is 213.6 K; left alone deliberately so item 67's measured pair describes the shipped default exactly |
 | insolation | 0.71 S₀ | Faint young Sun at 4.4 Ga |
 | `omega` | 3.17e-4 (5.5 h day) | Earth–Moon angular-momentum inversion (item 40): 5.5 h **is** the Moon at 5.95 R_E, 4.35× modern. Robust for a good reason — the Moon from 3 to 10 R_E spans only 5.0–6.1 h, so the bracket needs no tidal chronology. **Two Hadean-specific torques are omitted and neither is bounded**: thermal atmospheric tides on ~250× Earth's air mass (on Venus they spin the planet the *other* way) and dissipation in a molten surface. And the high-angular-momentum impact scenarios (Ćuk & Stewart 2012, Canup 2012) break conservation outright, toward a *shorter* day. Nothing observational reaches 4.4 Ga |
 | `cell_lat_scale` | 0.33, scaling the **Hadley edge only** | Config parameter since item 32; **default was Earth's 1.0 for everything measured before it**. Held–Hou puts the edge at 5.1° because Ro_T is **1/12.5 of** Earth's (0.0048 against 0.0598) — smaller, so the cells are narrower; read the other way the argument inverts. Item 36: scaling every anchor left cells 10/40/40° wide with the extratropics a bare ramp, so item 31's scan compared layouts that differed in more than width |
@@ -170,9 +180,12 @@ README items 9-11.
   absorbed. Once the effective radiating level migrates into the isothermal skin, OLR =
   absorbed is arithmetic, not a result. **ITEM 67 FINISHES THIS PARAGRAPH: the arithmetic is a
   missing factor of 2, the fixed point is now `sigma*T^4 = F/2` by default, and on that branch
-  the imbalance is +123.76 W/m2 rather than -1.26. The migration into the skin is NOT the
+  the imbalance is +136.23 W/m2 rather than -1.26. The migration into the skin is NOT the
   carrier — measured, the corrected arm's skin fraction stays at 1.1 % while its OLR tracks
-  `sigma*t_skin^4` just as tightly.** The -1.26 belongs to `ATM_SKIN_GREY=0`. **Do not claim anything about `kappa_H2O` = 0.01
+  `sigma*t_skin^4` just as tightly.** The -1.26 belongs to `ATM_SKIN_GREY=0`. **ITEM 73 CLOSES
+  IT: on the current defaults the OLR converges to `sigma*t_skin^4` = `F/2` to within 0.01
+  W/m2 by iteration 120, so the imbalance is exactly half the absorbed flux and is constant.
+  Both closures are arithmetic; only the sign of the leftover changed.** **Do not claim anything about `kappa_H2O` = 0.01
   m2/kg, in either direction, until a kappa scan has been run to 200 iterations** and shown
   whether the converged OLR moves with it. If it does not, item 10's "the OLR is an input"
   survived item 11's rewrite and merely hid until iteration 20 had passed.
@@ -182,7 +195,10 @@ README items 9-11.
   committed `im = 41` the entire photosphere is ONE grid cell of `dtau = 55`: level 35 sits at
   `tau_above` = 10.8 and level 36 at 0.82, so the column goes opaque-to-transparent inside one
   layer, and the two-stream sweep is first order in `dtau`. `im = 61` gives 3 photosphere
-  layers and `dtau` = 7.6 — poor, not broken. The lever is `zeta`, not `im`.
+  layers and `dtau` = 7.6 — poor, not broken. The lever is `zeta`, not `im`. **On the current
+  defaults it is 30x worse than item 39 recorded** (item 73): `tau_above` goes **1626 -> 0.497**
+  between level 36 (218.2 km) and level 37 (236.4 km), so the whole opaque-to-transparent
+  transition is inside one cell. The conclusion is unaffected; the magnitude is.
 - Mean planetary albedo 0.4981 ≈ `albedo_cloud`; the reflectivity saturates the moment any
   condensate exists, so the model reports that parameter.
 - Insolation is now TOA (mean 241.56 W/m2); `t_skin` is a fixed point against the model's
@@ -358,6 +374,21 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **THE PRESCRIBED ADIABAT AND THE GREY OPACITY ARE NOT COMPATIBLE DESCRIPTIONS OF THE SAME
+  ATMOSPHERE, AND THEY DISAGREE BY THREE ORDERS OF MAGNITUDE IN FLUX** (item 73). Item 67's
+  named follow-up — replace the isothermal clamp with `max(T_rad(tau_above), T_ad)`, the grey
+  radiative-equilibrium profile `sigma*T^4 = (F/2)(1 + 3*tau/2)` — is **written
+  (`ATM_SKIN_TAU`, default 0), measured and WITHDRAWN**. Measured on the model's own
+  `tau_above` array: `T_rad(tau)` exceeds the prescribed profile at **all 41 levels** (6.75x at
+  the surface, 2.5-5.6x through the middle, 1.00x only at the lid), so there is **no
+  radiative-convective crossing to switch at**. `tau_s` = 2.26e6 in radiative equilibrium at
+  `F/2` = 136 W/m2 wants a **9496 K** surface against the model's 1408 K; read the other way,
+  the OLR a 1408 K surface can drive through that opacity is **0.13 W/m2**. The two failure
+  modes are one fact at two altitudes: whole-column (`=2`) runs away to 15 599 K in 4
+  iterations, skin-region-only (`=1`) ignites a **polar** runaway at 236 km after ~150
+  iterations — 2729 K, 18 of 181 latitudes hotter than their own surface. One of the three —
+  the 1500 K surface, `kappa`, or the greyness — has to give, and not by a one-line change to
+  the top boundary.
 - **THE MERIDIONAL STREAMFUNCTION DOES NOT CLOSE AT THE GROUND, AND THE VIOLATION IS 2.1× THE
   CIRCULATION IT HIDES** (item 68). `Psi(ground)` must be 0 — `u` at `i = 0` is identically
   0.0000 m/s at every latitude and `|Psi|` at the lid is ~0, so the column-integrated meridional

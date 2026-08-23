@@ -1382,6 +1382,41 @@ public:
         // the model is bit-identical.
         static const bool prognostic_t = [](){ const char* e = getenv("ATM_PROGNOSTIC_T");
                                                return e ? (atof(e) != 0.0) : false; }();
+
+        // ATM_SKIN_TAU (default 0) - replace the ISOTHERMAL top with the grey
+        // radiative-equilibrium profile. Item 67's named follow-up: an isothermal lid is
+        // only the tau -> 0 end of
+        //
+        //     sigma*T^4 = (F/2)*(1 + 3*tau/2)
+        //
+        // and tau_above has been a real array since item 42. Under ATM_SKIN_GREY (default
+        // on) sigma*t_skin^4 IS F/2, so the profile is just
+        //
+        //     T_rad(tau) = t_skin * (1 + 3*tau/2)^(1/4)
+        //
+        // and needs no separate flux argument. With ATM_SKIN_GREY=0 the anchor is F rather
+        // than F/2 and the profile is 2^(1/4) too warm - the two knobs are meant to be used
+        // together.
+        //
+        // TWO MODES, BECAUSE THE LITERAL FORM IS NOT THE INTENDED ONE HERE. Item 67 wrote
+        // the replacement as max(T_rad(tau), T_ad), "keeps the adiabat wherever it is
+        // warmer". That assumes the adiabat is the warmer of the two in the deep column.
+        // IT IS NOT: max tau_above at the surface is 2.27e6 (measured, printed in every run
+        // log), so T_rad(tau_s) = 221.12*(1 + 1.5*2.27e6)^(1/4) = ~9500 K against the
+        // prescribed 1500 K. Read the other way, the OLR a 1500 K surface can drive through
+        // tau_s = 2.27e6 in grey radiative equilibrium is 2*sigma*1500^4/(1+1.5*tau_s) =
+        // 0.17 W/m2. So the literal form does not adjust a lid, it replaces the whole
+        // column - and that is a finding about the grey greenhouse, not a top boundary
+        // condition.
+        //
+        //   1 = skin region only. Wherever the adiabat already wins (T_ad >= t_skin) the
+        //       column is bit-identical to the shipped branch; where the shipped branch
+        //       clamped to the constant t_skin, it follows T_rad(tau) instead. This is the
+        //       minimal, intended replacement of the isothermal lid.
+        //   2 = the literal max(T_rad(tau), T_ad) over the whole column. Kept so the claim
+        //       above is measurable rather than argued; expect the deep column at ~9500 K.
+        static const int skin_tau = [](){ const char* e = getenv("ATM_SKIN_TAU");
+                                          return e ? atoi(e) : 0; }();
         const double M_bg             = m.m_comp.M_bg;
         const double R_bg             = m.m_comp.R_bg;
 
@@ -1486,9 +1521,17 @@ public:
                         // an optically thick atmosphere is strongly super-adiabatic. The
                         // honest sequence is: port a convective adjustment first, then flip
                         // this. The knob is here so the intermediate state can be measured.
+                        // The prescribed top: a constant t_skin by default, the grey
+                        // radiative-equilibrium profile under ATM_SKIN_TAU (see the knob).
+                        double T_top = m.t_skin;
+                        if (skin_tau)
+                            T_top = m.t_skin
+                                  * pow(1.0 + 1.5 * m.tau_above.x[i][j][k], 0.25);
+
                         T_i = prognostic_t
                             ? std::max(180.0, m.t.x[i][j][k] * m.t_0)
-                            : std::max(m.t_skin, T_ad);
+                            : (skin_tau == 1 ? (T_ad >= m.t_skin ? T_ad : T_top)
+                                             : std::max(T_top, T_ad));
 
                         // Hydrostatic, integrated on the layer-mean temperature.
                         const double T_mean = 0.5 * (T_prev + T_i);
