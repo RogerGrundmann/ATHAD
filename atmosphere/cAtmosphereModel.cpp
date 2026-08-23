@@ -22,6 +22,7 @@
 #include "TwoCatIceScheme.h"
 #include "ThreeCatIceScheme.h"
 #include "SaturationAdjustment.h"
+#include "IceSchemeCommon.h"
 #include "ConvectiveAdjustment.h"
 #include "VelocityInitializer.h"
 #include "PressureSolverAtm.h"
@@ -142,9 +143,15 @@ static void iceCensusFn(cAtmosphereModel& m, const char* where)
         double T_ci_min = 1.0e30, T_ci_max = 0.0;
         long long n_cw = 0, n_cw_sub273 = 0, n_cw_sub236 = 0;
         long long n_ci = 0, n_cold = 0, n_cells = 0;
+        // ATHAD item 74 follow-up: condensate sitting where IceSchemeCommon::canCondense
+        // says no condensed phase can exist (supercritical, or superheated with p_sat > p).
+        // The ice scheme evaporates exactly these, so counting them at each stage says WHICH
+        // routine puts them there — the attribution item 74 left unmeasured.
+        long long n_forbid = 0, n_forbid_crit = 0;
+        double q_forbid = 0.0;
         #pragma omp parallel for collapse(2) schedule(static) \
                 reduction(min:T_cw_min,T_ci_min) reduction(max:T_cw_max,T_ci_max) \
-                reduction(+:n_cw,n_cw_sub273,n_cw_sub236,n_ci,n_cold,n_cells)
+                reduction(+:n_cw,n_cw_sub273,n_cw_sub236,n_ci,n_cold,n_cells,n_forbid,n_forbid_crit,q_forbid)
         for(int i = 0; i < m.im; i++){
             for(int j = 0; j < m.jm; j++){
                 for(int k = 0; k < m.km; k++){
@@ -165,11 +172,48 @@ static void iceCensusFn(cAtmosphereModel& m, const char* where)
                         T_ci_min = std::min(T_ci_min, T);
                         T_ci_max = std::max(T_ci_max, T);
                     }
+                    const double q_cond = std::max(0.0, cw) + std::max(0.0, ci)
+                                        + std::max(0.0, m.gr.x[i][j][k]);
+                    if(q_cond > q_thr && !IceSchemeCommon::canCondense(m, T, i, j, k)){
+                        n_forbid++;
+                        q_forbid += q_cond;
+                        if(T >= AtmMixture::T_CRIT_H2O) n_forbid_crit++;
+                    }
                 }
             }
         }
         cout << "      AGCM: ice census [" << where << "] — cells " << n_cells
              << ",  T < 273.15 K in " << n_cold << endl;
+        {   // Sample a few offending cells with every quantity the two predicates use,
+            // because two derivations from the source have already been wrong about why.
+            int shown = 0;
+            for(int i = 0; i < m.im && shown < 3; i++)
+              for(int j = 0; j < m.jm && shown < 3; j++)
+                for(int k = 0; k < m.km && shown < 3; k++){
+                    const double T = m.t.x[i][j][k] * m.t_0;
+                    const double q_cond = std::max(0.0, m.cloud.x[i][j][k])
+                                        + std::max(0.0, m.ice.x[i][j][k])
+                                        + std::max(0.0, m.gr.x[i][j][k]);
+                    if(q_cond <= q_thr || IceSchemeCommon::canCondense(m, T, i, j, k)) continue;
+                    const double M_other = AtmMixture::M_nonwater(m.c.x[i][j][k],
+                                              m.co2.x[i][j][k], m.m_comp.M_bg);
+                    const double p_l   = m.p_stat.x[i][j][k];
+                    const double E_liq = SaturationH2O::saturationPressure(T);
+                    const double E_aut = SaturationH2O::saturationPressureAuto(T);
+                    printf("            forbid sample [%d][%d][%d]  T=%.2f K  p=%.4g hPa"
+                           "  E_liq=%.4g  E_auto=%.4g  qsat_liq=%.6f  qsat_auto=%.6f"
+                           "  q_v=%.6f  q_cond=%.6g\n",
+                           i, j, k, T, p_l, E_liq, E_aut,
+                           SaturationH2O::saturationMassFraction(E_liq, p_l, M_other),
+                           SaturationH2O::saturationMassFraction(E_aut, p_l, M_other),
+                           m.c.x[i][j][k], q_cond);
+                    shown++;
+                }
+        }
+        cout << "            CONDENSATE WHERE canCondense IS FALSE: " << n_forbid
+             << " cells (" << n_forbid_crit << " supercritical, "
+             << (n_forbid - n_forbid_crit) << " superheated),  total q = "
+             << q_forbid << " kg/kg" << endl;
         cout << "            cloud water in " << n_cw << " cells, T range "
              << std::fixed << std::setprecision(1)
              << (n_cw ? T_cw_min : 0.0) << " .. " << (n_cw ? T_cw_max : 0.0)

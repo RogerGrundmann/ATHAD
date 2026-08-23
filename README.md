@@ -5358,6 +5358,130 @@ the measurement.
     than statistic or coordinate. **Before explaining a field that will not move, find out where
     in the iteration it is being read.**
 
+75. **THE DISAGREEMENT IS INSIDE `SaturationAdjustment`, NOT BETWEEN IT AND THE ICE SCHEME:
+    `clampAndFade` tests whether a cell can hold a condensed phase, then condenses, then adds
+    the latent heat that makes the answer FALSE — and never re-tests. Fixed
+    (`ATM_SAT_SUPERHEAT`, default ON). The OLR moves -49.4 %.**
+
+    Item 74 left the attribution as "two routines disagree" and named `SaturationAdjustment` and
+    `damp_wiggles` as the creators. Both halves of that were wrong, and measurement rather than
+    source-reading corrected them.
+
+    ### What the census actually says
+
+    Condensate sitting where `IceSchemeCommon::canCondense` forbids it, per iteration:
+
+    ```
+    entering the moist block ..............   1 444 cells,    36.3 kg/kg
+    post SaturationAdjustment ............. 130 678 cells, 6 520.0 kg/kg     <-- created here
+    post damp_wiggles ..................... 263 530 cells, 6 520.0 kg/kg     <-- mass UNCHANGED
+    post ice scheme .......................   6 486 cells,    94.8 kg/kg
+    ```
+
+    **`damp_wiggles` creates none of it.** The cell count doubles while the mass is identical to
+    six figures: a smoother spreads the same condensate over twice as many cells. Item 74's "a
+    numerical smoother manufactures a phase the thermodynamics forbids" is **withdrawn on mass**;
+    what it does is redistribute, which matters for the cell count and not for the budget.
+
+    **And the two predicates AGREE.** `canCondense` uses `saturationPressure`,
+    `SaturationAdjustment` uses `saturationPressureAuto`; the obvious story is that they pick
+    different curves either side of the triple point. Measured at the offending cells, they do
+    not disagree at all:
+
+    ```
+    forbid sample [39][23][0]  T=276.08 K  p=1.225 hPa   E_liq=7.542     qsat_liq=1.000000  qsat_auto=1.000000
+    forbid sample [37][0][0]   T=461.15 K  p=51.18 hPa   E_liq=1.201e+04 qsat_liq=1.000000  qsat_auto=1.000000
+    ```
+
+    Those cells are genuinely superheated — `p_sat` is 6x and 235x the local pressure — and every
+    violation in the census is superheated, never supercritical, at every stage. The `T_CRIT`
+    guards work; the `p_sat > p` half is the one that was missing.
+
+    ### Where it is created, and why the guard that exists does not stop it
+
+    `SaturationAdjustment::clampAndFade` **already carries the exact test** and calls
+    `IceSchemeCommon::evaporateWhereImpossible` on cells that fail it. It is applied to the
+    temperature the cell *arrives* with. Forty lines below, the "always-on supersaturation
+    removal" does this:
+
+    ```cpp
+    if (c_row[k] > q_sat) {
+        const double excess = c_row[k] - q_sat;
+        c_row[k] = q_sat;
+        cloud_row[k] += excess;
+        T_dim        += latentHeat(T_dim) * excess / cp_of(...);   // <-- raises T
+        t_row_nd[k] = T_dim * inv_t_0;
+    }
+    ```
+
+    Raising T raises `E_sat`, and once `E_sat` exceeds the local pressure the cell is superheated:
+    the cloud just written into it is a state the guard above would have refused. Nothing
+    re-tests it, so the step stands. **The routine's own latent heating invalidates its own
+    admissibility test.**
+
+    This is the argument the file already makes at the critical-point cap — *"a condensation
+    adjustment cannot legitimately heat one past the point where the phase it is condensing into
+    ceases to exist"* — applied to only one of the two ways a cell stops being able to hold a
+    condensed phase.
+
+    **Staged measurement, which is what localised it** (`ATM_ICE_CENSUS=1`, counters inside
+    `SaturationAdjustment::run`):
+
+    ```
+    call 2, before the fix:  entry 1 444 | post adjustSat 722 | post applyTopo 722 | post clampAndFade 130 678
+    call 2, after  the fix:  entry 117 325 | post adjustSat 48 735 | post applyTopo 48 735 | post clampAndFade 0
+    ```
+
+    A first attempt put the guard in `adjustSaturation`'s Newton write-back. It fired **128 881
+    times** and changed the census by **nothing** — the creator was the other loop. *A guard that
+    fires is not a guard that matters; count the thing you are trying to remove, not the
+    invocations.*
+
+    ### The fix
+
+    `ATM_SAT_SUPERHEAT` (**default ON**, `=0` restores the old behaviour) re-tests after the
+    write-back and **rejects the whole step** — the cell returns to its entry state. Both loops
+    carry it. A rejected cell keeps its supersaturation, which is the honest state of a parcel
+    that cannot condense (item 64), rather than a manufactured phase the next routine deletes.
+    Condensing only as far as `E_sat(T) = p` would need the joint solve `adjustSaturation`'s
+    Newton loop does; that is a bigger change and is NOT attempted here.
+
+    ### What it costs, and it is the largest effect in this file
+
+    40 iterations, 24 threads, moist physics on from iteration 0 in both arms, identical
+    otherwise. Item 61's reproducibility envelope is +-0.5 % on a 40-iteration OLR; this is 100x
+    that, so it is a property of the model and not of the thread count.
+
+    | | `ATM_SAT_SUPERHEAT=0` | ON (default) |
+    |---|---|---|
+    | OLR @20 / @40 | 297.71 / **267.84** | 135.85 / **135.52** |
+    | imbalance @40 | 3.24 | 135.50 |
+    | photosphere | 237.3 km / 363.4 K | **281.3 km / 225.7 K** |
+    | emission from isothermal skin | 1.1 % | **79.0 %** |
+    | max cloud water @40 | **0.000000 g/kg** | 40.09 g/kg |
+    | max cloud ice @40 | 0.000000 g/kg | 8.15 g/kg |
+    | max water vapour @40 | 690.34 g/kg | **778.11 g/kg** |
+    | cloud cells surviving the ice scheme | 6 486 | **149 271** |
+
+    **-49.4 % on the OLR**, against item 67's -27 % and the 0.02-0.11 % of every microphysics
+    repair before it. The mechanism is opacity: condensate now survives the iteration, so
+    `k_liq*LWP + k_ice*IWP` is real, the emission level rises 44 km and cools 138 K.
+
+    **THREE HONEST CONSEQUENCES, none of them comfortable.**
+
+    - **The model is MORE `t_skin`-dominated, not less.** 135.52 W/m2 is `sigma*t_skin^4` to two
+      decimals, so item 73's `OLR = F/2` identity now arrives by iteration **40** instead of 120,
+      and **79 % of columns radiate from the prescribed isothermal lid** against 1.1 %. Raising
+      the photosphere pushed it into the skin — item 43's mechanism, driven this time by cloud
+      opacity rather than by a warm lid.
+    - **The retained supersaturation is real and it grows.** Max `q_v` reaches **778 g/kg**
+      against the old branch's 690 and the design mass fraction of 672. Rejecting a step leaves
+      the excess in the vapour, which is the correct state for a parcel that cannot condense, but
+      it is item 64's supersaturation made larger and it has not been run past 40 iterations.
+    - **`damp_wiggles` still spreads condensate into forbidden cells** — 167 504 cells and
+      3 970 kg/kg after the fix — which the ice scheme still evaporates. A smaller residue of the
+      same cycle, in a generic smoothing utility used for many fields. **Not addressed.**
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative
@@ -5650,8 +5774,12 @@ the measurement.
   its length. Deliberate (it lets the circulation form before the stiff microphysics
   starts), but it must be stated whenever a run is quoted — and it is why the 20-iteration
   measurements above are all made with sedimentation and the ice schemes switched off.
-- **Condensate is created and destroyed every iteration, and two routines disagree about where
-  it can exist** (item 74). `SaturationAdjustment` condenses into ~65 000 cells that
+- **~~Condensate is created and destroyed every iteration~~ — FIXED in item 75**
+  (`ATM_SAT_SUPERHEAT`, default on): `clampAndFade`'s own latent heating invalidated its own
+  admissibility test. OLR -49.4 %, cloud cells surviving the ice scheme 6 486 -> 149 271. What
+  remains open is the residue — `damp_wiggles` spreading condensate into forbidden cells
+  (167 504 cells, 3 970 kg/kg) — plus the retained supersaturation at 778 g/kg and the fact that
+  79 % of columns now radiate from the prescribed lid. Original entry: (item 74). `SaturationAdjustment` condenses into ~65 000 cells that
   `IceSchemeCommon::canCondense` rules impossible, and `damp_wiggles` — a numerical smoother —
   spreads it into ~132 000 more; `evaporateWhereImpossible` then deletes 257 000 cells' worth,
   correctly, because the cells are superheated (`p_sat > p`) or supercritical. Water is

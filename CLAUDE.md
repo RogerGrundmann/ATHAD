@@ -393,8 +393,25 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   did**: OLR 168.01 and still falling, 32 W/m2 above `sigma*t_skin^4`, against the dry arm's
   arrival at 136.19 by iteration 120. Set `<moist_phys_start_iter>300</...>` to reproduce the
   dry series, item 73's identity included.
+- **FIXED IN ITEM 75, AND IT IS THE LARGEST EFFECT IN THIS FILE: `SaturationAdjustment`'s
+  `clampAndFade` tested whether a cell could hold a condensed phase, condensed, added the latent
+  heat that makes the answer FALSE, and never re-tested.** The admissibility test is applied to
+  the temperature the cell ARRIVES with; the supersaturation removal forty lines below raises
+  that temperature, `E_sat` with it, and past `E_sat > p` the cell is superheated and the cloud
+  just written into it cannot exist. `ATM_SAT_SUPERHEAT` (**default ON**, `=0` restores)
+  re-tests after the write-back and rejects the step. Measured at 40 iterations, 24 threads,
+  moist on: **OLR 267.84 -> 135.52 (-49.4 %)**, photosphere 237.3 km/363.4 K ->
+  **281.3 km/225.7 K**, max cloud water **0.000000 -> 40.09 g/kg**, cloud cells surviving the
+  ice scheme 6 486 -> **149 271**. Against item 67's -27 % and every microphysics repair's
+  0.02-0.11 %. **Three consequences, none comfortable**: the model is MORE `t_skin`-dominated
+  (item 73's `OLR = F/2` now arrives by iteration 40, and **79 % of columns radiate from the
+  prescribed lid** against 1.1 %); the retained supersaturation reaches **778 g/kg** against a
+  design 672 and is untested past 40 iterations; and `damp_wiggles` still spreads condensate
+  into forbidden cells (167 504 cells, 3 970 kg/kg) for the ice scheme to evaporate — not
+  addressed. **Every moist number recorded before 2026-08-23 predates this.**
 - **CONDENSATE IS CREATED AND DESTROYED EVERY ITERATION, AND THE DIAGNOSTIC SAMPLES ON THE
-  WRONG SIDE OF IT** (item 74). Per iteration: 66 785 cells with cloud entering the moist block,
+  WRONG SIDE OF IT** (item 74, mechanism CORRECTED by item 75 — `damp_wiggles` creates none of
+  it, the mass is identical either side of the smoother, and the two predicates agree). Per iteration: 66 785 cells with cloud entering the moist block,
   131 404 after `SaturationAdjustment` condenses, **263 530 after `damp_wiggles`** — a numerical
   smoother spreading condensate into cells that cannot hold it — and **6 486** after the ice
   scheme. The remover is `IceSchemeCommon::evaporateWhereImpossible` and it is CORRECT: the
