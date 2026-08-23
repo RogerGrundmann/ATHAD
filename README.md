@@ -5267,6 +5267,14 @@ the measurement.
   input. **Nothing radiative moves until one of the three gives — the prescribed surface
   temperature, `kappa`, or the greyness** — and a top-boundary change is not one of the three.
   `ATM_SKIN_TAU` (default 0) is kept as the record of what was tried.
+  **And do not re-run the kappa scan on the prescribed branch to find out** — item 29 did it
+  (0.10 % over 64x), item 60 confirmed it by another species (0.083 %), and the null is now
+  structural rather than empirical: `t_skin` is a fixed point of a budget with no kappa in it,
+  and item 73 measured the OLR sitting on `sigma*t_skin^4` to 0.01 W/m2, which is *tighter*
+  than the branch those scans were run on. The kappa arm still worth its wall clock is under
+  `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1` (item 66's configuration, `skin%` = 0.0 throughout),
+  where no kappa arm has ever been run and the baseline has to be re-run beside it because
+  item 66 predates items 67-73.
 
 - **Rhie-Chow face reconstruction is the largest piece of unbuilt machinery here** (item 72).
   The pressure projection has CONVERGED to a fixed point that is not divergence-free —

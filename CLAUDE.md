@@ -185,10 +185,21 @@ README items 9-11.
   `sigma*t_skin^4` just as tightly.** The -1.26 belongs to `ATM_SKIN_GREY=0`. **ITEM 73 CLOSES
   IT: on the current defaults the OLR converges to `sigma*t_skin^4` = `F/2` to within 0.01
   W/m2 by iteration 120, so the imbalance is exactly half the absorbed flux and is constant.
-  Both closures are arithmetic; only the sign of the leftover changed.** **Do not claim anything about `kappa_H2O` = 0.01
-  m2/kg, in either direction, until a kappa scan has been run to 200 iterations** and shown
-  whether the converged OLR moves with it. If it does not, item 10's "the OLR is an input"
-  survived item 11's rewrite and merely hid until iteration 20 had passed.
+  Both closures are arithmetic; only the sign of the leftover changed.**
+  **THE KAPPA SCAN THIS PARAGRAPH USED TO DEMAND IS DONE, AND IT MUST NOT BE RE-RUN ON THE
+  PRESCRIBED BRANCH** (item 29, four 200-iteration runs: 64x in `kappa_H2O` moves the converged
+  OLR **0.10 %**; item 60 confirmed it a third time at 0.083 % by a different species). The
+  answer cannot change with the current defaults, and the reason is structural rather than
+  empirical: `t_skin` is a fixed point of absorbed SW + geothermal, in which **no kappa
+  appears**, and item 73 measured the OLR sitting ON `sigma*t_skin^4` to 0.01 W/m2. Item 67
+  changed what that fixed point equals, not what it depends on; item 71 shrank the only part
+  kappa could ever have moved (the Lambda solver's 11.82 W/m2 of residual excess) to 0.01. So a
+  kappa scan on the prescribed branch re-measures `t_skin`, which is exactly what the
+  `t_skin`-blocks-everything bullet below forbids. **The one kappa measurement still worth its
+  wall clock is on a branch with NO prescribed top** — `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1`,
+  item 66's configuration, where `skin%` is 0.0 at every diagnostic and the dry column converges
+  to 223.8 W/m2. No kappa arm has ever been run there, and item 66's own run predates items
+  67-73 so it is not reusable as the baseline. ~39 min per arm at 400 iterations, 24 threads.
 - **Not grid-converged**: 519 W/m2 at 260 km against 581 at 300 km with `im` fixed at 61
   (both at 100 iterations, both pre-item-22 — the check has to be redone, not just extended).
   **Item 39 says why, and says the retry should not be a shell-depth or `im` scan.** At the
