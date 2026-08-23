@@ -5482,6 +5482,81 @@ the measurement.
       3 970 kg/kg after the fix — which the ice scheme still evaporates. A smaller residue of the
       same cycle, in a generic smoothing utility used for many fields. **Not addressed.**
 
+76. **ZERO PRECIPITATION IS THE RIGHT ANSWER, AND FOR A BETTER REASON THAN "NOTHING FORMS":
+    rain forms at its 260 mm/d CAP and is completely evaporated by the supercritical column
+    before it can reach a 1490 K surface. The Earth phase bands were repaired anyway, and the
+    repair is a measured no-op — the third time a suspected blocker has not been the blocker.**
+
+    Every precipitation field in every ATHAD run reads `0.000000 mm/d`. Two questions hide behind
+    that: should it be zero at the GROUND (yes, necessarily), and should it be zero EVERYWHERE
+    (no — the conversion terms are live: `max S_r = 0.0160 g/kg/s` at 256 km and
+    `max S_s = 0.0119` at 277 km).
+
+    ### The phase bands are Earth's, and they did two jobs at once
+
+    ```cpp
+    m.P_rain    = (t_u >= t_0)                  ? (inherited + produced) : 0.0;   // >= 273.15 K
+    m.P_snow    = (t_u < t_0 && t_u >= t_000)   ? (inherited + produced) : 0.0;   // >= 253.15 K
+    m.P_graupel = (t_u < t_0 && t_u >= t_00)    ? (inherited + produced) : 0.0;   // >= 236.15 K
+    ```
+
+    Two defects in one expression. The bands **partition down to 236.15 K and no further**, and
+    `t_00` = -37 C and `t_000` = -20 C are Earth's homogeneous-freezing and mixed-phase
+    thresholds — the same defect class as item 63's convective triggers in absolute hPa. And the
+    `: 0.0` conflates *production* with *transmission*: a flux arriving from the level above is
+    DESTROYED rather than merely not added to, though falling ice does not cease to exist because
+    the air it is passing through is cold.
+
+    **Repaired** (`ATM_PRECIP_BANDS`, default ON, `=0` restores): the inherited flux always
+    passes and only production is gated; snow production loses its `t_000` floor, since ice
+    crystals form and fall at any temperature below `t_0`. Graupel keeps its `t_00` floor because
+    that one is physical rather than Earth-specific — riming needs supercooled LIQUID, and below
+    -37 C there is none.
+
+    ### And it changes nothing, measured
+
+    40 iterations, 24 threads: OLR **135.52 both**, max water vapour **778.109092 g/kg both**,
+    max cloud water **40.087238 g/kg both** — bit-identical. Instrumented, the reason is flat:
+
+    ```
+    PRECIP PROBE: cells with S_s[i+1] > 0 .... 112 726
+                  cells with prod_s > 0 ......       0
+                  max P_snow ................. 0.000000e+00
+                  max P_rain ................. 3.000000e-03   <-- P_max_flux, the 260 mm/d cap
+    ```
+
+    **`prod_s` is zero in every cell**, so every cell in which the flux loop evaluates production
+    is at or above 273.15 K and the snow and graupel bands never applied there to begin with. The
+    column's cold part — the 221-230 K condensing layer — is not where the flux recurrence is
+    accumulating. **The bands were not the blocker.** Item 63 found the same shape (convective
+    triggers repaired, nothing moved, because invariant 2 pinned the layer) and item 74 found it
+    again (the `dt` that was not missing). *A defect can be real, worth repairing, and not be the
+    thing you were looking for.*
+
+    ### Why the answer is zero, which is the part that matters
+
+    `max P_rain = 3.0e-3 kg/(m2 s)` INSIDE `ThreeCatIceScheme` — the flux is not merely nonzero,
+    it is **pinned at its cap** — and `0.000000` by the time any diagnostic reads it. What
+    happens in between is `IceSchemeCommon::evaporateWhereImpossible`, which converts an incoming
+    flux to vapour at `P/(v*rho)` when it falls into a superheated or supercritical cell, mass
+    accounted for. Everything below ~177 km is supercritical, so nothing survives the descent.
+
+    That is confirmed by the budget rather than assumed: total H2O conserved to **-0.0004 %**
+    with **0.000000 kg/kg** deleted at the `c` ceiling, in a 200-iteration run. The water that
+    falls is not lost; it is returned to the vapour a few kilometres down.
+
+    **So ATHAD's dry surface is a RESULT, not an absence.** Rain forms in this atmosphere, at the
+    maximum rate the scheme allows, and evaporates before it can arrive. That is the physical
+    distinction between this epoch and ATHAD_COND's, and the model computes it rather than
+    asserting it.
+
+    **Open, and NOT investigated here**: `P_rain` sitting exactly on `P_max_flux` is a cap
+    binding, and this file's own rule is to look at what a cap is holding back (item 52). The
+    normalisation beneath it is also suspect — `P_rain_0 = max(P_rain.x[0][j][k], 1e-6)` divides
+    the flux by its SURFACE value, which in ATHAD is structurally zero, so the collection kernels
+    see `P/1e-6`. `ATM_PRECIP_DIMENSIONAL` exists for exactly this and is default off. Neither is
+    measured.
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative

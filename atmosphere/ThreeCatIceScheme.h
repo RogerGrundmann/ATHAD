@@ -131,7 +131,6 @@ public:
         applyTopography();
 
         printReport();
-
         cout << "      ThreeCategoryIceScheme ended" << endl;
 
         auto end = std::chrono::high_resolution_clock::now();
@@ -141,6 +140,12 @@ public:
 
 private:
     cAtmosphereModel& m;
+
+    // README item 76 — the precipitation-flux phase bands. Default ON;
+    // ATM_PRECIP_BANDS=0 restores Earth's hard-zeroing bands. See the note at the
+    // P_rain/P_snow/P_graupel assignment.
+    static inline const bool precip_bands_fix = [](){
+        const char* e = getenv("ATM_PRECIP_BANDS"); return e ? (atoi(e) != 0) : true; }();
 
     // diagnostic output state (set during computeColumns)
     bool rain = false;
@@ -557,6 +562,51 @@ private:
                         // other untuned schemes — usable, not NaN). ~260 mm/d, well above any
                         // physical precip.
                         constexpr double P_max_flux = 3.0e-3;        // kg/(m2*s) ~260 mm/d hard cap
+                        // ATHAD README item 76: THE PHASE BANDS ARE EARTH'S, AND THEY DO TWO
+                        // JOBS AT ONCE.
+                        //
+                        // As written, each category is `(band) ? (inherited + produced) : 0`,
+                        // which conflates "can this phase be PRODUCED in this cell" with "can a
+                        // flux PASS THROUGH this cell". The second has no temperature bound at
+                        // all — falling ice does not cease to exist because the air it is
+                        // passing through is cold — and the `: 0.0` does not merely withhold
+                        // production, it DESTROYS a flux arriving from the level above.
+                        //
+                        // The bands bottom out at t_00 = 236.15 K (-37 C) and t_000 = 253.15 K
+                        // (-20 C): Earth's homogeneous-freezing and mixed-phase thresholds. On
+                        // Earth they bound a regime where precipitation is negligible anyway.
+                        // ATHAD's ENTIRE condensing layer is at 221-230 K — colder than the
+                        // coldest band — so all three fluxes were identically zero everywhere,
+                        // in every run this project has produced, however much snow S_s made.
+                        // Measured: S_s = 0.0119 g/kg/s at 277 km with P_snow = 0.000000.
+                        //
+                        // Fixed: the inherited flux always passes; only PRODUCTION is gated.
+                        // Snow production runs wherever the air is below freezing (ice crystals
+                        // form and fall at any temperature below t_0), so its t_000 floor goes.
+                        // Graupel keeps its t_00 floor, which is physical rather than Earth-
+                        // specific: riming needs supercooled LIQUID, and below -37 C there is
+                        // none. Rain keeps t_0 for the same kind of reason.
+                        //
+                        // Where the flux then goes is already handled:
+                        // IceSchemeCommon::evaporateWhereImpossible converts an incoming flux
+                        // to vapour at P/(v*rho) when it falls into a superheated or
+                        // supercritical cell, with the mass accounted for.
+                        //
+                        // ATM_PRECIP_BANDS=0 restores the old behaviour.
+                        if (precip_bands_fix) {
+                            const double prod_r = (t_u >= m.t_0)
+                                ? m.r_humid.x[i+1][j][k] * m.S_r.x[i+1][j][k] * step_i : 0.0;
+                            const double prod_s = (t_u <  m.t_0)
+                                ? m.r_humid.x[i+1][j][k] * m.S_s.x[i+1][j][k] * step_i : 0.0;
+                            const double prod_g = (t_u <  m.t_0 && t_u >= m.t_00)
+                                ? m.r_humid.x[i+1][j][k] * m.S_g.x[i+1][j][k] * step_i : 0.0;
+                            m.P_rain.x[i][j][k]    = std::min(P_max_flux, std::max(0.0,
+                                m.P_rain.x[i+1][j][k]    + prod_r));
+                            m.P_snow.x[i][j][k]    = std::min(P_max_flux, std::max(0.0,
+                                m.P_snow.x[i+1][j][k]    + prod_s));
+                            m.P_graupel.x[i][j][k] = std::min(P_max_flux, std::max(0.0,
+                                m.P_graupel.x[i+1][j][k] + prod_g));
+                        } else {
                         m.P_rain.x[i][j][k] = (t_u >= m.t_0)
                             ? std::min(P_max_flux, std::max(0.0, m.P_rain.x[i+1][j][k]
                                 + m.r_humid.x[i+1][j][k] * m.S_r.x[i+1][j][k] * step_i))
@@ -571,6 +621,7 @@ private:
                             ? std::min(P_max_flux, std::max(0.0, m.P_graupel.x[i+1][j][k]
                                 + m.r_humid.x[i+1][j][k] * m.S_g.x[i+1][j][k] * step_i))
                             : 0.0;
+                        }
 
                         // Track column maxima (thread-local via reduction)
                         local_max_rain    = std::max(local_max_rain,    m.P_rain.x[i][j][k]);

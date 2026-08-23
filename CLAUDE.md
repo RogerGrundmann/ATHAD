@@ -393,6 +393,19 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   did**: OLR 168.01 and still falling, 32 W/m2 above `sigma*t_skin^4`, against the dry arm's
   arrival at 136.19 by iteration 120. Set `<moist_phys_start_iter>300</...>` to reproduce the
   dry series, item 73's identity included.
+- **ZERO PRECIPITATION IS A RESULT, NOT AN ABSENCE** (item 76). Rain forms at its `P_max_flux`
+  cap — `max P_rain = 3.0e-3 kg/(m2 s)` ~ 260 mm/d measured INSIDE `ThreeCatIceScheme` — and
+  reads `0.000000` at every diagnostic, because `evaporateWhereImpossible` converts the falling
+  flux to vapour at `P/(v*rho)` in the supercritical column below ~177 km. Water conserved to
+  -0.0004 % over 200 iterations with no ceiling deletions. **ATHAD's dry surface is computed,
+  not asserted** — that is the physical line between this epoch and ATHAD_COND's. The Earth
+  phase bands were repaired alongside (`ATM_PRECIP_BANDS`, default on: the inherited flux always
+  passes, only production is gated, and snow loses its -20 C floor) and the repair is
+  **bit-identical at 40 iterations** — `prod_s > 0` in 0 cells, because every cell where the flux
+  loop evaluates production is already above 273.15 K. Third time a suspected blocker was not the
+  blocker (items 63, 74, 76). **Open**: `P_rain` pinned ON its cap, and `P_rain_0 =
+  max(P_rain.x[0], 1e-6)` normalising the flux by a surface value that is structurally zero here
+  (`ATM_PRECIP_DIMENSIONAL`, default off). Neither measured.
 - **FIXED IN ITEM 75, AND IT IS THE LARGEST EFFECT IN THIS FILE: `SaturationAdjustment`'s
   `clampAndFade` tested whether a cell could hold a condensed phase, condensed, added the latent
   heat that makes the answer FALSE, and never re-tested.** The admissibility test is applied to
