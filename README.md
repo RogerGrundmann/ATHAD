@@ -5887,6 +5887,111 @@ the measurement.
     still assumes the quadratic form. **Item 72's Rhie-Chow lead and this residual are now the
     same question**, and they should be worked together rather than separately.
 
+81. **`ATM_CELL_ALTERNATE` IS MEASURED IN ATHAD AND ATHAD_COND NOW, AND IT IS A STRUCTURAL KNOB
+    WITH NO SCALAR SIGNATURE: the sign-band count of Psi changes across the whole depth of the
+    circulation while the OLR, the photosphere, the albedo, the water vapour and `Psi_max` do not
+    move at all. In ATHAD_COND the off arm is a SINGLE overturning cell and the on arm is four.**
+
+    Items 69 and `073e4ac`/`ff8fd94` left the knob default-ON in all three trees with an explicit
+    "UNMEASURED here" banner on two of them: the effect had been measured only in ATHAD_PERID.
+    This is the A/B in the other two. 4 runs x 40 iterations, 24 threads, one freshly relinked
+    binary per tree, arms separated by the environment variable alone
+    (`config_alt_off.xml` / `config_alt_on.xml`, panorama and checkpoints off, `nm = 40`).
+    28 min wall: ATHAD ~5 min/arm at `im = 41`, ATHAD_COND ~7-10 min/arm at `im = 61`.
+
+    The knob acted as designed in both trees, from the startup banner:
+
+        off: direct(-3.0)/indir.(4.0)/indir.(4.0)/indir.(4.0)/indir.(0.5)   1 of 4 pairs counter-rotate
+        on:  direct(-3.0)/indir.(4.0)/direct(-4.0)/indir.(4.0)/direct(-0.5) 4 of 4 pairs counter-rotate
+
+    ### What moved: the band structure, and it moved through the depth
+
+    Sign bands of Psi across the northern hemisphere at iteration 40 (`python/survival.py`),
+    identical at iteration 20:
+
+    | ATHAD, `im` = 41 | 0 km | 5 | 13 | 23 | 36 | 55 | 79 | 113 | 158 |
+    |---|---|---|---|---|---|---|---|---|---|
+    | off | 6 | 6 | 6 | 6 | 6 | 6 | **2** | **2** | **2** |
+    | on  | 5 | 5 | 5 | 5 | 5 | 5 | **5** | **4** | **4** |
+
+    | ATHAD_COND, `im` = 61 | 0 km | 2 | 5 | 9 | 15 | 22 | 32 | 45 |
+    |---|---|---|---|---|---|---|---|---|
+    | off | **1** | **1** | 2 | 2 | 2 | 2 | 2 | 2 |
+    | on  | **4** | **4** | 5 | 5 | 5 | 5 | 4 | 4 |
+
+    **The band count is a thresholded quantity, so it was checked against its threshold before
+    being believed.** `bands()` ignores latitudes carrying less than `thr * max|Psi|`; over
+    `thr` = 1e-3, 1e-2, 5e-2 and 1e-1 the separation is stable in both trees — ATHAD off is 2
+    bands in the upper column at every threshold and ATHAD_COND off is 1 band at the ground at
+    every threshold, while both on arms hold 4-6 through the circulation. What the threshold does
+    move is the top of the column, where |Psi| is small and the count drops to 0; that is the
+    instrument running out of signal, not the cells ending.
+
+    **ATHAD_COND is where the knob pays.** Off, its zonal-mean circulation IS a single overturning
+    at the ground — the co-rotating stack's mass fluxes adding, exactly as item 69 predicted they
+    would — and the prescribed five cells are simply not present in Psi. On, four survive to
+    iteration 40. ATHAD's own answer is weaker and mixed: it keeps a multi-cell structure below
+    ~55 km either way, and the knob buys the upper half of the column (2 bands -> 4-5 above
+    79 km). This is `ATM_MC_GEOPOTENTIAL`'s pattern again (item 63) — the machinery is right and
+    ATHAD is the tree with less room for it to act.
+
+    **Unexplained, and stated rather than smoothed over**: ATHAD's *off* arm shows **6** low-level
+    bands against the on arm's 5 — more sign changes from the co-rotating stack, not fewer, stable
+    across all four thresholds. ATHAD_COND does not do this. No mechanism offered.
+
+    ### What did not move: everything scalar
+
+    Iteration 40, 24 threads:
+
+    | | ATHAD off | ATHAD on | COND off | COND on |
+    |---|---|---|---|---|
+    | OLR | 135.52 | **135.52** | 196.42 | **196.42** |
+    | imbalance | 135.50 | 135.50 | 74.36 | 74.36 |
+    | photosphere | 281.3 km / 225.74 K | identical | 65.8 km / 264.71 K | identical |
+    | mean albedo | 0.4990 | 0.4990 | 0.5000 | 0.5000 |
+    | max water vapour | 778.109092 | **778.109092** g/kg | 352.430272 | **352.430272** g/kg |
+    | max `w` | 25.056255 | 25.056123 m/s | 27.736137 | **27.736137** m/s |
+    | max `v` | 3.463144 | 3.507947 m/s | 3.591077 | 3.591004 m/s |
+    | global max Psi | 5.21537e13 | 5.39721e13 (+3.5 %) | 2.74297e13 | **2.74295e13** |
+    | max Psi(ground) | 3.33491e13 | 3.40814e13 | 2.03639e13 | **2.03637e13** |
+    | RMS Psi(ground) | 1.32398e13 | 1.34996e13 (+2.0 %) | 1.03115e13 | **9.62170e12 (-6.7 %)** |
+    | `div(rho u)/rho` rms | 2.739e-02 | **2.884e-02 (+5.3 %)** | 2.825e-02 | **2.928e-02 (+3.6 %)** |
+
+    **The ATHAD_COND column is the whole methodological point of this item.** A change that turns
+    one overturning cell into four leaves `Psi_max` agreeing to **five significant figures** and
+    max `Psi(ground)` to five as well; only the RMS over latitude moves, by 6.7 %. The reason is
+    item 69's geometry: the Hadley cell is `k = 0`, which is even and therefore already direct, so
+    the knob cannot touch the cell the global maximum lives in. **Judging this knob by `Psi_max`
+    returns a false null**, and the same trap caught ATHAD_PERID first. Read `survival.py` for the
+    band count and `psicheck.py` — or the RMS over latitude of `meridional_streamfunction_*.csv`
+    — for the closure metric. This is item 68's method note ("`Psi(ground)` must be read as an RMS
+    over latitude, not a max") arriving a second time from a different direction.
+
+    ### The divergence residual is not indifferent to which way the cells turn
+
+    `div(rho u)/rho` rms is **4-5 % worse with the knob on in both trees**, same sign and same
+    magnitude as ATHAD_PERID's 3.5 %. Three trees, three consistent measurements. That is small
+    beside item 80's 2.8x, but it is not zero, and it says the non-closure of items 68/72 has some
+    dependence on the prescribed cell parity — a counter-rotating stack is a harder projection
+    problem than a co-rotating one. It does not change the conclusion that the residual is
+    structural; it adds a term to the list of things it responds to.
+
+    ### The runs are otherwise clean
+
+    Enthalpy drift 8e-16 (off) and 1e-15 (on) in ATHAD's convective adjustment, water drift by
+    level identical to three figures between COND's arms, `p_dyn_cap` clamping in 0 of 2 506 179
+    fluid cells in every arm. No arm diverged, and the band counts at iteration 20 and 40 agree,
+    so what is reported is a settled initial structure rather than a transient sampled once.
+
+    ### Status
+
+    **Default ON stays, on measured grounds in all three trees now.** The banner "MEASURED IN
+    ATHAD_PERID / UNMEASURED here" on `073e4ac` and `ff8fd94` is superseded by this item.
+    `ATM_CELL_ALTERNATE=0` restores the co-rotating stack exactly. **What is NOT claimed**: that
+    the model sustains the alternating cells. 40 iterations is a settled initial structure, and
+    item 18 puts geostrophic adjustment ~1e4 iterations away — the question of whether five cells,
+    or four, survive to a converged state is untouched by this measurement.
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative
