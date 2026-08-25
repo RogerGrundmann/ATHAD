@@ -6129,6 +6129,89 @@ the measurement.
     giving back some of the metric and divergence gains, which are gains of UNIFORMITY. That
     trade has not been measured and is the obvious next arm.
 
+83. **`ATM_GRID_BETA` DEFAULTS TO 4.33, NOT `zeta`, AND IT IS A TUNED CONSTANT. It recovers
+    EVERYTHING item 82's coarse bottom cost — ground Psi bands 2 -> 5, Psi interior back to
+    within 0.8 % of legacy, and the best closure ratio of the three grids — while keeping 60 %
+    of the divergence gain. AND IT SPLITS ITEM 82's TWO COSTS APART: the near-surface one is a
+    beta artefact, the unresolved photosphere is NOT, and no beta will fix it.**
+
+    Item 82 named this arm as the obvious next one and did not predict its outcome. One run,
+    40 iterations, 24 threads, `ATM_GRID_BETA=4.33` against the two grids already measured.
+    ~5.5 min, water conserved to **-0.0000 %**.
+
+    ### Three grids, one table
+
+    | | legacy | beta = zeta = 3 | **beta = 4.33** |
+    |---|---|---|---|
+    | `dz_0` | 1224.3 m | 3274.0 m | **1227.5 m** (legacy to 0.3 %) |
+    | lid | 300.0 km | 293.4 km | 293.4 km |
+    | top layer | 22.8 km | 10.6 km | 14.4 km |
+    | `checkRadialMetric` spread | 11.77x | **2.19x** | 7.20x |
+    | `div(rho u)/rho` rms | 2.884e-02 | **2.172e-02** (-24.7 %) | 2.433e-02 (**-15.6 %**) |
+    | OLR | 135.52 | 135.56 | 135.51 W/m2 |
+    | photosphere | 281.3 km, 225.74 K | 272.1 km, 221.12 K | 277.0 km, 221.10 K |
+    | **emission from skin** | 79.0 % | **100.0 %** | **100.0 %** |
+    | Psi interior max | 5.39721e13 | 4.20390e13 (-22 %) | **5.35487e13** (-0.8 %) |
+    | RMS Psi(ground) | 1.34996e13 | 1.22171e13 | 1.31337e13 |
+    | closure ratio | 0.2501 | 0.2906 | **0.2453**, best of three |
+    | ground Psi bands | 5 | **2** | **5** |
+
+    ### The near-surface cost was beta, and it is fully recovered
+
+    `beta = 4.33` was read off the comment block's table as the value making ATHAD's bottom layer
+    match the legacy grid, and it does: **1227.5 m against 1224.3 m, 0.3 %.** Everything item 82
+    recorded as a cost of the pressure grid at the ground comes back with it — the band count at
+    level 0 returns to 5, and Psi's interior maximum returns to within 0.8 % of the legacy value
+    after being 22 % down. **The closure ratio is then better than the legacy grid's**, 0.2453
+    against 0.2501, which neither of the other two arms managed.
+
+    ### And the trade is not one-for-one, which is the useful part
+
+    Halfway back in metric spread (7.20x against 2.19x and 11.77x), but **60 % of the divergence
+    gain survives**: -15.6 % against legacy, where `beta = 3` gave -24.7 %. So restoring the fine
+    bottom does NOT hand back the projection improvement in proportion. Whatever the collocated
+    stencil's non-adjointness (item 72) responds to, it is not simply the bottom spacing.
+
+    ### WHAT NO BETA RECOVERS, AND THIS IS THE FINDING
+
+    **Emission from the isothermal skin is 100.0 % of columns at BOTH beta values**, against
+    79.0 % on the legacy grid, and the photosphere temperature is `t_skin` to two decimals in
+    both (221.12, 221.10). Beta moved the bottom layer by 2.67x and the skin fraction by
+    **nothing**.
+
+    So item 82's two costs have two different causes, and only one of them was a knob:
+
+    - the near-surface degradation was the coarse bottom layer — a beta artefact, now gone;
+    - **the unresolved photosphere is the ln-p PLACEMENT itself** — the lid at 293.4 km and the
+      finer top layers putting more levels inside the isothermal skin — and it is not reachable
+      from beta.
+
+    That is a sharper statement than item 82 could make with two arms, and it re-points the work:
+    the knob to try is **`ATM_GRID_PTOP`**, which is what moves the lid, not `ATM_GRID_BETA`.
+    Whether a lid placed differently can pull the tau = 1 crossing back out of the skin is
+    unmeasured. **Note what is at stake — with 100 % of columns radiating from the prescribed
+    lid, the model has no instrument left for where this atmosphere actually emits**, which is
+    invariant 3's problem in its most acute form yet.
+
+    ### Unchanged from item 82
+
+    Precipitation is nonzero and still on its cap: snow and graupel at **259.200000 mm/d** each,
+    `P_max_flux` to six decimals, with a differently-located total maximum (583.2 mm/d at 37 N,
+    against 712.8 at 85 N) purely because the three category maxima sit at different latitudes.
+    `max water vapour` reads **794.700000 g/kg** for the third arm running — the `1 - q_CO2`
+    ceiling of item 82's correction to item 79. The OLR is unmoved across all three grids
+    (135.51-135.56, a spread of 0.04 %), a seventh confirmation.
+
+    ### Status, stated as bluntly as it deserves
+
+    **`beta` defaults to 4.33 and that is a TUNED CONSTANT, not a law.** `beta = zeta` was the
+    principled choice — the same exponential stretch on a different coordinate — and it lost on
+    measurement. The value is read off this tree's row of the comment block's table and **differs
+    per tree**: ATHAD_COND ~3.78, ATHAD_PERID ~2.83. A sibling porting this branch must re-read
+    its own row. Given how much of this README is about Earth's constants surviving as literals
+    inside physics kernels, a fitted per-tree constant is written down here as exactly that,
+    with the table it came from three lines above it in the source.
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative

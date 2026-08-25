@@ -401,8 +401,22 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   under the 2.67x thicker bottom layer. **The OLR does not move (135.52 -> 135.56).**
   **In tension with item 80 and unresolved**: making the metric EXACT worsened the divergence
   2.8x, making it 5.4x less wrong improves it 25 % — so what the projection responds to is grid
-  UNIFORMITY, not Jacobian correctness. `ATM_GRID_BETA` ~ 4.33 restores the legacy near-surface
-  spacing and is the unmeasured next arm.
+  UNIFORMITY, not Jacobian correctness.
+- **`ATM_GRID_BETA` DEFAULTS TO 4.33 SINCE 2026-08-25, AND IT IS A TUNED PER-TREE CONSTANT**
+  (item 83). `beta = zeta` was the principled choice and lost on measurement. 4.33 makes ATHAD's
+  bottom layer match the legacy grid (1227.5 against 1224.3 m); **ATHAD_COND's value is ~3.78 and
+  ATHAD_PERID's ~2.83, so it is NOT portable** — a sibling must re-read its own row of the table
+  in `cAtmosphereModel.h`. It recovers everything item 82's coarse bottom cost — ground Psi bands
+  2 -> 5, Psi interior within 0.8 % of legacy, closure ratio **0.2453, the best of the three
+  grids** — while keeping **60 % of the divergence gain** (-15.6 % against -24.7 %). The trade is
+  not one-for-one.
+  **AND IT SPLITS ITEM 82's TWO COSTS APART.** Skin emission is **100.0 % of columns at BOTH beta
+  values** and 79.0 % on the legacy grid, so the near-surface damage was the coarse bottom (a beta
+  artefact, now gone) while **the unresolved photosphere is the ln-p PLACEMENT** — the 293.4 km lid
+  and the finer top layers — and no beta reaches it. **The knob to try is `ATM_GRID_PTOP`, not
+  `ATM_GRID_BETA`**, and it is unmeasured. With 100 % of columns radiating from the prescribed lid
+  the model has no instrument left for where this atmosphere actually emits — invariant 3 in its
+  most acute form yet. OLR unmoved across all three grids (135.51-135.56, 0.04 %), a seventh time.
 - **PRECIPITATION IS NONZERO ON THE PRESSURE GRID, AND TWO OF ITS THREE CATEGORIES SIT ON
   `P_max_flux`** (item 82). 0.000000 -> 712.8 mm/d total, of which snow and graupel are
   **259.200000 mm/d each = the 3.0e-3 kg/(m2 s) cap EXACTLY**. So the rate is the cap's number,

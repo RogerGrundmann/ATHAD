@@ -595,10 +595,29 @@ private:
     // grid is a REDISTRIBUTION rather than a shell cut. Their shells were already sized about
     // right for their atmospheres (shell/H = 5.06 and 7.74); ATHAD_PERID's 15.54 was not.
     // Expect no payoff here and do not flip it expecting one.
+    // ==================================================================
+    // DEFAULT 4.33 SINCE 2026-08-25 (item 83), NOT `zeta`. AND IT IS A TUNED CONSTANT --
+    // say so rather than dressing it up. beta = zeta was the principled choice, "the same
+    // exponential stretch on a different coordinate"; 4.33 is the value that makes THIS
+    // tree's bottom layer match the legacy grid, read off the table above, and the table
+    // shows it differs per tree (ATHAD_COND ~3.78, ATHAD_PERID ~2.83). A sibling porting
+    // this branch must re-read its own row -- 4.33 is not portable and is not a law.
+    //
+    // WHY IT WON ANYWAY, measured at 40 iterations against beta = zeta = 3 (item 83):
+    // it recovers everything the 2.67x coarser bottom cost -- ground Psi bands 2 -> 5,
+    // Psi interior max within 0.8 % of legacy, closure ratio 0.2453, the BEST of the three
+    // grids -- while keeping 60 % of the divergence gain (-15.6 % against -24.7 %).
+    // The two are not a straight trade.
+    //
+    // WHAT NO BETA RECOVERS: emission from the isothermal skin is 100.0 % of columns at
+    // BOTH beta values and 79.0 % on the legacy grid, so the unresolved photosphere tracks
+    // the ln-p PLACEMENT -- the 293.4 km lid and the finer top layers -- and not the bottom
+    // spacing. Do not reach for beta to fix it.
+    // ==================================================================
     double gridBeta() const {
         const char* e = getenv("ATM_GRID_BETA");
-        const double d = e ? atof(e) : zeta;
-        return (d > 1.0e-6) ? d : zeta;
+        const double d = e ? atof(e) : 4.33;
+        return (d > 1.0e-6) ? d : 4.33;
     }
 
     // Reference hydrostatic column, built once. Returns false if it cannot reach p_top.
