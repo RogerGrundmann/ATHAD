@@ -5992,6 +5992,143 @@ the measurement.
     item 18 puts geostrophic adjustment ~1e4 iterations away — the question of whether five cells,
     or four, survive to a converged state is untouched by this measurement.
 
+82. **`ATM_GRID_PRESSURE` IS DEFAULT-ON AND MEASURED NOW, AND THE BRANCH'S OWN PRIOR — "expect
+    no payoff here" — IS HALF WRONG. It buys two things it never claimed: the `exp_rm` metric
+    spread falls 11.77x -> 2.19x and `div(rho u)/rho` falls 24.7 %. It costs two it never
+    warned about: the photosphere stops being resolved at all (79 % -> 100 % of columns
+    radiating from the prescribed lid) and the near-surface band structure halves. The OLR does
+    not move, for the sixth time.**
+
+    `ae25585` flipped the default with an explicit "MEASUREMENT STATUS: NONE IN THIS TREE"
+    banner, the same one `073e4ac` carried for `ATM_CELL_ALTERNATE`. This discharges it.
+    2 arms x 40 iterations, 24 threads, one binary, arms separated by the environment variable
+    alone (`config_pgrid_legacy.xml` / `config_pgrid_new.xml`). **5 min 16 s legacy against
+    4 min 56 s on the pressure grid** — 6 % cheaper, not dearer.
+
+    ### The off-branch null is verified against a binary that predates the flip
+
+    `ATM_GRID_PRESSURE=0` reproduces item 81's on-arm — a run made yesterday, before this branch
+    was default — to every printed digit of the OLR, `div(rho u)/rho`, max `v`, max `w` and max
+    `u`, with a single 8th-digit difference in min `u` (-0.318327 against -0.318326). That is
+    item 61's documented reassociation noise. **The legacy path is untouched.**
+
+    ### The grid, measured rather than quoted
+
+    | | legacy | pressure grid |
+    |---|---|---|
+    | bottom layer `dz_0` | 1224.3 m | **3274.0 m** (2.67x coarser) |
+    | top layer | 22.8 km | **10.6 km** (2.15x finer) |
+    | lid | 300.0 km | 293.4 km |
+    | `checkRadialMetric` spread | **11.77x** | **2.19x** |
+
+    The first three reproduce the comment block's predictions exactly — 2.67x, and a lid that
+    barely moves, so in ATHAD this is a redistribution and not a shell cut. **The fourth was not
+    predicted by anything.**
+
+    ### The unpredicted win: this grid makes the legacy metric nearly correct
+
+    `exp_rm = 1/(rm+1)` is the Jacobian of a QUADRATIC stretch (item 39), and the model runs an
+    exponential-in-height grid, which is why `checkRadialMetric()` — unit-free, and written in
+    item 39 before any fix existed — reports an 11.8x spread. **The ln-p ladder placed on this
+    column happens to sit far closer to quadratic-in-index than the exponential-in-height grid
+    does**, so the same wrong formula is 5.4x less wrong on it. Core length unit 25 125 -> 295 650 m
+    legacy, **66 849 -> 146 147 m** on the pressure grid.
+
+    That is a **third route** to item 39's open decision, which until now had two: replace
+    `exp_rm` (item 80: done, correct, and default-off because it triples the divergence) or cut
+    `zeta` so the wrong formula becomes accidentally right. Changing the GRID is the third, and
+    it is the only one of the three that improves the divergence rather than worsening it.
+
+    ### And the divergence residual moves, which almost nothing does
+
+    `div(rho u)/rho` rms **2.884e-02 -> 2.172e-02, a 24.7 % fall**, max 2.517e-01 -> 1.472e-01.
+    Item 72 established that this residual is a converged fixed point of the projection — 64x the
+    sweeps changes it by nothing — so the list of things that move it downward is short:
+    `ATM_PROJ_SWEEPS` (item 68, 52.5 %, plateauing) and now the grid.
+
+    **THIS SITS IN TENSION WITH ITEM 80 AND THE TENSION IS NOT RESOLVED HERE.** Item 80 made the
+    metric EXACTLY right and the divergence got **2.8x worse**; this makes the metric 5.4x LESS
+    WRONG and the divergence gets 25 % **better**. Both cannot be a simple story about metric
+    accuracy. The difference is that item 80 changed the formula on a fixed grid, making the
+    radial coefficient `exp_2_rm*inv_dr2` span ~1200x and the elliptic problem far stiffer, while
+    this changes the grid under a fixed formula and makes the spacing MORE uniform in the core's
+    own coordinate. **The lead that survives both is item 72's: the discrete div and grad are not
+    adjoint on this collocated stencil, and grid uniformity — not Jacobian correctness — is what
+    that non-adjointness responds to.** Rhie-Chow remains the named un-done work.
+
+    ### What it costs: the photosphere stops existing
+
+    | | legacy | pressure grid |
+    |---|---|---|
+    | OLR | 135.52 | 135.56 W/m2 (+0.03 %) |
+    | imbalance | 135.50 | 135.56 |
+    | mean albedo | 0.4990 | 0.4986 |
+    | photosphere | 281.3 km, 225.74 K | 272.1 km, **221.12 K** |
+    | emission from isothermal skin | 79.0 % | **100.0 % of columns** |
+
+    221.12 K is `t_skin` to two decimals. **Every column now radiates from the prescribed lid**,
+    so the model's one instrument for where the atmosphere actually emits reads nothing but the
+    boundary condition it was given. Against item 75, which pushed this from 1.1 % to 79 %, this
+    finishes the job. The OLR is unmoved to 0.03 %, which is items 29/41/60/80/81 confirmed from
+    a sixth direction and is not interesting; the skin fraction is.
+
+    ### What it costs: the near-surface bands
+
+    Psi sign bands, iteration 40 (`survival.py`; note the sampled HEIGHTS differ between arms
+    because the grid moved, so only level 0 is a like-for-like comparison):
+
+        legacy   5 5 5 5 5 5 5 4 4      (0 / 5 / 13 / 23 / 36 / 55 / 79 / 113 / 158 km)
+        new      2 5 5 5 5 4 4 4        (0 / 14 / 33 / 56 / 85 / 118 / 155 / 193 km)
+
+    **At the ground the count halves, 5 -> 2**, which is what a 2.67x thicker bottom layer should
+    do to structure that lives in the bottom few kilometres. Aloft the two are comparable.
+    Psi interior max 5.397e13 -> 4.204e13 (-22 %), RMS Psi(ground) 1.350e13 -> 1.222e13 (-9.5 %),
+    and the closure ratio therefore gets **worse**, 0.2501 -> 0.2906: the spurious surface flux
+    fell less than the circulation it is measured against.
+
+    ### PRECIPITATION APPEARS FOR THE FIRST TIME IN THIS MODEL — AND IT IS SITTING ON THE CAP
+
+    `max precipitation total` goes **0.000000 -> 712.8 mm/d**, at 85 N and 240 km. Decomposed:
+
+        rain     194.4 mm/d
+        snow     259.200000 mm/d     <- P_max_flux = 3.0e-3 kg/(m2 s) = 259.2 mm/d EXACTLY
+        graupel  259.200000 mm/d     <- the same cap, to six decimals
+
+    **Two of the three categories are pinned at `P_max_flux`, so 712.8 mm/d is the cap's number
+    and not the model's.** Item 76 said zero precipitation is a computed result rather than an
+    absence, and a capped number does not refute it. What IS new and does not depend on the cap:
+    production is nonzero at iteration 40 at all, where item 77 measured the cap binding on the
+    FIRST ice-scheme call and never again. Cloud ice 8.13 -> 19.86 g/kg (2.4x) and cloud water
+    40.07 -> 47.54 g/kg go with it. **The follow-up is `ATM_PRECIP_CAP` scaled up to find out
+    what the scheme actually wants**, and until that is run no precipitation rate from this
+    branch should be quoted. This is item 52's lesson arriving on schedule: look at what the caps
+    are holding back.
+
+    ### A CORRECTION TO ITEM 79, FOUND HERE: 794.7 g/kg IS A CEILING, NOT A TREND
+
+    `max water vapour` reads **794.700000 g/kg** on this branch, six decimal zeros. It is
+    `c_ceiling = 1 - q_CO2` at `UtilsAtm.h:266`, and this model's CO2 is well mixed at
+    **0.205300 kg/kg**, so the ceiling is **0.794700** exactly. Item 79 recorded "max q_v =
+    794.7 g/kg, **still climbing**" as an open risk of the free-running moist column. **It was not
+    climbing; it had arrived at a clamp**, and the same number appearing here on a different
+    branch is what gave it away.
+
+    Worse, the instrument denies it: the census line prints `deleted by the c ceiling so far
+    0.000000 kg/kg` in both arms, because `UtilsAtm.h:267` clamps silently while
+    `cAtmosphereModel.cpp:2031` is the site that counts what it removes. **A field pinned to a
+    ceiling by one clamp, with a second clamp's counter reporting zero deletions.** Water is
+    conserved to -0.0008 % either way, so nothing is being lost — the vapour is being held, not
+    deleted — but "the ceiling deleted nothing" must not be read as "no ceiling is binding".
+
+    ### Status
+
+    **Default ON, on instruction, and now measured rather than asserted.** `ATM_GRID_PRESSURE=0`
+    restores the legacy grid exactly. **Every figure in README.md and CLAUDE.md recorded before
+    2026-08-25 belongs to the legacy grid.** The open knob is `ATM_GRID_BETA`: ~4.33 restores
+    ATHAD's legacy near-surface spacing, which is where both costs above live, while presumably
+    giving back some of the metric and divergence gains, which are gains of UNIFORMITY. That
+    trade has not been measured and is the obvious next arm.
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative

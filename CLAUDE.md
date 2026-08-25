@@ -385,6 +385,32 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **THE VERTICAL GRID CHANGED ON 2026-08-25: `ATM_GRID_PRESSURE` IS DEFAULT-ON, SO EVERY FIGURE
+  IN THIS FILE AND IN THE README RECORDED BEFORE THAT DATE BELONGS TO THE LEGACY GRID**
+  (item 82, `ae25585`). Levels are placed uniformly in `ln p` on a reference hydrostatic column
+  instead of exponentially in height. `ATM_GRID_PRESSURE=0` restores the old grid exactly —
+  verified against a binary that predates the flip, identical to every printed digit but the
+  8th of min `u`. Measured at 40 iterations: bottom layer **2.67x coarser** (1224 -> 3274 m),
+  top layer 2.15x finer, lid 300.0 -> 293.4 km, and **6 % cheaper**. **Two unpredicted gains** —
+  `checkRadialMetric` spread **11.77x -> 2.19x** (the legacy `exp_rm` is a quadratic-stretch
+  Jacobian and this grid happens to sit far closer to quadratic, so item 39's defect is 5.4x
+  smaller for free, a THIRD route to that item's open decision) and `div(rho u)/rho` rms
+  **-24.7 %**, one of only two things that has ever moved item 68/72's residual down.
+  **Two costs** — the photosphere stops being resolved (skin emission **79 % -> 100 % of
+  columns**, T there = `t_skin` to 2 dp) and the ground-level Psi band count halves, 5 -> 2,
+  under the 2.67x thicker bottom layer. **The OLR does not move (135.52 -> 135.56).**
+  **In tension with item 80 and unresolved**: making the metric EXACT worsened the divergence
+  2.8x, making it 5.4x less wrong improves it 25 % — so what the projection responds to is grid
+  UNIFORMITY, not Jacobian correctness. `ATM_GRID_BETA` ~ 4.33 restores the legacy near-surface
+  spacing and is the unmeasured next arm.
+- **PRECIPITATION IS NONZERO ON THE PRESSURE GRID, AND TWO OF ITS THREE CATEGORIES SIT ON
+  `P_max_flux`** (item 82). 0.000000 -> 712.8 mm/d total, of which snow and graupel are
+  **259.200000 mm/d each = the 3.0e-3 kg/(m2 s) cap EXACTLY**. So the rate is the cap's number,
+  not the model's, and item 76's "zero precipitation is a computed result" is not refuted by it.
+  What is new is that production is nonzero at iteration 40 at all, where item 77 had the cap
+  binding only on the first ice-scheme call. **Quote no precipitation rate from this branch
+  until `ATM_PRECIP_CAP` has been scanned.**
+
 - **THE RADIAL METRIC IS REPAIRED, `ATM_METRIC_EXACT=1`, AND IT IS DEFAULT-OFF BECAUSE THE
   CORRECT JACOBIAN MAKES THE PROJECTION WORSE** (item 80). `metricExpRm()` replaces the 11 sites
   that each recomputed `exp_rm = 1/(rm+1)`; the true value is `metricShellLength()/J` with
@@ -413,7 +439,13 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   **NOT CONVERGED** — the OLR bottoms at 90.58 by iteration 100 and rises monotonically to 102.99,
   still +0.47 over the last 20, and this file has been caught extrapolating that shape twice.
   Stable otherwise: water conserved to +0.0007 %, surface floats to 1491.6 K. **Open and rising:
-  `max q_v` = 794.7 g/kg, still climbing, where the prescribed arm plateaued at 778.15.**
+  ~~`max q_v` = 794.7 g/kg, still climbing~~ — **CORRECTED BY ITEM 82: 794.7 g/kg IS A CEILING,
+  NOT A TREND.** It is `c_ceiling = 1 - q_CO2` at `UtilsAtm.h:266`, and CO2 is well mixed at
+  0.205300 kg/kg, so the clamp is 0.794700 exactly. The field had ARRIVED, not been climbing.
+  And the instrument denies it: the census prints `deleted by the c ceiling so far 0.000000`
+  because `UtilsAtm.h:267` clamps silently while `cAtmosphereModel.cpp:2031` is the site that
+  counts — so "the ceiling deleted nothing" must never be read as "no ceiling is binding".
+  The prescribed arm's 778.15 is a real plateau below the clamp.**
 - **`restart_stride = 0` AND `checkpoint_save_iter = -1` STILL WRITE RESTART DUMPS** (item 79) —
   four 593 MB `.bin` files with both knobs off, 2.3 GB per run. Item 45 recorded half of this as
   an aside; it is live. And the output file indices key off `total_iter_count`, so a
