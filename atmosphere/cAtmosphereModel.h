@@ -542,9 +542,26 @@ private:
     //
     //   ATM_GRID_PTOP   p_top/p_0, default 1e-6   (ATHAD_PERID: brings the lid 120 -> ~78 km)
     //   ATM_GRID_BETA   ln-p stretch, default = zeta
+    //
+    // ==================================================================
+    // DEFAULT ON SINCE 2026-08-25. `ATM_GRID_PRESSURE=0` restores the legacy
+    // exponential-in-height grid exactly.
+    //
+    // READ THE TWO PARAGRAPHS BELOW BEFORE QUOTING ANYTHING FROM THIS BRANCH. They were
+    // written when it was default-off and they still describe it: in ATHAD the pressure
+    // grid is a REDISTRIBUTION, not a shell cut (the lid moves 300.0 -> 293.4 km), and at
+    // the default beta = zeta = 3 the bottom layer is 2.67x COARSER than the legacy one.
+    // That is a change to the grid every number in this tree was measured on, so every
+    // figure in README and CLAUDE.md recorded before 2026-08-25 belongs to the legacy grid.
+    //
+    // ATM_GRID_BETA ~ 4.33 is what preserves ATHAD's legacy near-surface spacing; it is
+    // deliberately NOT the default, because beta = zeta is what makes this branch "the same
+    // stretch on a different coordinate" rather than a second tuned constant. If the coarser
+    // bottom turns out to matter, that is the knob to reach for -- not zeta, and not im.
+    // ==================================================================
     static bool gridPressure(){
         static const bool v = [](){
-            const char* e = getenv("ATM_GRID_PRESSURE"); return e && atoi(e) != 0; }();
+            const char* e = getenv("ATM_GRID_PRESSURE"); return e ? (atoi(e) != 0) : true; }();
         return v;
     }
     static double gridPTop(){
