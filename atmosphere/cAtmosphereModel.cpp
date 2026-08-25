@@ -1033,9 +1033,11 @@ void cAtmosphereModel::RunTimeSlice(int Ma){
 //    goto Printout;
 
     SaturationAdjustment(*this).run();                                  // based on the initial distribution, recomputation of the cloud water and cloud ice formation in case of saturated water vapour detected
-    AtomUtils::damp_wiggles(ice,   &i_topography, true, true, true);
-    AtomUtils::damp_wiggles(c,     &i_topography, true, true, true);
-    AtomUtils::damp_wiggles(cloud, &i_topography, true, true, true);
+    if(dampMoist()){                                                    // ATM_DAMP_MOIST=0 skips: item 74's spreading
+        AtomUtils::damp_wiggles(ice,   &i_topography, true, true, true);
+        AtomUtils::damp_wiggles(c,     &i_topography, true, true, true);
+        AtomUtils::damp_wiggles(cloud, &i_topography, true, true, true);
+    }
 
     ThermoAtm(*this).precipitableWater();
 
@@ -1489,6 +1491,10 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                   << (olr_clear - olr_cloudy) / w_sum << " W/m2" << std::endl;
     };
 
+    // ATM_GRID_TAU (item 84): rebuild the interior levels uniform in ln(tau) using the
+    // radiation's OWN tau_above, then hold the grid fixed. Default off; a no-op otherwise.
+    regridOnOpticalDepth();
+
     if      (radiation_mode == 1) refresh_radiative_teq();       // A: MLR absolute -> t_eq
     else if (radiation_mode == 3) apply_co2_perturbation(false); // ii: Scotese t_eq + MLR CO2 perturbation
     else if (radiation_mode == 4) apply_co2_perturbation(true);  // ii+seed: also inject perturbation into t
@@ -1704,9 +1710,11 @@ cout << endl << endl << endl << "      AGCM: run_3D_loop atm ...................
                 // branch) run away to 53 K and crash the barometric formula. Mirror the scalar
                 // treatment on t to close the asymmetry. See [[project_upper_velocity_secular_growth]].
                 AtomUtils::damp_wiggles(t,     &i_topography, true, true, true);
-                AtomUtils::damp_wiggles(ice,   &i_topography, true, true, true);
-                AtomUtils::damp_wiggles(c,     &i_topography, true, true, true);
-                AtomUtils::damp_wiggles(cloud, &i_topography, true, true, true);
+                if(dampMoist()){                                        // ATM_DAMP_MOIST=0 skips: item 74's spreading
+                    AtomUtils::damp_wiggles(ice,   &i_topography, true, true, true);
+                    AtomUtils::damp_wiggles(c,     &i_topography, true, true, true);
+                    AtomUtils::damp_wiggles(cloud, &i_topography, true, true, true);
+                }
 
                 iceCensusFn(*this, "A1 post damp_wiggles, pre ice scheme");
                 switch(CategoryIceScheme){                              // rain, snow graupel and precipitation production and reduction
@@ -2510,3 +2518,148 @@ void cAtmosphereModel::Run(){
 /*
 *
 */
+
+// =====================================================================================
+// ATM_GRID_TAU: the two-pass optical-depth rebuild. See cAtmosphereModel.h for why this
+// cannot be a ladder built from the reference column (the top of this atmosphere is
+// ~100 % cloud opacity, and the gas-only ladder is ATM_GRID_PRESSURE re-parameterised).
+//
+// Runs ONCE, after the fields are initialised and before the iteration loop. The grid is
+// static thereafter.
+// =====================================================================================
+void cAtmosphereModel::regridOnOpticalDepth(){
+    if(!gridTau()) return;
+    if((int)m_layer_heights.size() != im) return;
+
+    cout << endl << "      AGCM: ATM_GRID_TAU - two-pass optical-depth rebuild" << endl;
+
+    // ---- pass 1: one radiation solve on the initialised state, to get tau_above ----
+    // MLR overwrites t with its radiative-equilibrium field, so back t up and restore it.
+    // radiation.x / epsilon are diagnostics and are refreshed in-loop anyway.
+    const std::size_t N = (std::size_t)im * jm * km;
+    std::vector<double> t_save(N);
+    {
+        std::size_t idx = 0;
+        for(int i = 0; i < im; i++) for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++)
+            t_save[idx++] = t.x[i][j][k];
+    }
+    MultiLayerRadiation(*this).run();
+    {
+        std::size_t idx = 0;
+        for(int i = 0; i < im; i++) for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++)
+            t.x[i][j][k] = t_save[idx++];
+    }
+
+    // ---- the cos-lat-weighted mean tau_above profile the model itself produced ----
+    std::vector<double> tau(im, 0.0);
+    double w_tot = 0.0;
+    for(int j = 0; j < jm; j++){
+        const double w = fabs(cos(the.z[j]));
+        for(int k = 0; k < km; k++){
+            for(int i = 0; i < im; i++) tau[i] += w * tau_above.x[i][j][k];
+            w_tot += w;
+        }
+    }
+    if(!(w_tot > 0.0)){ cout << "      AGCM: ATM_GRID_TAU - no weight, grid unchanged" << endl; return; }
+    for(int i = 0; i < im; i++) tau[i] /= w_tot;
+
+    const std::vector<float> z_old = m_layer_heights;
+
+    // The crossing as it stands, so the banner can state what the rebuild is for.
+    auto report_crossing = [&](const char* tag, const std::vector<double>& ta,
+                               const std::vector<float>& zz){
+        for(int i = im - 2; i >= 0; i--){
+            if(ta[i] >= 1.0 && ta[i+1] < 1.0){
+                cout << "      AGCM: ATM_GRID_TAU " << tag << ": tau=1 between "
+                     << zz[i+1] / 1000.0 << " and " << zz[i] / 1000.0 << " km, layer dtau = "
+                     << (ta[i] - ta[i+1]) << endl;
+                return;
+            }
+        }
+        cout << "      AGCM: ATM_GRID_TAU " << tag
+             << ": tau=1 not bracketed by any interior level (crossing is in the top layer)"
+             << endl;
+    };
+    report_crossing("before", tau, z_old);
+
+    // tau_above is 0 at the lid by construction, so the top anchor is the topmost INTERIOR
+    // value. Enforce strict decrease upward; a non-monotonic mean means the profile cannot
+    // be inverted and the rebuild is abandoned rather than fudged.
+    double tau_top = tau[im-2];
+    if(!(tau_top > 0.0)) tau_top = gridTauFloor();
+    for(int i = im - 3; i >= 0; i--)
+        if(!(tau[i] > tau[i+1])){
+            cout << "      AGCM: ATM_GRID_TAU - mean tau profile is not monotonic at level "
+                 << i << " - grid unchanged" << endl;
+            return;
+        }
+    if(!(tau[0] > tau_top)){
+        cout << "      AGCM: ATM_GRID_TAU - column spans no optical depth - grid unchanged" << endl;
+        return;
+    }
+
+    // ---- the ladder: levels 0..im-2 uniform in ln(tau), level im-1 keeps the lid ----
+    const double L0 = std::log(tau[0]), L1 = std::log(tau_top);
+    std::vector<float> z_new(im, 0.0f);
+    z_new[0]      = z_old[0];
+    z_new[im - 1] = z_old[im - 1];
+    for(int i = 1; i <= im - 2; i++){
+        const double want = L0 + (L1 - L0) * (double)i / (double)(im - 2);
+        // Invert the (z_old, ln tau) table; tau decreases upward, so ln tau does too.
+        // Take the LAST level still at or above the target rather than testing a two-sided
+        // bracket: at i = im-2 the target IS ln(tau[im-2]) and rounding puts it a hair below,
+        // so a two-sided test finds nothing, leaves lo at 0 and extrapolates the whole column.
+        // f is clamped for the same reason.
+        int lo = 0;
+        for(int m2 = 0; m2 <= im - 3; m2++)
+            if(std::log(tau[m2]) >= want) lo = m2;
+        const double a = std::log(tau[lo]), b = std::log(tau[lo+1]);
+        double f = (a - b > 0.0) ? (a - want) / (a - b) : 0.0;
+        if(f < 0.0) f = 0.0;
+        if(f > 1.0) f = 1.0;
+        const double z_tau = (double)z_old[lo] + f * ((double)z_old[lo+1] - (double)z_old[lo]);
+        const double mix   = gridTauMix();
+        z_new[i] = (float)((1.0 - mix) * (double)z_old[i] + mix * z_tau);
+    }
+    for(int i = 1; i < im; i++)
+        if(!(z_new[i] > z_new[i-1])){
+            cout << "      AGCM: ATM_GRID_TAU - rebuilt grid is not strictly increasing at level "
+                 << i << " (" << z_new[i-1] << " -> " << z_new[i] << " m; old "
+                 << z_old[i-1] << " -> " << z_old[i] << ", tau_top = " << tau_top
+                 << ") - grid unchanged" << endl;
+            return;
+        }
+
+    // ---- re-interpolate the prognostic fields from the old heights onto the new ----
+    // restart_arrays() is the full serialized prognostic set (item 46), which is the same
+    // set a checkpoint round-trips, so nothing that carries state is left on the old grid.
+    std::vector<Array*> arrs = restart_arrays();
+    std::vector<double> col(im, 0.0);
+    for(Array* a : arrs){
+        for(int j = 0; j < jm; j++){
+            for(int k = 0; k < km; k++){
+                for(int i = 0; i < im; i++) col[i] = a->x[i][j][k];
+                for(int i = 0; i < im; i++){
+                    const double zz = z_new[i];
+                    int lo = 0;
+                    while(lo + 2 < im && (double)z_old[lo+1] < zz) lo++;
+                    const double d = (double)z_old[lo+1] - (double)z_old[lo];
+                    const double f = (d > 0.0) ? (zz - (double)z_old[lo]) / d : 0.0;
+                    a->x[i][j][k] = col[lo] + f * (col[lo+1] - col[lo]);
+                }
+            }
+        }
+    }
+
+    m_layer_heights = z_new;
+    buildMetricTable();
+    init_tropopause_layers();       // reads m_layer_heights; must be redone on the new grid
+    checkRadialMetric();
+    ThermoAtm(*this).densities();   // p_stat etc. are hydrostatic on the OLD spacing until this
+
+    cout << "      AGCM: ATM_GRID_TAU - rebuilt. dz_0 " << z_old[1] - z_old[0] << " -> "
+         << z_new[1] - z_new[0] << " m, lid " << z_new[im-1] / 1000.0
+         << " km (unchanged), mix = " << gridTauMix()
+         << ", pure-ladder tau ratio per layer = " << std::exp((L1 - L0) / (double)(im - 2))
+         << " (constant by construction, so dtau ~ 1 at the crossing at mix = 1)" << endl;
+}

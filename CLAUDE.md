@@ -385,6 +385,47 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **THE PHOTOSPHERE IS A CLOUD TOP, AND THE 10^2-10^5 % SUPERSATURATION ABOVE IT IS THE
+  PRESCRIBED PROFILE THROWING AWAY THE LATENT HEAT** (item 84). The optical depth at the top
+  is **~100 % cloud** (243.9 km: `tau_layer` 5313, `tau_gas` 0.317), so the emission level is
+  the deck's top; and **the deck's base is exactly where RH crosses 100 %**, between 214 and
+  225 km. That is why nothing moves it. **Four microphysics suspects excluded, all nulls
+  against a MEASURED 0.12 % noise floor**: `ATM_PRECIP_CAP` (74x the through-flux, deck within
+  0.5 %), `ATM_DAMP_MOIST` (deck shuffles within itself), `ATM_SAT_SUPERHEAT` (RH identical),
+  `ATM_SAT_ITERS` 10x (RH identical — the loop has CONVERGED, to RH = 30 000 %).
+  **The answer is item 78's, quantified**: prescribed vs `ATM_PROGNOSTIC_T=1` at 243.9 km is
+  **-31.2 C / 49 580 % against +36.5 C / 112.3 %** — the free column is saturated 92-112 % and
+  **68 K warmer**. `densities()` discards the ~60 K of condensation heating, so the cell is
+  cold and supersaturated again next iteration. **The supersaturation is REGENERATED every
+  iteration by the prescription.** The deck itself is real on both branches; only the humidity
+  around it is an artefact. **Do not attack the microphysics — it is downstream of invariant 3.**
+- **`HumidityRel` IS A FIRST-CLASS INSTRUMENT AND WAS NOT BEING READ** (item 84). `ThermoAtm.h:402`,
+  `e/E*100` from `SaturationH2O`, uncapped, `NO_SATURATION` = -1 above the critical point. Its own
+  comment records that the OLD code capped it at 100 %, which is why a 500x supersaturation sat
+  unnoticed through items 74-83. Read it before explaining any moisture behaviour.
+- **ITEM 75's REPAIR IS WHAT BURIES THE PHOTOSPHERE IN THE PRESCRIBED LID** (item 84), and it is
+  exonerated as a cause of the supersaturation at the same time. `ATM_SAT_SUPERHEAT=0` takes
+  `tau_layer` at 266 km from 254.3 to **0.018**, the photosphere from 277.0 km at `t_skin` to
+  **243.0 km at 270.46 K**, and `skin%` from **100.0 to 3.3** — the only thing besides
+  `ATM_PROGNOSTIC_T` that has ever moved the emission level off the lid. It does so by keeping
+  condensate in cells that cannot hold it, which is exactly what item 75 diagnosed, so this is
+  **NOT a reason to flip the default** — it locates the inconsistency.
+- **`ATM_GRID_TAU` (item 84), default off: the two-pass optical-depth rebuild, with a ceiling.**
+  One radiation pass, cos-lat-mean `tau_above`, interior levels uniform in `ln tau`, lid fixed,
+  29 `restart_arrays()` re-interpolated. `ATM_GRID_TAU_MIX` blends against the base grid.
+  Measured at mix 0.5: upper-column per-layer tau ratio 4-6x -> 2.2-2.9x, but `tau = 1` STILL in
+  the topmost layer and `div(rho u)/rho` **+68 %**. **The ceiling is structural** — the ladder is
+  built from the iteration-0 `tau`, and the photosphere is a cloud top, so it MOVES. A static
+  rebuild cannot track it. **Item 83's "the knob to try is `ATM_GRID_PTOP`" is WITHDRAWN.**
+- **`damp_wiggles` ON THE MOISTURE FIELDS IS LOAD-BEARING** (item 84) — do not act on item 74's
+  framing of it as a defect. `ATM_DAMP_MOIST=0` pins max cloud water at **`cloud_cap` exactly
+  (49.999580 g/kg)** and opens a grid-scale vapour hole at **0.0045 g/kg** beside neighbours near
+  700. It suppresses a real instability; removing it drives the field into two caps.
+- **THE 40-ITERATION NOISE FLOOR IS 0.12 %, MEASURED** (item 84), extending item 61. Same binary,
+  same 24 threads, twice: min `q_v` **554.746 vs 555.429 g/kg**, while old-binary-vs-new differs
+  in the **9th digit**. Run-to-run scatter EXCEEDS a binary change, and item 61's "nothing in the
+  printed scalars" is now false at 40 iterations with moist physics on.
+
 - **THE VERTICAL GRID CHANGED ON 2026-08-25: `ATM_GRID_PRESSURE` IS DEFAULT-ON, SO EVERY FIGURE
   IN THIS FILE AND IN THE README RECORDED BEFORE THAT DATE BELONGS TO THE LEGACY GRID**
   (item 82, `ae25585`). Levels are placed uniformly in `ln p` on a reference hydrostatic column

@@ -6212,6 +6212,260 @@ the measurement.
     inside physics kernels, a fitted per-tree constant is written down here as exactly that,
     with the table it came from three lines above it in the source.
 
+84. **THE PHOTOSPHERE IS A CLOUD TOP, THE CLOUD DECK IS PLACED BY THE TEMPERATURE PROFILE AND
+    BY NOTHING ELSE, AND FIVE SEPARATE ATTACKS ON IT MOVED NOTHING. The one thing that DOES
+    move the emission level off the prescribed lid is turning item 75's correct repair OFF —
+    so the repair that made the condensate real is also what buried the photosphere in an
+    assumption. And the column is supersaturated by 10^2-10^5 %, on BOTH branches, cause not
+    yet found.**
+
+    Item 83 ended by naming `ATM_GRID_PTOP` as the next knob. That was wrong and is withdrawn
+    inside this item. The chain of measurements below started from item 83's `dtau` probe and
+    ended somewhere else entirely.
+
+    ### First, the finding that reframes everything: the opacity at the top is ~100 % CLOUD
+
+    Decomposing `tau_layer` into its gas and cloud terms on the prognostic column (equator):
+
+    | h [km] | `tau_layer` | `tau_gas` | cloud share |
+    |---|---|---|---|
+    | 243.9 | 5313 | 0.317 | ~100 % |
+    | 254.4 | 2844 | 0.059 | ~100 % |
+    | 266.0 | 1099 | 0.008 | ~100 % |
+    | 293.4 | 88.2 | 1.5e-5 | ~100 % |
+
+    At 60 N the crossing is starker still: `tau_layer` = 553 at 254.4 km where cloud exists and
+    **0.157** at 278.9 km where it does not. The gas contributes between 1e-5 and 4 where the
+    total is thousands. **This model's emission level is the top of its cloud deck.**
+
+    Two consequences, one of which killed a planned piece of work before it was written:
+
+    - `buildReferenceColumn` is dry and cloud-free, so a `ln(tau)` ladder built from it would
+      place levels where the GAS goes transparent — six orders of magnitude from where the
+      atmosphere actually does.
+    - And for the gas term that ladder is not even a new grid. `dtau = kappa*(dp/g)*(p/p_ref)`
+      gives `tau ~ p^2`, so `ln tau = 2 ln p + const`: uniform in `ln(tau_gas)` IS
+      `ATM_GRID_PRESSURE` with `Lambda` doubled. Analytic, no run needed.
+
+    ### `ATM_GRID_TAU`: the two-pass rebuild, written, measured, and with a ceiling
+
+    Since the only usable `tau` is the one the model computes, the ladder is built in two
+    passes: run the radiation once on the initialised state, take the cos-lat-weighted mean
+    `tau_above` it produces (clouds included), rebuild levels 0..im-2 uniform in `ln tau`,
+    keep level im-1 at the old lid so the domain and `p_top` do not move, re-interpolate the
+    29 `restart_arrays()` fields, rebuild the metric table, redo `init_tropopause_layers` and
+    call `densities()`. Static thereafter. `ATM_GRID_TAU_MIX` blends against the grid
+    `init_layer_heights` built; both sequences are strictly increasing so any convex
+    combination is valid.
+
+    | mix | `dz_0` | metric spread |
+    |---|---|---|
+    | 0 (base) | 1227.5 m | 7.20x |
+    | 0.25 | 3040 m | **4.51x** |
+    | 0.5 | 4853 m | 5.35x |
+    | 1.0 | 8478 m | 31.98x |
+
+    Pure `ln(tau)` gives a per-layer tau ratio of **0.728, constant by construction** — `dtau`
+    ~ 0.3 at the crossing, which was the entire point — but starves the deep column, where
+    99.99 % of the mass and all of the dynamics live and the radiation has nothing to resolve.
+
+    **Measured at mix = 0.5, 40 iterations**, layer `dtau` at the equator:
+
+        no regrid   15.32   63.63   390.7   1502
+        regrid      23.46   43.79   81.06   202.5
+
+    The upper-middle column improves — per-layer ratio 4-6x down to 2.2-2.9x — the top layer
+    gets WORSE, and **`tau = 1` is still inside it**. `div(rho u)/rho` rms goes 2.433e-02 ->
+    **4.076e-02 (+68 %)**; OLR 135.55, `skin%` 100.0, both unmoved.
+
+    **THE CEILING IS THE DESIGN'S OWN.** The ladder is built from the `tau` profile at
+    iteration 0, and the photosphere is a CLOUD TOP. Clouds move. By iteration 40 the grid no
+    longer matches the profile it was built for — the same property that made the
+    reference-column ladder impossible, reappearing one level up. A static rebuild cannot
+    track a moving emission level. **Default off.**
+
+    **A bug worth recording, because the guard is what caught it.** The height inversion used a
+    two-sided bracket test; at `i = im-2` the target IS `ln(tau[im-2])` and rounding put it a
+    hair below, so nothing matched, `lo` stayed 0 and the interpolation extrapolated 272 layers
+    past the lid. The monotonicity check refused the grid and printed why, rather than shipping
+    it. It now takes the last level at or above the target and clamps the weight.
+
+    ### The noise floor, measured, because the next results are small
+
+    The off-branch null was NOT bit-identical, so before reading anything the null arm was run
+    **twice on the same binary at the same 24 threads**:
+
+        same binary, twice ....... min q_v 554.746 vs 555.429 g/kg   (0.12 %)
+        old binary vs new ........ min q_v 554.746130 vs 554.746131 (9th digit)
+
+    **Run-to-run scatter exceeds the binary difference**, so `ATM_GRID_TAU` off is inert. This
+    extends item 61: that item says fixed-thread run-to-run divergence shows "nothing in the
+    printed scalars", and at 40 iterations with moist physics it demonstrably does — 0.12 % in
+    min water vapour. Item 61's consequence stands and is now better evidenced. **Every null
+    below is judged against this 0.12 % floor.**
+
+    ### Attack 1 — the precipitation cap. NOT the blocker.
+
+    | `ATM_PRECIP_CAP` | x1 | x10 | x100 |
+    |---|---|---|---|
+    | max precipitation | 583.2 | 5372.2 | **42 898.7 mm/d** |
+    | max cloud water | 43.660 | 43.713 | **43.796 g/kg** |
+    | max cloud ice | 21.671 | 21.627 | 21.625 g/kg |
+    | max `q_v` | 794.700000 | 794.700000 | 794.700000 |
+    | photosphere | 277.0 | 277.1 | 277.1 km |
+    | OLR | 135.51 | 135.51 | 135.51 W/m2 |
+
+    The cap WAS binding — item 82 measured snow and graupel pinned at `P_max_flux` to six
+    decimals — and releasing it raises the through-flux **74x** while the deck stays within
+    0.5 % at every level. **What moves is the opposite of draining**: layer-mean `q_v` just
+    BELOW the deck rises, 692.9 -> 717.7 g/kg at 224.8 km and 710.3 -> 763.7 at 234.5 km. The
+    precipitation falls out of the deck and evaporates straight back into vapour underneath it,
+    in the supercritical column — item 76's `evaporateWhereImpossible`. **The deck sits on top
+    of its own recycling loop**, so opening the drain wider only runs the loop faster. The deck
+    is not drainage-limited.
+
+    ### Attack 2 — `damp_wiggles` on the moisture fields. NOT the blocker either.
+
+    Item 74 recorded this smoother taking cloud-bearing cells from 131 404 to **263 530**,
+    spreading condensate into cells `canCondense` forbids, and left it as "not fixed".
+    `ATM_DAMP_MOIST=0` skips it for `c`, `cloud` and `ice` at both call sites (`t` is
+    deliberately excluded — its own comment records that an undamped 2-delta-t mode once ran it
+    to 53 K).
+
+    | | damping on | off |
+    |---|---|---|
+    | OLR | 135.51 | 135.50 W/m2 |
+    | photosphere | 277.0 | 276.0 km |
+    | skin % | 100.0 | 100.0 |
+    | `div(rho u)/rho` | 2.433e-02 | 2.433e-02 |
+    | max cloud water | 43.660 | **49.999580 g/kg** |
+    | min water vapour | 554.746 | **0.004498 g/kg** |
+
+    Layer-mean condensate shuffles WITHIN the deck (10.8 -> 8.6 at 234 km, 32.8 -> 26.7 at
+    254 km) and the deck does not move, thin, or change the emission level.
+
+    **But the smoother is LOAD-BEARING, not merely sloppy, and item 74's framing should not be
+    acted on as though it were a defect.** Without it, max cloud water pins at
+    **49.999580 g/kg = `cloud_cap` exactly** and the vapour develops a grid-scale hole at
+    **0.0045 g/kg** with neighbours near 700. Removing it drives the field into two caps, not
+    into a better state.
+
+    ### What actually places the deck: the temperature profile, and only that
+
+    Relative humidity, layer means, shipped arm:
+
+    | i | h [km] | T [C] | mean RH | max RH | cloud |
+    |---|---|---|---|---|---|
+    | 33 | 214.2 | 149.4 | 18.5 % | 52.6 % | 0 |
+    | 34 | 224.8 | 85.8 | **134 %** | 636 % | 0 |
+    | 35 | 234.5 | 27.6 | **6 004 %** | 62 180 % | 10.77 |
+    | 36 | 243.9 | -31.2 | **49 580 %** | 101 800 % | 35.04 |
+
+    **The deck's base is exactly where RH crosses 100 %**, between 214 and 225 km. The
+    condensate is placed by where the temperature profile first permits condensation — which is
+    why the cap, the smoother, the grid, and before them `kappa` at 64x (item 29) and the
+    circulation at 500x (item 27) all failed to move it.
+
+    The instrument was checked before the number was believed: `HumidityRel`
+    (`ThermoAtm.h:402`) is `e/E*100` from `SaturationH2O`, the same module
+    `SaturationAdjustment` uses, uncapped, with the `NO_SATURATION` = -1 sentinel above the
+    critical point. The comment there records that the old code capped it at 100 %, which is
+    why a 10^5 % supersaturation had never been seen.
+
+    ### Attack 3 — `ATM_SAT_SUPERHEAT`. Exonerated, and it is the one thing that moves the lid.
+
+    The hypothesis was that item 75's re-test retains the supersaturation by rejecting the
+    condensation step in cells that condensing would superheat. **Refuted — RH is essentially
+    identical on both branches:**
+
+        h [km]      224.8    234.5    243.9    254.4
+        superheat ON   134.5    6 004   49 580   30 090 %
+        superheat OFF  138.8    6 082   58 690   31 220 %
+
+    What the knob DOES control is whether the condensate survives to the next radiation call in
+    the top three layers, and the consequence is the uncomfortable result of this item:
+
+    | | ON (shipped) | OFF |
+    |---|---|---|
+    | `tau_layer` at 266.0 km | 254.3 | **0.018** |
+    | at 278.9 km | 31.95 | 0.589 |
+    | at 293.4 km | 7.70 | 0.147 |
+    | photosphere | 277.0 km, **T = `t_skin`** | **243.0 km, T = 270.46 K** |
+    | skin % | **100.0** | **3.3** |
+    | OLR | 135.51 | 181.56 W/m2 |
+    | max cloud water | 43.660 | 0.000000 (item 74's annihilated state) |
+
+    **Item 75's repair — which is physically correct — is precisely what buries the emission
+    level in the prescribed isothermal lid.** Turning it off is the only thing besides
+    `ATM_PROGNOSTIC_T` that has put the photosphere back on the real adiabat at a real
+    temperature. It does so by keeping condensate in cells that cannot hold it, which is exactly
+    what item 75 diagnosed, so **this is not a recommendation to flip the default** — it is a
+    measurement of where the inconsistency lives. `albedo` barely moves either way (0.4990 vs
+    0.4982), consistent with item 74's point that the radiation sees condensate mid-iteration.
+
+    ### Attack 4 — the Newton loop's iteration count. NOT that either.
+
+    `satIters()` is documented in its own comment as an Earth constant, with a measurement from
+    ATHAD_COND showing cells left at 15-99.8 % of their own target. The loop is a DAMPED Newton,
+    residual ~ (1-omega)^n, so 20 passes could plausibly close nothing. `ATM_SAT_ITERS=200`,
+    6m19s against the control's 5m08s (+23 %, so the loop is not a large share of the runtime):
+
+        h [km]      214.2   234.5   243.9   254.4   266.0
+        n = 20      18.47    6 004  49 580  30 090   7 717 %
+        n = 200     18.47    5 739  50 150  30 290   7 771 %
+
+    **Unchanged.** The adjustment has CONVERGED — to a state with RH = 30 000 %. Max cloud water
+    moves 43.66 -> 37.38 g/kg and the photosphere, `skin%` and `tau_layer` do not move at all.
+    So the loop reaches its target and **the target is not saturation.**
+
+    ### AND THE ANSWER IS ITEM 78's, QUANTIFIED: the prescribed profile throws away the latent heat
+
+    Same levels, shipped prescribed arm against `ATM_PROGNOSTIC_T=1` (400 iterations, same grid):
+
+    | h [km] | T presc. | T prog. | RH presc. | RH prog. |
+    |---|---|---|---|---|
+    | 234.5 | 27.6 C | 63.6 | 6 004 % | **91.6 %** |
+    | 243.9 | -31.2 | **36.5** | 49 580 % | **112.3 %** |
+    | 254.4 | -52.0 | 21.6 | 30 090 % | **107.1 %** |
+    | 266.0 | -52.0 | 6.2 | 7 717 % | **104.1 %** |
+
+    **The free-running column is SATURATED, 92-112 %, exactly as a cloudy layer must be — and it
+    is 68 K warmer at 243.9 km.** That is item 78's finding measured in the humidity field:
+    condensation releases ~60 K, `densities()` overwrites `t` with the adiabat at the end of the
+    iteration, the cell is cold again on the next pass, and it is supersaturated again. **The
+    prescribed profile REGENERATES the supersaturation every iteration.**
+
+    So the 10^2-10^5 % is not a microphysics failure at all. Four separate microphysics
+    suspects were excluded before the profile was — the cap, the smoother, the superheat
+    re-test, the iteration count — and every one of those nulls is really the same null seen
+    from a different side. **The condensate amount, the vapour ceiling and the deck's opacity
+    are all downstream of invariant 3.**
+
+    Note what survives: the DECK ITSELF is similar on both branches (layer-mean cloud water
+    10.77/35.04/32.82 prescribed against 12.36/31.55/30.44 prognostic). The deck is real. Only
+    the humidity around it is an artefact.
+
+    ### What this item changes
+
+    - **Item 83's "the knob to try is `ATM_GRID_PTOP`" is WITHDRAWN.** The lid is not the lever;
+      the emission level is a cloud top and the cloud top is placed by the temperature profile.
+    - **Item 74's framing of `damp_wiggles` as a defect should not be acted on.** It is
+      suppressing a real grid-scale instability in the moisture fields.
+    - **Item 75's repair is exonerated as the cause of the supersaturation** and simultaneously
+      identified as what buries the photosphere in the prescribed lid. Both, at once.
+    - **The RH field is a first-class instrument now and was not being read.** Its own comment
+      records that the old code capped it at 100 %, which is why a 500x supersaturation sat
+      unnoticed through items 74-83.
+    - **`ATM_GRID_TAU` ships default-off** with its ceiling documented: a static rebuild cannot
+      track an emission level that is a moving cloud top.
+
+    **The open question is unchanged in kind and much sharper in form.** With
+    `ATM_SAT_SUPERHEAT` on and the profile prescribed, 100 % of columns radiate from a lid whose
+    temperature is an assumption. Turning the repair off moves the photosphere onto the real
+    adiabat by keeping impossible condensate. Freeing the profile fixes the humidity and the
+    photosphere together — and item 79's prognostic arm was still rising at 400 iterations. That
+    is where the work goes; not the grid, and not the microphysics.
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative

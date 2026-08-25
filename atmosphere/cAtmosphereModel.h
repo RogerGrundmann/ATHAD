@@ -614,6 +614,83 @@ private:
     // the ln-p PLACEMENT -- the 293.4 km lid and the finer top layers -- and not the bottom
     // spacing. Do not reach for beta to fix it.
     // ==================================================================
+    // ==================================================================
+    // ATM_GRID_TAU — THE TWO-PASS OPTICAL-DEPTH REBUILD (item 84).
+    //
+    // WHY IT IS TWO-PASS AND NOT A LADDER LIKE THE OTHER TWO. `buildReferenceColumn` is dry
+    // and cloud-free, and MEASURED, the optical depth at the top of this column is ~100 %
+    // CLOUD: at 243.9 km `tau_layer` is 5313 of which `tau_gas` is 0.317. A ladder built on
+    // the reference column would place levels where the GAS becomes transparent, six orders
+    // of magnitude from where the atmosphere actually does. And for the gas term alone the
+    // ladder is not even a new grid: `dtau = kappa*(dp/g)*(p/p_ref)` gives `tau ~ p^2`, so
+    // `ln tau = 2 ln p + const` and a uniform-in-ln-tau ladder IS `ATM_GRID_PRESSURE` with
+    // `Lambda` doubled. The only tau the model can place levels on is the one it computes.
+    //
+    // SO: run the radiation ONCE on the initialised state, take the cos-lat-weighted mean
+    // `tau_above` profile it produces (clouds included), rebuild the interior levels uniform
+    // in `ln tau` on that profile, re-interpolate the prognostic fields onto the new heights,
+    // and then hold the grid FIXED for the run. Static after startup, so nothing downstream
+    // sees a moving grid.
+    //
+    // WHAT IT IS FOR. The photosphere is unresolved by 1-2 orders of magnitude on every grid
+    // measured: `tau_above` goes 88.2 -> 0 across the topmost layer at the equator and
+    // 553 -> 0.19 across one layer at 60 N (item 83's probe). Uniform in `ln tau` makes the
+    // per-layer tau RATIO constant by construction, so `dtau ~ 1` at the crossing.
+    //
+    // THE LID AND THE DOMAIN DO NOT MOVE. Level im-1 keeps its height, so p_top, the shell
+    // depth and every comparison against the other two grids stay valid; only the interior
+    // is redistributed.
+    //
+    //   ATM_GRID_TAU        1 = rebuild, default 0
+    //   ATM_GRID_TAU_FLOOR  top anchor for the ladder if the column's own top value is
+    //                       unusable (<= 0), default 1e-2
+    // ==================================================================
+    // ATM_DAMP_MOIST=0 — skip damp_wiggles on the three MOISTURE fields (c, cloud, ice),
+    // at both call sites (initialisation and the in-loop moist block). Default 1 = shipped.
+    //
+    // WHY THE KNOB EXISTS. Item 74 measured this smoother taking 131 404 cells holding cloud
+    // to 263 530 -- it spreads condensate into cells that `IceSchemeCommon::canCondense`
+    // rules impossible, for `evaporateWhereImpossible` to delete again. That was recorded as
+    // "not fixed" and never tested. `t` is deliberately NOT included: the comment at its call
+    // site records that t was once the only prognostic without damping and an undamped 2-delta-t
+    // mode ran it away to 53 K, so removing it there is a known failure.
+    static bool dampMoist(){
+        static const bool v = [](){
+            const char* e = getenv("ATM_DAMP_MOIST"); return e ? (atoi(e) != 0) : true; }();
+        return v;
+    }
+    static bool gridTau(){
+        static const bool v = [](){
+            const char* e = getenv("ATM_GRID_TAU"); return e && atoi(e) != 0; }();
+        return v;
+    }
+    // Blend weight between the grid init_layer_heights built (0.0) and the pure ln(tau)
+    // ladder (1.0), applied to the HEIGHTS. Both sequences are strictly increasing, so any
+    // convex combination of them is too, and the blend cannot produce an invalid grid.
+    //
+    // IT NEEDS A KNOB BECAUSE THE PURE LADDER IS NOT FREE. Measured at mix = 1.0 on the
+    // beta = 4.33 grid: the per-layer tau ratio becomes 0.728 (so dtau ~ 0.3 at the crossing,
+    // which is the whole point) but dz_0 goes 1227.5 -> 8478 m and the metric spread 7.20x
+    // -> 31.98x. Uniform in ln(tau) starves the deep column, because near the ground tau
+    // changes by tiny ln increments per kilometre -- 99.99 % of the mass and all of the
+    // dynamics live where the radiation has nothing to resolve.
+    static double gridTauMix(){
+        static const double v = [](){
+            const char* e = getenv("ATM_GRID_TAU_MIX");
+            const double d = e ? atof(e) : 1.0;
+            return (d >= 0.0 && d <= 1.0) ? d : 1.0; }();
+        return v;
+    }
+    static double gridTauFloor(){
+        static const double v = [](){
+            const char* e = getenv("ATM_GRID_TAU_FLOOR");
+            const double d = e ? atof(e) : 1.0e-2;
+            return (d > 0.0) ? d : 1.0e-2; }();
+        return v;
+    }
+    // Run once, after the fields are initialised and before the iteration loop.
+    void regridOnOpticalDepth();
+
     double gridBeta() const {
         const char* e = getenv("ATM_GRID_BETA");
         const double d = e ? atof(e) : 4.33;
@@ -732,7 +809,7 @@ private:
         const double span = rad.z[im-1] - rad.z[0];
         if(!(span > 0.0)) return L_atm;
         // A pressure-placed grid has no analytic shell; read it off the table instead.
-        if(gridPressure() && (int)m_layer_heights.size() == im)
+        if((gridPressure() || gridTau()) && (int)m_layer_heights.size() == im)
             return ((double)m_layer_heights[im-1] - (double)m_layer_heights[0]) / span;
         return (exp(zeta * span) - 1.0) * L_atm / span;
     }
@@ -787,7 +864,7 @@ private:
         return i;
     }
     double metricJ(double rm) const {
-        if(gridPressure() && (int)m_layer_J.size() == im) return m_layer_J[metricLevelOf(rm)];
+        if((gridPressure() || gridTau()) && (int)m_layer_J.size() == im) return m_layer_J[metricLevelOf(rm)];
         return zeta * L_atm * exp(zeta * (rm - rad.z[0]));
     }
 
@@ -795,7 +872,7 @@ private:
     // Zero on the legacy branch, so the legacy operator is unchanged to the bit.
     double metricCurv(double rm) const {
         if(!metricExact()) return 0.0;
-        if(gridPressure() && (int)m_layer_J.size() == im){
+        if((gridPressure() || gridTau()) && (int)m_layer_J.size() == im){
             // J'/J by central difference on the same table, in rad.z units.
             const int i = metricLevelOf(rm);
             const int lo = (i == 0) ? 0 : i - 1, hi = (i == im - 1) ? im - 1 : i + 1;
