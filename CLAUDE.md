@@ -426,6 +426,19 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   in the **9th digit**. Run-to-run scatter EXCEEDS a binary change, and item 61's "nothing in the
   printed scalars" is now false at 40 iterations with moist physics on.
 
+- **THE GRID MOVES THE FREE-RUNNING OLR 61 %, AND NOTHING ELSE FROM 2026-08-24/25 MOVES IT AT
+  ALL** (item 85). The legacy-grid prognostic moist arm re-run on the current binary reproduces
+  item 79 to **0.01 %** at 400 iterations (103.00 against 102.99), with the photosphere,
+  `skin%`, surface temperature, water budget and imbalance all agreeing to their last printed
+  digit — so the cell-parity flip and item 83's `beta` do not touch this branch, and the
+  difference against the pressure-grid arm (**165.94**) is the GRID. Read it against the
+  prescribed branch's 135.51/135.52/135.56 across the same three grids: the prescribed OLR
+  cannot respond because it is `sigma*t_skin^4` read back, the free one can because its
+  emission level is the column's own. **Which grid is RIGHT is not settled by this.** Two
+  things to carry: `div(rho u)/rho` rms nearly DOUBLES over 400 iterations (1.603e-02 ->
+  3.001e-02), so item 72's residual is not static on this branch; and
+  `printPlanetaryBalance`'s *"the OLR above IS this"* arrow fires at `eps_top > 0.9` and is
+  6 % wrong here at `eps = 0.9311` — read the two numbers, not the arrow.
 - **THE VERTICAL GRID CHANGED ON 2026-08-25: `ATM_GRID_PRESSURE` IS DEFAULT-ON, SO EVERY FIGURE
   IN THIS FILE AND IN THE README RECORDED BEFORE THAT DATE BELONGS TO THE LEGACY GRID**
   (item 82, `ae25585`). Levels are placed uniformly in `ln p` on a reference hydrostatic column

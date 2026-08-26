@@ -6466,6 +6466,104 @@ the measurement.
     photosphere together — and item 79's prognostic arm was still rising at 400 iterations. That
     is where the work goes; not the grid, and not the microphysics.
 
+85. **THE FREE-RUNNING MOIST COLUMN IS UNCHANGED BY EVERYTHING THAT LANDED ON 2026-08-24/25,
+    AND THE GRID MOVES IT 61 %. Item 79 reproduces to 0.01 % on the current binary, so the
+    difference against the pressure-grid arm is the GRID and not the cell-parity flip — which
+    makes this the first forcing since item 75 to move the OLR at all, and the first EVER to
+    move it on a branch where the emission level is the column's own.**
+
+    Item 79 measured the prognostic moist column on the legacy grid on 2026-08-23. Between then
+    and the pressure-grid arm run on 2026-08-25, three things changed the model:
+    `ATM_CELL_ALTERNATE` became default-on (item 81), `ATM_GRID_PRESSURE` became default-on
+    (item 82) and `ATM_GRID_BETA` became 4.33 (item 83). Comparing 103 against 166 across that
+    gap attributes nothing. **This run closes the gap**: the same configuration as item 79, on
+    the binary of 2026-08-26, with `ATM_GRID_PRESSURE=0` restoring the legacy grid and
+    everything else at today's defaults. 400 iterations, `ATM_PROGNOSTIC_T=1 ATM_RAD_DIRECT=1`,
+    `moist_phys_start_iter = 0`, 24 threads, 48 min (slower than item 79's 44.5 only because
+    builds and short runs in a sibling tree were competing for the cores).
+
+    Startup confirms the grid: `checkRadialMetric` prints **spread 11.77x, zeta = 3.000**, the
+    legacy exponential stretch, against the pressure grid's 2.19x.
+
+    ### The reproduction
+
+    | iteration | 100 | 200 | 300 | 400 |
+    |---|---|---|---|---|
+    | item 79, 2026-08-23 binary | 90.58 | 92.95 | 98.62 | **102.99** |
+    | this run, 2026-08-26 binary | 90.58 | 93.33 | 98.99 | **103.00** |
+    | difference | 0.00 % | +0.41 % | +0.38 % | **+0.01 %** |
+
+        photosphere   282.6 -> 283.1 km   (item 79: 282.6 -> 283.1)
+        T there       260.50 -> 260.18 K  (item 79: 260.58 -> 260.13)
+        skin %        0.0 at all four diagnostics, as in item 79
+        surface       1491.6 K            (item 79: 1491.6)
+        water         +0.0007 %           (item 79: +0.0007 %)
+        imbalance     +167.96 W/m2        (item 79: +167.98)
+
+    Six independent numbers agreeing to their last printed digit across a binary that gained a
+    cell-parity flip, two grid schemes and item 84's instrumentation. **The mid-trajectory
+    0.4 % is inside item 61's envelope** — that item measures 0.51 % in the OLR from a
+    thread-count change alone — so nothing here is claimed as a real difference.
+
+    ### The attribution, which is the point of the run
+
+    | arm | grid | OLR at 400 |
+    |---|---|---|
+    | this run | legacy exponential, `zeta = 3` | **103.00 W/m2** |
+    | 2026-08-25 (item 83's defaults) | uniform in `ln p`, `beta = 4.33` | **165.94 W/m2** |
+
+    **+61 %, from the vertical grid alone.** Read that against the prescribed branch, where the
+    same three grids gave 135.51, 135.52 and 135.56 — a spread of 0.04 %, the seventh null in a
+    row (items 82, 83). The prescribed arm's OLR could not respond to the grid because it was
+    `sigma*t_skin^4` reported back; the free-running arm's can, because its emission level is
+    held by the column's own opacity. **So this is not "the grid matters after all" — it is one
+    more measurement of what invariant 3 costs.** Every forcing this file has scanned —
+    `kappa` at 64x, the circulation at 500x, `im`, `zeta`, the exact metric, the cell parity,
+    three grids, the precipitation cap, the smoother, the superheat test, the Newton count —
+    was scanned on the branch that could not answer.
+
+    Which grid is right is NOT settled by this and is not claimed to be. The two arms differ in
+    lid height (300.0 against 293.4 km), in where the levels sit, and in the 2.67x bottom-layer
+    thickness item 82 measured; the free column's emission level is a cloud top (item 84), and
+    a cloud top moves with the levels it is resolved on. **What is settled is that the
+    2026-08-24/25 defaults did not move this branch, and the grid did.**
+
+    ### What else the run says
+
+        Psi_max        53386 -> 70277 (1e9 kg/s)   +31.6 %, still climbing at 400
+        div(rho u)/rho rms  1.603e-02 -> 3.001e-02  +87 %, still climbing
+        max cloud water     49.87 -> 31.01 g/kg
+        max q_v             689.7 -> 794.700000 g/kg = the 1 - q_CO2 ceiling (item 82)
+        precipitation       518.4 mm/d total, snow AND graupel at 259.200000 = the cap exactly
+        convective adjustment  100.00 % of columns, every diagnostic, max dT 10.13 K
+
+    Three of those want stating plainly. **The projection residual nearly doubles over the
+    run** — item 72's structural non-closure is not static on this branch, and no previous
+    measurement of it ran this long. **`max q_v` arrives at the `1 - q_CO2` clamp** and sits
+    there, which is item 82's correction to item 79 confirmed on a second run: it is a ceiling,
+    not a trend, and the census still prints `deleted by the c ceiling 0.000000` because
+    `UtilsAtm.h:266` clamps silently. **Snow and graupel sit on `P_max_flux` to six decimals**,
+    so item 82's warning applies here too — quote no precipitation rate from this arm until
+    `ATM_PRECIP_CAP` has been scanned on it.
+
+    ### An instrument caveat found while reading the log
+
+    `printPlanetaryBalance` prints `sigma*T_lid^4` = 97.19 W/m2 next to an OLR of 103.00 and
+    annotates it *"the OLR above IS this: the lid is opaque"*. The annotation fires on
+    `eps_top > 0.9` and the lid here is `eps = 0.9311` at 203.47 K — **nearly** opaque, and the
+    identity holds only to 6 %. Part of the gap is that `lid_mean` is a mean temperature while
+    the emission is a mean of `sigma*T^4`, and part is the 7 % of flux the lid still transmits.
+    On the prescribed branch, where `eps` is ~1 and the two agree to six figures, the arrow is
+    right; here it overstates. **Read the two numbers, not the arrow.** Not fixed — recorded so
+    the next reader does not take the annotation for a measurement.
+
+    ### Status
+
+    **Not converged, and no limit is claimed** — the OLR rises 98.99 -> 103.00 over the last
+    hundred iterations, decelerating but not flat, exactly as item 79 found. This file has been
+    caught extrapolating that shape twice. The imbalance is **+167.96 W/m2**: the column absorbs
+    271 and emits 103.
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative
