@@ -283,7 +283,11 @@ C++ class, file and function names are kept **identical to `ATOM_Precipitation`*
 cherry-pick in both directions; only the outer shell is renamed (`libathad.a`, `cli/had`,
 `config_athad.xml`, `pyathad`). Preserve that.
 
-**Twenty-eight defects found so far. The twenty-fourth is the first that is not inherited at all
+**Thirty-one defects found so far** — twenty-eight here plus three found in ATOM_Precipitation
+on 2026-08-26 while porting this file's fixes back (the ocean's copies of the Poisson and
+`residuum_old` races, and `MinMax_Hyd`'s thread-order-dependent tied extrema); the stale-object
+ODR crash below is a build defect rather than a physics one and is not counted.
+**The twenty-fourth is the first that is not inherited at all
 — ATHAD wrote it** (item 67): `t_skin`'s fixed point solves `sigma*T^4 = F` where the grey skin
 relation is `sigma*T^4 = F/2`, so the transparent lid is assigned the planet's entire energy
 input as its emission and the energy budget closes by construction. It has the twenty-first's
@@ -354,10 +358,31 @@ per-level table. **The lesson is narrower and worse than "look for Earth constan
 comment asserting the invariant was right there, in two files, agreeing with itself, and
 agreeing with the variable's name.**
 
-**Fixes worth porting back upstream** (not yet applied to ATOM_Precipitation as of
-2026-08-11): the `t.x[-1]` out-of-bounds in `MoistConvection::findCloudBaseLFS`; the
-`m_node_weights` OpenMP race in `GetMean_2D/3D`; the UB in `get_temperatures_from_curve`;
-and `-MMD -MP` header dependencies in the Makefile.
+**~~Fixes worth porting back upstream~~ — CLOSED 2026-08-26.** All four went into
+ATOM_Precipitation in `ead6dbe` (`main` at `bd289bf`): the `t.x[-1]` out-of-bounds in
+`MoistConvection::findCloudBaseLFS`; the `m_node_weights` OpenMP race in `GetMean_2D/3D`; the
+UB in `get_temperatures_from_curve`; and `-MMD -MP` header dependencies in the Makefile.
+**Three MORE defects were found there in the process, none of them on this list**: the Poisson
+in-place write and the `residuum_old` race exist in the OCEAN model too (`UtilsHyd.h`,
+`PressureSolverHyd.h`) where ATHAD has nothing to compare against; and `MinMax_Hyd.cpp`'s
+`searchMinMax_2D/3D` merge tied extrema under `omp critical` with a plain `>`, so the reported
+LOCATION of a tied max followed thread arrival order — ties being exactly what a cap or a floor
+produces. Measured there: the racy binary's `residuum_old` printed **19.33 on the FIRST call**,
+where the correct value is the 1.0e-5 initialiser, and `max u-component` differed **run to run
+on the same binary at the same thread count**.
+
+**AND THE `-MMD` REPAIR HAD A HOLE THAT ONLY SHOWS WHEN A CLASS LAYOUT CHANGES.** Header
+tracking covers only objects ALREADY compiled with `-MMD`; one built before the flag has no
+`.d`, so make sees just its `.cpp`. Upstream's `cli/atm.o` was four weeks stale through the
+whole port, and it holds the model as a **stack local** — so adding six diagnostic members made
+`main` reserve the OLD `sizeof` while the library constructed the NEW one, and the constructor
+ran off the end of main's frame onto the stack canary. Every run aborted with
+`*** stack smashing detected ***` AFTER completing successfully, with no compiler warning, and
+**AddressSanitizer found nothing** (an ODR size mismatch is not an out-of-bounds access to
+anything it tracks); it was found by disassembling `main`. The one-line cure — **every object
+depends on the Makefile itself** — is in all four trees (`4b1f86d` here, `a73343b` COND,
+`9897f24` PERID, `0a9b19d` upstream). It was PROPHYLACTIC in the three ATHAD-line trees: every
+C++ object here already had its `.d`, checked before applying.
 
 **The `exp_rm` metric defect is live in ATOM_Precipitation and ATHAD_COND, and is worse
 upstream** (item 39) — checked, not assumed. ATOM_Precipitation has the identical
@@ -366,6 +391,22 @@ hard-coded at `cAtmosphereModel.h:273`, giving a **23.2×** spread against ATHAD
 ATHAD_COND is at `zeta = 3.0`, so ~12×. ATJUP/ATSAT/ATURAN/ATNEPT have no `exp_rm` at all.
 `checkRadialMetric()` is the diagnostic to port first — it is print-only and self-silencing
 once the spread drops below 1.05, so it costs one startup line and cannot change a result.
+**PORTED 2026-08-26 (`ede4810`) and it prints 23.21x there, as predicted.** The REPAIR went with
+it (`5d46fb1`, `ATM_METRIC_EXACT`, default off, off-branch bit-identical: twelve `exp_rm` sites,
+the same eleven diffusion terms, and a new Poisson off-diagonal because that tree has no
+anelastic term to fold it into).
+**AND ITEM 80's RESULT DOES NOT GENERALISE.** Here the exact Jacobian made the projection
+**2.8x worse**; there it is a **null on every integrated quantity and marginally better**
+(closure 0.4514 -> 0.4512, `residuum_atm` -0.07 %) — two trees, same measurement, opposite
+outcomes, so *"the correct Jacobian makes the projection worse"* is an ATHAD property and not a
+family law. **But read the correction with it** (`bd289bf`): the write-up first called the
+-69 % radial-wind extremum a suppressed spike, and re-checking the FIELD on two orthogonal
+slices gave RMS ratios 0.611/0.537 and **p50 ratios 0.460/0.597** — the median falls as far as
+the max, so the vertical wind is 40-50 % weaker EVERYWHERE. The knob is **not a null but a
+change the diagnostics could not see**: `Psi` is built from the meridional wind and KE from the
+horizontal components, and a RADIAL metric governs the vertical one. Item 81's `Psi_max` false
+null, one tree over. Whether the halving is the Jacobian or the curvature term added with it is
+**unattributed** — the discriminating arm has not been run.
 
 **The constant-density meridional streamfunction (`MinMax_Atm.cpp:175`,
 `const double rho = r_air`) is live in ATOM_Precipitation and ATHAD_COND** — checked, not
@@ -376,6 +417,13 @@ a 120 km shell), where it can hide a cell outright, as it did here. On Earth's 1
 uses that diagnostic to judge exactly this question (`24ff23a` "revive Hadley/Ferrel
 cells", `1e59daa` jet spin-down), and an instrument used to measure cell strength should
 not be ~2× overweight at the cell core. Fixed here in `dabbc94`.
+**FIXED EVERYWHERE AS OF 2026-08-26, and the claim above about ATHAD_COND had already gone
+stale**: COND and PERID carry the ported comment block, and ATOM_Precipitation got it in
+`ede4810` — measured there at **2.28x overweight at the cell core**, `Psi_max` 851.68 -> 373.84
+(1e9 kg/s) with the location unmoved, so on Earth's shell it distorts STRENGTH rather than
+hiding a cell. Note for anyone re-deriving this: upstream ALSO had it fixed on an unmerged
+branch, `atom-metric-fixes` (2026-08-14), functionally identical and invisible because nothing
+pointed at it — the work was done twice.
 
 Traps already solved elsewhere in the family — check before re-deriving:
 Coriolis/centrifugal signs (ATURAN `8b284cb`, `4201957`; ATNEPT `024c37f`, `e412b1b` —
