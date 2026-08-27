@@ -433,6 +433,24 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **`p_dyn` CARRIES A GRID-SCALE MODE THAT ONLY A PER-AXIS INSTRUMENT CAN SEE, AND THE FIX IS A
+  2.55x REDUCTION, NOT A CURE** (item 86). The Poisson operator is the compact 7-point Laplacian
+  at `dr` while `div_src` and the Step-3 gradient correction are `2*dr` central differences,
+  which annihilate the Nyquist mode exactly — so a checkerboard in `p_dyn` is invisible to the
+  correction and unconstrained by the source. **The global checkerboard index is a FALSE NULL**
+  (0.0003, flat over 40 iterations) because it divides by an rms dominated by the smooth field;
+  per direction it is **0.961 in k**, and ATHAD is axisymmetric so all of that is numerical.
+  `ATM_RHIE_CHOW=1` cuts the zonal Nyquist rms 2.42e-3 -> 9.49e-4 and then hits a hard
+  instability edge before 1.5, because a fourth difference reaches `i+-2` — the same colour in a
+  red-black sweep, hence necessarily lagged. `ATM_RC_IMPLICIT` solves that implicitly along phi
+  and **is worse at every alpha in both signs**; two explanations for why were proposed and
+  measurement killed both. **Read the absolutes, never the share** — it is a false null for the
+  knob too, moving only 0.961 -> 0.885 while the absolute falls 2.55x. **Scale before priority**:
+  the zonal anomaly is 1.6e-5 of the field, and it is conspicuous only because ParaView
+  auto-scales a slice whose true variation is zero. In `ATOM_Precipitation` the SAME instrument
+  shows a different defect — near-isotropic, and a **spin-up transient** that decays 0.63 -> 0.038
+  over 100 iterations. Do not carry one tree's diagnosis to the other.
+
 - **THE PHOTOSPHERE IS A CLOUD TOP, AND THE 10^2-10^5 % SUPERSATURATION ABOVE IT IS THE
   PRESCRIBED PROFILE THROWING AWAY THE LATENT HEAT** (item 84). The optical depth at the top
   is **~100 % cloud** (243.9 km: `tau_layer` 5313, `tau_gas` 0.317), so the emission level is
@@ -661,7 +679,7 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   and that arm is the worst of four)**, and the cell compression (ratio invariant at 2.08–2.40
   while absolute Ψ moves 4.5×). The lever is `ATM_PROJ_SWEEPS`, the **initial** projection,
   default **1**: 10 sweeps cut the RMS **52.5 %**, 100 sweeps 55.9 % — **it plateaus, so ~44 % is
-  structural and unexplained**. Grid-scale noise is excluded (2Δ oscillation index 0.006–0.2, where a checkerboard is ~4). **ITEM 72 SHOWS THE RESIDUAL IS STRUCTURAL AND DOES NOT ATTRIBUTE IT**: `div(rho u)/rho` rms **1.611e-02 is bit-identical under 64× the sweeps**, so the projection has CONVERGED to a fixed point that is not divergence-free — the discrete div and grad are not adjoint on this collocated stencil. Five mechanisms excluded (base-state density 1.0 %; `exp_rm` **worse when made exact** — a second independent exoneration; no Nyquist mode in velocity, `Psi` or `p_dyn`; not a boundary artefact — it is distributed, 11 % in the bottom 7 km and 33 % at 80–160 km). The lead is **Rhie-Chow face reconstruction**, named as un-done in `PressureSolverAtm.h`, but the checkerboard that story predicts is absent, so it is a lead and not a diagnosis. **The model has been printing this residual in every run log all along.** **Method: `Psi(ground)` must be read as an RMS over latitude, not
+  structural and unexplained**. Grid-scale noise is excluded (2Δ oscillation index 0.006–0.2, where a checkerboard is ~4). **ITEM 72 SHOWS THE RESIDUAL IS STRUCTURAL AND DOES NOT ATTRIBUTE IT**: `div(rho u)/rho` rms **1.611e-02 is bit-identical under 64× the sweeps**, so the projection has CONVERGED to a fixed point that is not divergence-free — the discrete div and grad are not adjoint on this collocated stencil. Five mechanisms excluded (base-state density 1.0 %; `exp_rm` **worse when made exact** — a second independent exoneration; no Nyquist mode in velocity, `Psi` or `p_dyn`; not a boundary artefact — it is distributed, 11 % in the bottom 7 km and 33 % at 80–160 km). The lead is **Rhie-Chow face reconstruction**, named as un-done in `PressureSolverAtm.h`. ~~but the checkerboard that story predicts is absent, so it is a lead and not a diagnosis~~ — **THE CHECKERBOARD IS PRESENT AND THAT CLAUSE IS REFUTED** (item 86, 2026-08-27). The "2Δ oscillation index 0.006–0.2" was a GLOBAL ratio, normalised by an rms `p_dyn` of 152.6 that the smooth radial/latitudinal structure dominates. Per DIRECTION the Nyquist share is **0.961 in k** against 0.010 in i and 0.000 in j, and ATHAD is axisymmetric, so the true zonal anomaly is exactly zero. It is `(i+k)` parity, it stripes the longal slice and no other, and it is item 72's own non-adjointness seen from the pressure side. So Rhie-Chow is now a diagnosis, not a lead — but see item 86 for how little it buys and how small the absolute amplitude is (1.6e-5 of the field). **The model has been printing this residual in every run log all along.** **Method: `Psi(ground)` must be read as an RMS over latitude, not
   a max** — the max sits inside the Hadley cell, so a change localised elsewhere reads as
   bit-identical to nine figures while the field moves 55 %. **`ATM_PROJ_SWEEPS` DEFAULTS TO
   10 SINCE 2026-08-22** (`=1` restores the old branch): RMS Ψ(ground) −53.3 %, the real

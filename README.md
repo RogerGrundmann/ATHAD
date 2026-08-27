@@ -6564,6 +6564,102 @@ the measurement.
     caught extrapolating that shape twice. The imbalance is **+167.96 W/m2**: the column absorbs
     271 and emits 103.
 
+86. **THE DIAGONAL STRIPES IN `p_dyn` ARE ODD-EVEN DECOUPLING, THE FIRST INSTRUMENT WAS A FALSE
+    NULL, AND THE FIX IS A 2.55x REDUCTION RATHER THAN A CURE** (2026-08-27, `3f1130f`).
+
+    Roger reported diagonal stripes in the plotted `p_dyn`. Diagonal is the signature worth
+    taking seriously: the Poisson sweep is red-black on `(i+j+k)&1`, so the two colours lie
+    along diagonals on any slice, and a field that differs between colours draws diagonal
+    stripes and nothing else.
+
+    ### The instrument lied, and it lied the same way three times
+
+    `reportCheckerboard()` prints rms(`p` - mean of the 6 neighbours)/rms(`p`); 0 is smooth and
+    2 is a pure Nyquist mode. It reads **0.0003 at pressure solve and is flat over 40
+    iterations** — clean, by that number. It is not clean. The denominator is rms(`p_dyn`) =
+    **1.526e+02**, the large smooth radial and latitudinal structure, so a checkerboard at 1e-6
+    of it disappears. Normalised **per direction** the same field reads
+
+    | | radial (i) | merid (j) | zonal (k) |
+    |---|---|---|---|
+    | Nyquist share of the anomaly | 0.010 | 0.000 | **0.961** |
+
+    and ATHAD is axisymmetric by construction — no topography, mirrored insolation — so the true
+    zonal anomaly is **exactly zero** and every bit of k-structure is numerical. Confirmed in the
+    plotted field (`output_chk40`, 40 iterations): it alternates in `k` at every level with the
+    sign flipping level to level, i.e. **`(i+k)` parity**, so it stripes the **longal**
+    (level x longitude) slice and no other. The zonal and radial slices are smooth to an
+    alternation index of 0.001 — which is what Roger independently reported seeing.
+
+    **The same false null recurred twice more.** The share barely moves under the fix (0.961 ->
+    0.885) because the rest of the zonal anomaly falls WITH the Nyquist part; only the absolutes
+    show the 2.55x. This is `Psi_max` (item 81) and the vertical wind (item 80) a third time:
+    **a reduction normalised by the whole field cannot see a defect confined to one axis.** Both
+    forms are printed now, with absolutes, and the comment says which one lies.
+
+    ### The mechanism
+
+    The operator inverted is the **compact 7-point Laplacian at `dr`**, while `div_src` and the
+    gradient correction in `project_initial_velocity` Step 3 are **`2*dr` central differences**.
+    A `2*dr` difference annihilates the Nyquist mode exactly, so a checkerboard in `p_dyn` is
+    invisible to the correction and unconstrained by the source. Interpolating velocities to
+    faces does **not** help — plain averaging reproduces the `2*dr` stencil identically, which is
+    the whole reason Rhie-Chow exists. This is item 72's non-divergence-free fixed point seen
+    from the pressure side.
+
+    ### `ATM_RHIE_CHOW`, default 0 — the fourth difference in the source
+
+    `L_compact p = div_src - alpha*(L_compact - L_wide)p`. `D4` annihilates smooth fields, so the
+    smooth solution is untouched; on the Nyquist mode `L_wide = 0`. Zonal Nyquist rms:
+
+    | alpha | 0 | 0.25 | 0.5 | **1** | 1.5 | 2 |
+    |---|---|---|---|---|---|---|
+    | nyq | 2.42e-3 | 1.99e-3 | 1.54e-3 | **9.49e-4** | 7.9e-2 | 1.6e-1 |
+
+    Monotone to `alpha = 1`, then a **hard instability edge before 1.5**, and the edge is
+    structural: a fourth difference reaches `i+-2`, which is the SAME COLOUR in a red-black
+    sweep, so those terms are necessarily lagged.
+
+    ### `ATM_RC_IMPLICIT`, default 0 — built, and it does not pay
+
+    A phi-line pentadiagonal solve per `(i,j)` with the fourth difference folded into the
+    operator, `i`/`j` lagged, lines coloured by `(i+j)` so the pass is race-free. Null verified
+    **exact**. It is **worse than baseline at every alpha in both signs** (best, alpha = -0.5:
+    2.09e-02 against 2.42e-03). Two explanations were proposed and measurement killed both —
+    stale phi endpoints (refreshed inside the sweep: no change, 6.655e-02 -> 6.657e-02) and a
+    weakly weighted phi direction (measured `c_phi/c_r` = **0.59**, comparable). At `alpha = 1`
+    it is pathological: `e1 = (1-alpha)*c3` vanishes, the k+-1 coupling disappears and the line
+    decouples into even/odd sublattices — the exact decoupling being cured.
+
+    ### Two things ruled out, one of them on a wrong premise
+
+    `ATM_PHI_PERIODIC=1` (a true wrap) makes it slightly **worse**, 0.961 -> 0.978, so the seam
+    is not the injector. **And the premise for trying it was wrong — Roger corrected it.** The
+    shipped phi BC is **not a Neumann condition**: the `c43/c13` pair is a zero-gradient
+    extrapolation, but the line after it sets `p[0] = p[km-1] =` their average, which enforces
+    continuity across the seam. The two sides ARE coupled. *Read the whole block before naming a
+    boundary condition — the line after the one you are looking at may change what it is.*
+
+    ### Scale, which sets the priority
+
+    The zonal anomaly is **2.5e-03 against a field rms of 152.6**, i.e. **1.6e-5**, and the
+    meridional anomaly is 1.5e+02, five orders larger. The mode is 96 % of the zonal anomaly not
+    because `k` is badly damped — it is not, `c_phi/c_r` = 0.59 — but because `k` carries **no
+    physical signal**, so whatever noise exists is 100 % of what is there. The stripes are
+    conspicuous because ParaView auto-scales a slice whose true variation is exactly zero.
+
+    ### And the sibling is a different defect wearing the same name
+
+    Ported to `ATOM_Precipitation`. There the mode is **near-isotropic** — share 0.443/0.331/0.660,
+    absolute Nyquist ~1.6e-06 on all three axes — and **it is a spin-up transient**: over 100
+    iterations the global index falls 0.63 -> 0.038 while rms `p_dyn` GROWS, so the smooth field
+    builds as the grid-scale part dies. **The "structural, flat under 100x the sweeps" reading
+    recorded there was taken at 4 iterations and is corrected**: flat under *sweeps*, decaying
+    under *iterations*, and those are different axes. The operator weights differ too —
+    `c_phi/c_r` is **0.0322** upstream against 0.59 here, a 16 km shell over a 6370 km radius
+    against a 300 km one. **Do not carry one tree's diagnosis to the other.**
+
+
 ## Remaining work
 
 - **The prescribed adiabat and the grey opacity are incompatible, and that is now the radiative
