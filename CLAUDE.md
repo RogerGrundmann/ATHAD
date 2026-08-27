@@ -448,8 +448,12 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   knob too, moving only 0.961 -> 0.885 while the absolute falls 2.55x. **Scale before priority**:
   the zonal anomaly is 1.6e-5 of the field, and it is conspicuous only because ParaView
   auto-scales a slice whose true variation is zero. In `ATOM_Precipitation` the SAME instrument
-  shows a different defect — near-isotropic, and a **spin-up transient** that decays 0.63 -> 0.038
-  over 100 iterations. Do not carry one tree's diagnosis to the other.
+  shows a different SHAPE — near-isotropic rather than confined to `k`. Do not carry one tree's
+  diagnosis to the other. **AND THE RATIO FOOLED THIS FILE A FOURTH TIME THERE**: the global index
+  falling 0.63 -> 0.0384 over 100 iterations was written up as the mode decaying, *"a spin-up
+  transient"*. It is not. The denominator grows **24x** and the ABSOLUTE amplitude RISES,
+  2.99e-06 -> 4.45e-06. The stripes leave the plot because the smooth field grows around them,
+  not because the noise dies.
 
 - **THE PHOTOSPHERE IS A CLOUD TOP, AND THE 10^2-10^5 % SUPERSATURATION ABOVE IT IS THE
   PRESCRIBED PROFILE THROWING AWAY THE LATENT HEAT** (item 84). The optical depth at the top

@@ -6651,13 +6651,30 @@ the measurement.
     ### And the sibling is a different defect wearing the same name
 
     Ported to `ATOM_Precipitation`. There the mode is **near-isotropic** — share 0.443/0.331/0.660,
-    absolute Nyquist ~1.6e-06 on all three axes — and **it is a spin-up transient**: over 100
-    iterations the global index falls 0.63 -> 0.038 while rms `p_dyn` GROWS, so the smooth field
-    builds as the grid-scale part dies. **The "structural, flat under 100x the sweeps" reading
-    recorded there was taken at 4 iterations and is corrected**: flat under *sweeps*, decaying
-    under *iterations*, and those are different axes. The operator weights differ too —
-    `c_phi/c_r` is **0.0322** upstream against 0.59 here, a 16 km shell over a 6370 km radius
-    against a 300 km one. **Do not carry one tree's diagnosis to the other.**
+    absolute Nyquist ~1.6e-06 on all three axes — where here it is confined to `k`. The operator
+    weights differ too: `c_phi/c_r` is **0.0322** upstream against 0.59 here, a 16 km shell over a
+    6370 km radius against a 300 km one. **Do not carry one tree's diagnosis to the other.**
+
+    **AND THE RATIO FOOLED THIS FILE A FOURTH TIME.** Over 100 iterations upstream the global
+    index falls 0.63 -> 0.0384, which was written up here as the mode decaying — *"a spin-up
+    transient"*. **It is not decaying.** The index's denominator, rms `p_dyn`, grows **24x** over
+    the same run, and the ABSOLUTE grid-scale amplitude *rises*:
+
+    | diagnostic | index | rms `p_dyn` | absolute |
+    |---|---|---|---|
+    | 1 | 0.6327 | 4.725e-06 | 2.990e-06 |
+    | 13 | 0.0588 | 6.352e-05 | 3.735e-06 |
+    | 25 | 0.0384 | 1.160e-04 | **4.454e-06** |
+
+    The per-axis measure agrees once the first transient is past: zonal Nyquist 4.34e-05 ->
+    1.98e-06 by diagnostic 5, then back **up** to 3.62e-06, while the zonal anomaly grows faster
+    (5.8e-06 -> 1.94e-05), so the share falls 0.34 -> 0.19. **The stripes leave the plot because
+    the smooth field grows around them, not because the noise dies.** Which is why they look gone
+    — ParaView scales to the field range.
+
+    *Caveat on both instruments*: neither isolates the Nyquist mode from smooth curvature — both
+    are second differences — so a growing smooth field contaminates them. The share is the more
+    trustworthy of the two, and it does fall.
 
 
 ## Remaining work
