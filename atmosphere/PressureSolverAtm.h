@@ -193,6 +193,17 @@ public:
 
         // ATOM_METRIC_DIVERGENCE — hoisted out of the cell loop; see lib/Utils.h.
         const bool metric_div = AtomUtils::metric_divergence();
+        // ATM_RHIE_CHOW -- fourth-difference pressure smoothing coefficient alpha.
+        // 0 (default) restores the old branch exactly; 1.0 is the natural Rhie-Chow weight.
+        static const double rc_alpha = [](){
+            const char* e = getenv("ATM_RHIE_CHOW"); return e ? atof(e) : 0.0; }();
+        // ATM_PHI_PERIODIC -- see the phi boundary block below.
+        // ATM_RC_IMPLICIT -- solve the fourth difference implicitly along phi. See the
+        // line pass at the end of each sweep. Inert unless ATM_RHIE_CHOW is also set.
+        static const bool rc_implicit = [](){
+            const char* e = getenv("ATM_RC_IMPLICIT"); return e && atoi(e) != 0; }();
+        static const bool phi_periodic = [](){
+            const char* e = getenv("ATM_PHI_PERIODIC"); return e && atoi(e) != 0; }();
 
         // How often the p_dyn_cap source clamp actually binds. Step 6 of the anelastic
         // scope says the stabilisers were calibrated against the old operator and may clip
@@ -226,6 +237,14 @@ public:
                                                const int v = e ? atoi(e) : 1;
                                                return v > 0 ? v : 1; }();
         const int n_sweeps = (sweeps_override > 0) ? sweeps_override : n_sweeps_knob;
+
+        // Scratch copy of the Poisson source. The point sweep builds div_src inline from
+        // aux_* (which do not change across sweeps) through a long land/one-sided stencil
+        // ladder; the phi-line pass needs the SAME value and must not re-derive it, so it is
+        // stored here rather than recomputed. Allocated only when the line pass will run.
+        std::vector<double> src_store;
+        if (rc_implicit && rc_alpha != 0.0)
+            src_store.assign((size_t)m.im * m.jm * m.km, 0.0);
 
         for (int sweep = 0; sweep < n_sweeps; sweep++) {
 
@@ -534,18 +553,210 @@ public:
                         else if (div_src >  src_max)  { div_src =  src_max; n_src_clamped++; }
                         else if (div_src < -src_max)  { div_src = -src_max; n_src_clamped++; }
 
+                        // ---- RHIE-CHOW PRESSURE SMOOTHING (ATM_RHIE_CHOW) --------------
+                        //
+                        // The defect this cures, measured 2026-08-27: 96 % of p_dyn's ZONAL
+                        // anomaly is the 2-delta mode, and ATHAD is axisymmetric by
+                        // construction, so the true zonal anomaly is exactly zero and all of
+                        // that structure is numerical. It draws diagonal stripes on the
+                        // level-longitude slice because it is (i+k) parity.
+                        //
+                        // The cause is the collocated arrangement. The operator on the left is
+                        // the COMPACT 7-point Laplacian at dr, while div_src and the gradient
+                        // correction in project_initial_velocity Step 3 are 2*dr central
+                        // differences. A 2*dr difference annihilates the Nyquist mode exactly,
+                        // so the checkerboard is invisible to the correction and unconstrained
+                        // by the source -- it is a null direction of everything that is
+                        // supposed to control it, and whatever the boundary treatments and the
+                        // source clamp inject into it simply stays. Interpolating velocities to
+                        // faces does NOT help: plain averaging reproduces the 2*dr stencil
+                        // identically, which is the whole reason Rhie-Chow exists.
+                        //
+                        // The cure is Rhie-Chow's: add the fourth-difference pressure term that
+                        // the face reconstruction implies, D4 = (L_compact - L_wide) p, with
+                        // L_wide the 2*dr Laplacian. Solving L_compact p = div_src - alpha*D4 p
+                        // makes the effective operator L_compact + alpha*(L_compact - L_wide).
+                        // D4 annihilates smooth fields (it is a fourth difference), so the
+                        // smooth solution is untouched; on the Nyquist mode L_wide = 0, so the
+                        // mode is stiffened by (1 + alpha) and injected noise decays instead of
+                        // persisting. Applied AFTER the source clamp, so the clamp still bounds
+                        // the velocity divergence and never sees this term.
+                        //
+                        // Interior only: the i+-2 / j+-2 / k+-2 reads need room, and a
+                        // direction without room contributes nothing rather than a one-sided
+                        // form, which would put a different operator at the edge.
+                        //
+                        // MEASURED at 4 iterations, 8 threads, zonal Nyquist rms of p_dyn:
+                        //   alpha  0     0.25    0.5     1       1.5      2
+                        //   nyq    2.42e-3 1.99e-3 1.54e-3 9.49e-4  7.9e-2  1.6e-1
+                        // Monotone to alpha = 1, a 2.55x cut, then a HARD instability edge
+                        // between 1 and 1.5. READ THE ABSOLUTES, NOT THE SHARE: the share moves
+                        // only 0.961 -> 0.885 across the working range because the rest of the
+                        // zonal anomaly falls with the Nyquist part -- the third false null this
+                        // field has produced.
+                        //
+                        // The edge has a cause, and it bounds what this implementation can do:
+                        // a fourth difference reaches i+-2, which is the SAME COLOUR in the
+                        // red-black sweep, so those terms are necessarily lagged. Above
+                        // alpha ~ 1 the lagged term outruns the implicit part and the iteration
+                        // diverges. Folding it in implicitly needs a 13-point operator and a
+                        // smoother that is not red-black -- not attempted.
+                        double rc = 0.0;
+                        if (rc_alpha != 0.0) {
+                            if (i >= 2 && i < m.im-2)
+                                rc += num1 * ((m.p_dyn.x[i+1][j][k] - 2.0*m.p_dyn.x[i][j][k]
+                                             + m.p_dyn.x[i-1][j][k])
+                                            - 0.25*(m.p_dyn.x[i+2][j][k] - 2.0*m.p_dyn.x[i][j][k]
+                                                  + m.p_dyn.x[i-2][j][k]));
+                            if (j >= 2 && j < m.jm-2)
+                                rc += num2 * ((m.p_dyn.x[i][j+1][k] - 2.0*m.p_dyn.x[i][j][k]
+                                             + m.p_dyn.x[i][j-1][k])
+                                            - 0.25*(m.p_dyn.x[i][j+2][k] - 2.0*m.p_dyn.x[i][j][k]
+                                                  + m.p_dyn.x[i][j-2][k]));
+                            if (k >= 2 && k < m.km-2)
+                                rc += num3 * ((m.p_dyn.x[i][j][k+1] - 2.0*m.p_dyn.x[i][j][k]
+                                             + m.p_dyn.x[i][j][k-1])
+                                            - 0.25*(m.p_dyn.x[i][j][k+2] - 2.0*m.p_dyn.x[i][j][k]
+                                                  + m.p_dyn.x[i][j][k-2]));
+                            rc *= rc_alpha;
+                        }
+
+                        if (!src_store.empty())
+                            src_store[((size_t)i*m.jm + j)*m.km + k] = div_src;
+
                         m.p_dyn.x[i][j][k] =
                             ((m.p_dyn.x[i+1][j][k] + m.p_dyn.x[i-1][j][k]) * num1
                            + (m.p_dyn.x[i][j+1][k] + m.p_dyn.x[i][j-1][k]) * num2
                            + (m.p_dyn.x[i][j][k+1] + m.p_dyn.x[i][j][k-1]) * num3
                            + (m.p_dyn.x[i+1][j][k] - m.p_dyn.x[i-1][j][k]) * num_a
-                           - div_src) * inv_denom;
+                           - div_src - rc) * inv_denom;
                     }
                 } // k
             } // j
         } // i
 
         } // colour
+
+        // ================================================================================
+        // IMPLICIT PHI-LINE PASS (ATM_RC_IMPLICIT) -- the 13-point form, solved.
+        //
+        // WHY A LINE SOLVE. The explicit ATM_RHIE_CHOW term above stalls at alpha ~ 1 and
+        // diverges past 1.5, and the cause is structural: a fourth difference reaches k+-2,
+        // which is the SAME COLOUR as the centre in a red-black sweep, so those two terms can
+        // only ever be lagged. Lagging them bounds how much stiffening the iteration will
+        // carry. Solving the whole k-line at once makes them implicit and removes the bound.
+        //
+        // WHY PHI AND NOT ALL THREE. Measured: the Nyquist share of p_dyn's anomaly is 0.961
+        // in k, 0.010 in i and 0.000 in j. The mode lives in the zonal direction, and ATHAD is
+        // axisymmetric by construction, so the TRUE zonal anomaly is exactly zero and every bit
+        // of k-structure is numerical. A phi-line solve is aimed exactly at it, and costs one
+        // banded solve per (i,j) instead of a 13-point operator in three directions.
+        //
+        // THE SYSTEM. Folding the fourth difference into the phi part of the operator:
+        //   (alpha/4)c3 p[k-2] + (1-alpha)c3 p[k-1]
+        //   + [ -2(c1+c2) - 2(1-alpha)c3 - (alpha/2)c3 ] p[k]
+        //   + (1-alpha)c3 p[k+1] + (alpha/4)c3 p[k+2]
+        //   = div_src - A - c1(p[i+1]+p[i-1]) - c2(p[j+1]+p[j-1])
+        // i and j neighbours lagged, k = 1..km-2 with the ends held (the phi BC block below
+        // re-imposes them every sweep). Diagonally dominant for alpha <= 1 by the 2(c1+c2)
+        // term, so the banded solve needs no pivoting.
+        //
+        // RACE-FREE AND REPRODUCIBLE. Lines are coloured by (i+j) parity, so within a pass no
+        // line reads a p_dyn cell another line is writing -- the same discipline the point
+        // sweep uses, and for the same reason (this tree has been bitten three times by
+        // in-place threaded relaxation).
+        if (rc_implicit && rc_alpha != 0.0) {
+            // Refresh the phi endpoints BEFORE the line solve. The phi BC block runs once
+            // after the whole sweep loop, so during sweeps p[.][.][0] and [km-1] hold values
+            // from the previous run() call. The point sweep only feels them weakly, through one
+            // neighbour of one cell; a DIRECT line solve is hard-pinned to them at both ends and
+            // spreads the error along the entire line. Same rule as the BC block below.
+            #pragma omp parallel for collapse(2)
+            for (int i = 0; i < m.im; i++) {
+                for (int j = 0; j < m.jm; j++) {
+                    const double a0 = m.c43 * m.p_dyn.x[i][j][1]      - m.c13 * m.p_dyn.x[i][j][2];
+                    const double a1 = m.c43 * m.p_dyn.x[i][j][m.km-2] - m.c13 * m.p_dyn.x[i][j][m.km-3];
+                    m.p_dyn.x[i][j][0] = m.p_dyn.x[i][j][m.km-1] = 0.5 * (a0 + a1);
+                }
+            }
+            const int nk = m.km - 2;                      // unknowns k = 1 .. km-2
+            for (int lcol = 0; lcol < 2; lcol++) {
+                #pragma omp parallel for collapse(2) schedule(static)
+                for (int i = 1; i < m.im-1; i++) {
+                    for (int j = 1; j < m.jm-1; j++) {
+                        if (((i + j) & 1) != lcol) continue;
+
+                        const double rm       = m.rad.z[i];
+                        const double exp_rm   = m.metricExpRm(rm);
+                        const double exp_2_rm = exp_rm * exp_rm;
+                        const double curv     = m.metricCurv(rm);
+                        const double sinthe   = sinthe_table[j];
+                        const double rmet     = m.metricRadius(rm);
+                        const double inv_rm   = 1.0 / rmet;
+                        const double inv_rm2  = inv_rm * inv_rm;
+                        const double m_the = poisson_metric_fix ? inv_rm2 : inv_rm;
+                        const double m_phi = poisson_metric_fix ? inv_rm2 / (sinthe*sinthe)
+                                                                : inv_rm / sinthe;
+                        const double c1 = exp_2_rm * inv_dr2;
+                        const double c2 = m_the * inv_dthe2;
+                        const double c3 = m_phi * inv_dphi2;
+                        const double dlnrho_i = anelastic ? dlnrho[i] : 0.0;
+                        const double na = exp_2_rm * (dlnrho_i - curv) * inv_2dr;
+
+                        const double e2 = 0.25 * rc_alpha * c3;          // k+-2 coefficient
+                        const double e1 = (1.0 - rc_alpha) * c3;         // k+-1 coefficient
+                        const double d0 = -2.0*(c1 + c2) - 2.0*(1.0 - rc_alpha)*c3
+                                          - 0.5*rc_alpha*c3;             // diagonal
+
+                        std::vector<double> dg(nk), u1(nk), u2(nk), l1(nk), l2(nk), rhs(nk);
+                        for (int q = 0; q < nk; q++) {
+                            const int k = q + 1;
+                            const double src = src_store[((size_t)i*m.jm + j)*m.km + k];
+                            double r = src
+                                     - na * (m.p_dyn.x[i+1][j][k] - m.p_dyn.x[i-1][j][k])
+                                     - c1 * (m.p_dyn.x[i+1][j][k] + m.p_dyn.x[i-1][j][k])
+                                     - c2 * (m.p_dyn.x[i][j+1][k] + m.p_dyn.x[i][j-1][k]);
+                            if (q == 0)      r -= e1 * m.p_dyn.x[i][j][0];
+                            if (q == 1)      r -= e2 * m.p_dyn.x[i][j][0];
+                            if (q == nk-1)   r -= e1 * m.p_dyn.x[i][j][m.km-1];
+                            if (q == nk-2)   r -= e2 * m.p_dyn.x[i][j][m.km-1];
+                            dg[q] = d0; u1[q] = e1; u2[q] = e2; l1[q] = e1; l2[q] = e2;
+                            rhs[q] = r;
+                        }
+                        // Banded (pentadiagonal) elimination, no pivoting -- diagonally dominant.
+                        for (int q = 0; q < nk; q++) {
+                            if (!(std::fabs(dg[q]) > 0.0)) { dg[q] = 1.0; rhs[q] = 0.0; }
+                            const double inv = 1.0 / dg[q];
+                            if (q + 1 < nk) {
+                                // Row q+1 has entries at columns q (l1), q+1 (dg), q+2 (u1).
+                                // Eliminating column q against row q touches q+1 and q+2 OF
+                                // ROW q+1 -- i.e. dg[q+1] and u1[q+1]. It does NOT touch
+                                // l1[q+2], which belongs to row q+2.
+                                const double f = l1[q+1] * inv;
+                                dg[q+1] -= f * u1[q];
+                                if (q + 2 < nk) u1[q+1] -= f * u2[q];
+                                rhs[q+1] -= f * rhs[q];
+                            }
+                            if (q + 2 < nk) {
+                                const double f = l2[q+2] * inv;
+                                l1[q+2] -= f * u1[q];
+                                dg[q+2] -= f * u2[q];
+                                rhs[q+2] -= f * rhs[q];
+                            }
+                        }
+                        std::vector<double> x(nk, 0.0);
+                        for (int q = nk-1; q >= 0; q--) {
+                            double v = rhs[q];
+                            if (q + 1 < nk) v -= u1[q] * x[q+1];
+                            if (q + 2 < nk) v -= u2[q] * x[q+2];
+                            x[q] = v / dg[q];
+                        }
+                        for (int q = 0; q < nk; q++)
+                            if (is_finite_safe(x[q])) m.p_dyn.x[i][j][q+1] = x[q];
+                    }
+                }
+            }
+        }
         } // sweep
 
         #undef LAND
@@ -603,14 +814,40 @@ public:
             }
         }
 
-        // Phi boundary average
-        #pragma omp parallel for collapse(2)
-        for (int i = 0; i < m.im; i++) {
-            for (int j = 0; j < m.jm; j++) {
-                m.p_dyn.x[i][j][0]      = m.c43 * m.p_dyn.x[i][j][1]      - m.c13 * m.p_dyn.x[i][j][2];
-                m.p_dyn.x[i][j][m.km-1] = m.c43 * m.p_dyn.x[i][j][m.km-2] - m.c13 * m.p_dyn.x[i][j][m.km-3];
-                m.p_dyn.x[i][j][0] = m.p_dyn.x[i][j][m.km-1]
-                    = (m.p_dyn.x[i][j][0] + m.p_dyn.x[i][j][m.km-1]) / 2.0;
+        // Phi boundary.
+        //
+        // ATM_PHI_PERIODIC=1 makes it a TRUE PERIODIC WRAP; default off restores the branch
+        // below exactly.
+        //
+        // CORRECTED 2026-08-27 (Roger): the shipped branch is NOT a Neumann condition, and the
+        // first version of this comment said it was. The c43/c13 pair is a zero-gradient
+        // extrapolation, but the line AFTER it sets p[0] = p[km-1] = their average, which
+        // explicitly enforces continuity across the seam. The two sides ARE told they are
+        // neighbours; it is a periodic-continuity condition, not a wall.
+        //
+        // MEASURED, and it is a null-to-worse: a true wrap takes the zonal Nyquist share from
+        // 0.961 to 0.978 at 4 iterations. So the seam is NOT the injector of the 2-delta mode,
+        // and this knob is kept only so the measurement is not re-derived. Default off.
+        //
+        // The wrap: with a duplicated endpoint, the interior periodic images are p[0] = p[km-2]
+        // and p[km-1] = p[1].
+        if (phi_periodic) {
+            #pragma omp parallel for collapse(2)
+            for (int i = 0; i < m.im; i++) {
+                for (int j = 0; j < m.jm; j++) {
+                    m.p_dyn.x[i][j][0]      = m.p_dyn.x[i][j][m.km-2];
+                    m.p_dyn.x[i][j][m.km-1] = m.p_dyn.x[i][j][1];
+                }
+            }
+        } else {
+            #pragma omp parallel for collapse(2)
+            for (int i = 0; i < m.im; i++) {
+                for (int j = 0; j < m.jm; j++) {
+                    m.p_dyn.x[i][j][0]      = m.c43 * m.p_dyn.x[i][j][1]      - m.c13 * m.p_dyn.x[i][j][2];
+                    m.p_dyn.x[i][j][m.km-1] = m.c43 * m.p_dyn.x[i][j][m.km-2] - m.c13 * m.p_dyn.x[i][j][m.km-3];
+                    m.p_dyn.x[i][j][0] = m.p_dyn.x[i][j][m.km-1]
+                        = (m.p_dyn.x[i][j][0] + m.p_dyn.x[i][j][m.km-1]) / 2.0;
+                }
             }
         }
 
@@ -736,6 +973,7 @@ public:
                 cout << "      ATOM: div(rho u)/rho           rms = "
                      << std::scientific << std::setprecision(3) << ((n > 0) ? sqrt(a2 / n) : 0.0)
                      << "   max = " << amax << std::fixed << endl;
+            reportCheckerboard("at pressure solve");
             cout << "      ATOM: divergence source clamped at p_dyn_cap in "
                  << n_src_clamped << " of " << n_src_cells << " fluid cells ("
                  << std::fixed << std::setprecision(2)
@@ -814,6 +1052,150 @@ public:
     // Every Psi figure in the README and CLAUDE.md predates this. Do not compare across the
     // change. The OLR is unmoved (243.43 W/m2 in both arms), consistent with item 27's
     // finding that a 500x change in the circulation moves it 0.03 %.
+    // ==================================================================
+    // CHECKERBOARD INDEX ON p_dyn -- ported from ATOM_Precipitation 2026-08-27,
+    // where diagonal stripes in the plotted p_dyn turned out to be odd-even decoupling.
+    //
+    // The Poisson sweep below is red-black on (i+j+k)&1, so the two colours lie along
+    // diagonals on ANY slice: a field that differs between colours draws diagonal stripes
+    // and nothing else. Two mechanisms put a difference there and they separate cleanly by
+    // their response to sweeping -- under-convergence falls, odd-even decoupling does not.
+    //
+    // index = rms(p - mean of the 6 neighbours) / rms(p).  Smooth -> O(dr^2 lap p), small.
+    // Pure Nyquist -> chk = 2p, so the ratio tends to 2. Print-only.
+    //
+    // Measured upstream: 0.0289 -> 0.0076 after the initial projection over 100x the sweeps
+    // (converging), against 0.6327 -> 0.6379 at pressure solve (flat, structural). CLAUDE.md
+    // item 72 reports no Nyquist mode in p_dyn HERE, on a 2-delta index of 0.006-0.2 -- this
+    // is the instrument that says whether the trees really differ or whether that index was
+    // read at the projection level, where upstream also looks clean.
+    // ==================================================================
+    void reportCheckerboard(const char* tag) const {
+        using namespace std;
+        double c2 = 0.0, pp2 = 0.0, sred = 0.0, sblk = 0.0;
+        long   nc = 0, nred = 0, nblk = 0;
+        #pragma omp parallel for collapse(2) schedule(static) \
+                reduction(+:c2,pp2,nc,sred,sblk,nred,nblk)
+        for (int i = 1; i < m.im-1; i++) {
+            for (int j = 1; j < m.jm-1; j++) {
+                for (int k = 1; k < m.km-1; k++) {
+                    const double pc = m.p_dyn.x[i][j][k];
+                    if (!is_finite_safe(pc)) continue;
+                    const double nb = (m.p_dyn.x[i+1][j][k] + m.p_dyn.x[i-1][j][k]
+                                     + m.p_dyn.x[i][j+1][k] + m.p_dyn.x[i][j-1][k]
+                                     + m.p_dyn.x[i][j][k+1] + m.p_dyn.x[i][j][k-1]) / 6.0;
+                    const double chk = pc - nb;
+                    c2 += chk * chk; pp2 += pc * pc; nc++;
+                    if (((i + j + k) & 1) == 0) { sred += pc; nred++; }
+                    else                        { sblk += pc; nblk++; }
+                }
+            }
+        }
+        // ---- DIRECTIONAL NYQUIST SHARE ------------------------------------------------
+        //
+        // THE GLOBAL INDEX ABOVE IS A FALSE NULL HERE, and it is kept beside this one rather
+        // than replaced so the two can be read together. It divides by rms(p_dyn), which in
+        // ATHAD is dominated by the large smooth radial/latitudinal structure, so a
+        // checkerboard at 1e-6 of that reads 0.0003 and looks clean. Measured 2026-08-27 in
+        // the plotted longal slice, the SAME field alternates in k at every level with the
+        // sign flipping level to level -- (i+k) parity, diagonal stripes on a level-longitude
+        // plot and on no other slice -- and it is 49 % of the entire zonal anomaly.
+        //
+        // The normalisation that sees it is per DIRECTION: the 2-delta component measured
+        // against the field's own variation ALONG THAT AXIS, not against the global rms.
+        // In ATHAD the k direction is decisive because the model is axisymmetric by
+        // construction (no topography, mirrored insolation), so the true zonal anomaly is
+        // exactly ZERO and every bit of k-structure is numerical.
+        //
+        // share -> 0 smooth, -> 1 when the anomaly along that axis IS the 2-delta mode.
+        double share[3] = {0.0, 0.0, 0.0};
+        double anom_rms[3] = {0.0, 0.0, 0.0}, nyq_rms[3] = {0.0, 0.0, 0.0};
+        for (int dir = 0; dir < 3; dir++) {
+            const int ni = (dir == 0) ? m.im : ((dir == 1) ? m.jm : m.km);
+            const int n1 = (dir == 0) ? m.jm : m.im;
+            const int n2 = (dir == 2) ? m.jm : m.km;
+            if (ni < 5) continue;
+            double an2 = 0.0, ny2 = 0.0;
+            #pragma omp parallel for collapse(2) schedule(static) reduction(+:an2,ny2)
+            for (int p1 = 1; p1 < n1 - 1; p1++) {
+                for (int p2 = 1; p2 < n2 - 1; p2++) {
+                    double sum = 0.0; long cnt = 0;
+                    for (int q = 1; q < ni - 1; q++) {
+                        const int i = (dir == 0) ? q : p1;
+                        const int j = (dir == 1) ? q : ((dir == 0) ? p1 : p2);
+                        const int k = (dir == 2) ? q : p2;
+                        const double v = m.p_dyn.x[i][j][k];
+                        if (is_finite_safe(v)) { sum += v; cnt++; }
+                    }
+                    if (cnt < 3) continue;
+                    const double mean = sum / (double)cnt;
+                    for (int q = 1; q < ni - 1; q++) {
+                        const int i = (dir == 0) ? q : p1;
+                        const int j = (dir == 1) ? q : ((dir == 0) ? p1 : p2);
+                        const int k = (dir == 2) ? q : p2;
+                        const double v  = m.p_dyn.x[i][j][k];
+                        const double vp = (dir == 0) ? m.p_dyn.x[i+1][j][k]
+                                        : (dir == 1) ? m.p_dyn.x[i][j+1][k]
+                                                     : m.p_dyn.x[i][j][k+1];
+                        const double vm = (dir == 0) ? m.p_dyn.x[i-1][j][k]
+                                        : (dir == 1) ? m.p_dyn.x[i][j-1][k]
+                                                     : m.p_dyn.x[i][j][k-1];
+                        if (!is_finite_safe(v) || !is_finite_safe(vp) || !is_finite_safe(vm)) continue;
+                        const double anom = v - mean;
+                        const double nyq  = 0.5 * (v - 0.5 * (vp + vm));
+                        an2 += anom * anom; ny2 += nyq * nyq;
+                    }
+                }
+            }
+            share[dir]    = (an2 > 0.0) ? sqrt(ny2 / an2) : 0.0;
+            // ABSOLUTES BESIDE THE RATIO, deliberately: the ratio alone cannot tell a cure
+            // from a uniform shrink of everything in that direction.
+            const double nc_d = (double)((n1 - 2) * (n2 - 2) * (ni - 2));
+            anom_rms[dir] = (nc_d > 0.0) ? sqrt(an2 / nc_d) : 0.0;
+            nyq_rms[dir]  = (nc_d > 0.0) ? sqrt(ny2 / nc_d) : 0.0;
+        }
+
+        const double rms_chk = (nc > 0) ? sqrt(c2 / nc)  : 0.0;
+        const double rms_p   = (nc > 0) ? sqrt(pp2 / nc) : 0.0;
+        const double mred    = (nred > 0) ? sred / nred : 0.0;
+        const double mblk    = (nblk > 0) ? sblk / nblk : 0.0;
+        const ios::fmtflags f = cout.flags();
+        const streamsize    pr = cout.precision();
+        cout << "      ATOM: p_dyn checkerboard " << setw(24) << left << tag << right
+             << " index = " << fixed << setprecision(4)
+             << ((rms_p > 0.0) ? rms_chk / rms_p : 0.0)
+             << "   (0 = smooth, 2 = pure)   rms p_dyn = "
+             << scientific << setprecision(3) << rms_p
+             << "   red-black mean split = " << (mred - mblk) << endl;
+        // Operator weights at a mid-column, equatorial cell. Printed because the direction the
+        // Nyquist mode lives in should be the direction the operator constrains LEAST, and that
+        // is checkable rather than assumable.
+        {
+            const int i = m.im/2, j = m.jm/2;
+            const double rm = m.rad.z[i], e = m.metricExpRm(rm);
+            double sth = sin(m.the.z[j]); if (sth < 0.55) sth = 0.55;
+            const double rmet = m.metricRadius(rm);
+            const double c1 = e*e/(m.dr*m.dr);
+            const double c2 = (1.0/rmet)/(m.dthe*m.dthe);
+            const double c3 = (1.0/(rmet*sth))/(m.dphi*m.dphi);
+            cout << "      ATOM: Poisson weights at i=" << i << ", j=" << j
+                 << "   c_r = " << scientific << setprecision(3) << c1
+                 << "   c_the = " << c2 << "   c_phi = " << c3
+                 << fixed << setprecision(4) << "   c_phi/c_r = " << (c1>0.0 ? c3/c1 : 0.0) << endl;
+        }
+        static const char* dname[3] = {"radial(i)", "merid(j)", "zonal(k)"};
+        cout << "      ATOM: p_dyn Nyquist share of the anomaly along each axis: ";
+        for (int d = 0; d < 3; d++)
+            cout << "  " << dname[d] << " = " << fixed << setprecision(3) << share[d];
+        cout << endl;
+        cout << "      ATOM: p_dyn absolute rms  ";
+        for (int d = 0; d < 3; d++)
+            cout << "  " << dname[d] << ": anom = " << scientific << setprecision(3)
+                 << anom_rms[d] << " nyq = " << nyq_rms[d];
+        cout << endl;
+        cout.flags(f); cout.precision(pr);
+    }
+
     void project_initial_velocity(int n_sweeps = 200)
     {
         static const int proj_sweeps = [](){
@@ -882,6 +1264,9 @@ public:
                 }
             }
         }
+
+        // Read the checkerboard BEFORE Step 4, which zeroes p_dyn.
+        reportCheckerboard("after initial projection");
 
         // Step 4 — clear p_dyn and aux so the time loop starts fresh.
         #pragma omp parallel for collapse(2) schedule(static)
