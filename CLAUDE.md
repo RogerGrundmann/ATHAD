@@ -358,7 +358,26 @@ per-level table. **The lesson is narrower and worse than "look for Earth constan
 comment asserting the invariant was right there, in two files, agreeing with itself, and
 agreeing with the variable's name.**
 
-**~~Fixes worth porting back upstream~~ — CLOSED 2026-08-26.** All four went into
+**AND IT REOPENED 2026-08-27 WITH A FIFTH: `ConvectiveAdjustment.h` WENT UPSTREAM**
+(`b70c863`, branch `terrain-bc-and-checkerboard`). ATOM_Precipitation had **no dry convective
+adjustment at all** — no such file, no call site, only `MoistConvection.h` — so nothing there
+could remove a superadiabatic layer. Measured over 100 iterations: stable at iteration 0
+(-3.93 K/km, `brunt_N2 < 0` in 0.000 of columns), and by iteration 20 the lowest 39 m at
+**-18.05 K/km, twice the dry adiabat**, in 59 % of columns. With the port on, the surface lapse
+goes **-19.45 -> -9.76 K/km** against a -9.8 adiabat, `brunt_N2` at `i = 0` -2.69e-04 ->
+-1.0e-07, enthalpy drift 3.07e-16. Default off there.
+**Two of this file's assumptions had to be adapted, and one of them this file had already
+anticipated**: its `i0 = 0` is hard-coded because of invariant 1, with a comment saying `i0`/`i1`
+were kept as variables precisely so a sibling with topography could pick it up — which is what
+happened, `i0 = i_topography[j][k]` there. The other is `cp`: ATHAD takes it from
+`AtmMixture::cp_of()` because its own varies 2x over 300-1500 K, and upstream uses `cp_l`, having
+no `MixtureAtm`. **What made it a port rather than a copy of the shared
+`planet/ConvectiveAdjustment.h` is the part written HERE**: the per-layer critical drop from
+`get_layer_height()` and the cumulative-sum segment adiabat, because the shared file's
+`dz_m = L_atm*1e3/(im-1)` is a layer thickness only on a uniform grid — and upstream's grid is
+stretched too, so that generalisation was load-bearing in both trees.
+
+**~~Fixes worth porting back upstream~~ — CLOSED 2026-08-26, REOPENED ABOVE.** All four went into
 ATOM_Precipitation in `ead6dbe` (`main` at `bd289bf`): the `t.x[-1]` out-of-bounds in
 `MoistConvection::findCloudBaseLFS`; the `m_node_weights` OpenMP race in `GetMean_2D/3D`; the
 UB in `get_temperatures_from_curve`; and `-MMD -MP` header dependencies in the Makefile.
