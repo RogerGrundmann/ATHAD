@@ -6715,7 +6715,30 @@ the measurement.
     600.775570 g/kg, `Psi` in the 13th digit, max `S_c_c` −0.05 %, max `Q_Sensible` −0.002 %.
     Temperature, wind and OLR are unchanged to every printed digit; no NaN; both exit 0.
     **So two tendencies pinned on their caps were reaching nothing the model prints**, at
-    20 iterations. Whether that holds over a long run is NOT measured.
+    20 iterations.
+
+    **The long run, 400 iterations (2026-10-10)** — `config_chk40.xml` with `nm` = 400, from
+    scratch, 8 threads, three arms side by side: `adjust`, `tiedtke`, and `tiedtke` a second time
+    as the noise floor (`python/run_long_adj`, `run_long_tied`, `run_long_tied2`, driven by
+    ATHAD_COND's `python/run_long.sh`; 1 h 39 min wall). `cmp_extrema.py` reads the last printed
+    extrema, `cmp_fields.py` the section VTKs of every checkpoint, the largest difference taken
+    over the three sections and given as a fraction of the field's range.
+    **The noise floor is zero** (the two Tiedtke runs: 180 of 180 extrema, VTKs byte-identical).
+    `tiedtke` against `adjust`: **116 of 180 extrema identical**; of the 64 that differ, 41 are
+    the scheme's own fields (`MC_t` still on its negative cap, `MC_q` on both, after 400
+    iterations). The rest: min water vapour 547.963 → 547.320 g/kg (−0.118 %), max `S_c_c`
+    −0.47 %, max `BruntVaisala_N2` +0.3 %, max `Q_Sensible` −0.002 %, `v` ±4.305892 → ±4.305918
+    m/s, everything else in the 6th digit or beyond; temperature, `u`, `w` and OLR extrema
+    agree to the last or last-but-one digit. **Fields at iteration 400**: temperature within
+    0.055 K (rms 0.0006 K), winds within 1.8e-3 of their range (`v` 0.015 m/s, `w` 0.028 m/s),
+    **water vapour within 5.8 g/kg, in 166 cells of the zonal section at 0.0005 bar** — the
+    condensing top, where the scheme's capped `MC_q` acted — and 0.003 g/kg at the ground.
+    **Unlike ATHAD_COND's, these differences do NOT keep growing**: water vapour is 3.7e-2 of
+    its range at iteration 50 and 2.4e-2 at 400, the condensates likewise; the winds rise to
+    1.5e-3 - 1.8e-3 by iteration 250 and stay; only temperature (4.3e-5) and `w` still creep.
+    The mass-weighted mean water is 0.672435 kg/kg in both. All arms exit 0, no NaN.
+    **So two tendencies pinned on their caps moved the top two condensing levels by about 1 % in
+    vapour and nothing else by more than the third digit, over 400 iterations.**
 
     **Checks.** `ATM_CONV_SCHEME=tiedtke` against the binary before the change (`cli/had_pre`):
     20 of 20 output files byte-identical, 2 iterations, 1 thread. Control, `adjust` against

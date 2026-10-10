@@ -462,7 +462,10 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   ~236 km (invariant 2). Measured, 20 iterations, 8 threads: 127 of 180 printed extrema
   identical; the scheme's fields go to zero **from `MC_t` and `MC_q` sitting on their caps**;
   everything else moves in the 4th-9th digit, temperature, wind and OLR not at all.
-  **20 iterations only.** Do not read items 51-53, 61, 63 as describing the default any more.
+  **The long run, 400 iterations, three arms (item 87; noise floor zero)**: 116 of 180 extrema
+  identical; fields within 0.055 K, winds within 1.8e-3 of their range, vapour within 5.8 g/kg
+  in the condensing top (0.0005 bar) and 0.003 g/kg at the ground; the differences have
+  levelled off except a creep in temperature and `w`. Do not read items 51-53, 61, 63 as describing the default any more.
 
 - **`p_dyn` CARRIES A GRID-SCALE MODE THAT ONLY A PER-AXIS INSTRUMENT CAN SEE, AND THE FIX IS A
   2.55x REDUCTION, NOT A CURE** (item 86). The Poisson operator is the compact 7-point Laplacian
