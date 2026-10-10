@@ -6676,6 +6676,55 @@ the measurement.
     are second differences — so a growing smooth field contaminates them. The share is the more
     trustworthy of the two, and it does fall.
 
+87. **THE CONVECTION SCHEME IS A CONVECTIVE ADJUSTMENT SINCE 2026-10-10; THE TIEDTKE MASS-FLUX
+    SCHEME IS NO LONGER CALLED** (the user's instruction: "replace the Tiedtke scheme with a simple
+    moist convective adjustment", then "the same switch in ATHAD and ATHAD_PERID").
+    `ATM_CONV_SCHEME=<adjust|tiedtke>`, **default `adjust`**; `=tiedtke` restores `MoistConvection`
+    and with it every number in items 1-86.
+
+    **What `adjust` is here, and it adds no routine.** A convective adjustment holds a column at
+    the adiabatic lapse rate wherever it would otherwise be steeper, and this tree already does
+    that in one of two ways. By default `ThermoAtm::densities()` PRESCRIBES the profile every
+    iteration as `max(t_skin, T_ad)` — the column's own adiabat below, an isothermal top above —
+    which is the hard limit of an adjustment (and is invariant 3's standing problem, unchanged by
+    this item). With `ATM_PROGNOSTIC_T=1` the profile is free and `ConvectiveAdjustment.h` (dry,
+    Manabe-Strickler, items 19-20) restores it. `SaturationAdjustment` and the ice scheme
+    condense and precipitate either way. So `adjust` stops calling `MoistConvection` and zeroes
+    `MC_t`, `MC_q`, `MC_v`, `MC_w`, `P_conv` and the updraft / downdraft fields
+    (`convectionStep()` in `cAtmosphereModel.cpp`).
+
+    **The adjustment is DRY in this tree, and that is the right one.** Water is supercritical or
+    superheated from the ground to ~236 km (invariant 2), so a rising parcel condenses nothing
+    and cools at `g/cp`; the two levels that do condense lie in the isothermal top, which is
+    stable against any adiabat. A moist version of the sweep — the saturated adiabat where the
+    air is saturated — is what the prognostic branch would need if its condensing layer ever
+    deepens. It is not written.
+
+    **Why the mass-flux scheme goes.** Items 61 and 63 already found that it does nothing useful
+    here: cloud base and LFS are adjacent levels in 99 of 173 convecting columns, the updraft
+    recurrence is an empty loop and `c_u` is identically zero. In ATHAD_COND, where it has a deep
+    column, it was measured on 2026-10-10 to form no rain, to cycle with the parity of
+    `iter_prec`, and, made consistent, to re-evaporate everything it forms (that tree's README).
+
+    **Measured** — `config_chk40.xml` with `nm` = 20, from scratch, 8 threads (`python/run_ca_tied`,
+    `run_ca_adj`, `run_conv.sh`), last print: **127 of 180 printed extrema identical.** Of the 53
+    that differ, 39 are the scheme's own fields going to zero — and they show what it had been
+    doing: **`MC_t` at its negative cap (−0.0100 K/s), `MC_q` at both caps (±0.0200 g/kg/s),**
+    `MC_v` ±3.3e-3 and `MC_w` ±2.5e-3 m/s2, `M_u` up to 44 048 kg/(m2 s). The other 14 move in the
+    4th to 9th digit: max cloud water 43.697209 → 43.696900 g/kg, min water vapour 600.778711 →
+    600.775570 g/kg, `Psi` in the 13th digit, max `S_c_c` −0.05 %, max `Q_Sensible` −0.002 %.
+    Temperature, wind and OLR are unchanged to every printed digit; no NaN; both exit 0.
+    **So two tendencies pinned on their caps were reaching nothing the model prints**, at
+    20 iterations. Whether that holds over a long run is NOT measured.
+
+    **Checks.** `ATM_CONV_SCHEME=tiedtke` against the binary before the change (`cli/had_pre`):
+    20 of 20 output files byte-identical, 2 iterations, 1 thread. Control, `adjust` against
+    `tiedtke`: 2 of 20.
+
+    **What this does to earlier items.** Items 51-53, 61 and 63 (the `MoistConvection` repairs,
+    `ATM_MC_S_*`, `ATM_MC_GEOPOTENTIAL`, the trigger levels, `MCt_max`) describe a routine that no
+    longer runs by default; they stand as measurements of `ATM_CONV_SCHEME=tiedtke`.
+
 
 ## Remaining work
 

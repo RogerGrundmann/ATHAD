@@ -452,6 +452,18 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
 
 ## Open risks
 
+- **THE CONVECTION SCHEME IS A CONVECTIVE ADJUSTMENT SINCE 2026-10-10; TIEDTKE IS NOT CALLED**
+  (item 87; the user's instruction). `ATM_CONV_SCHEME=tiedtke` restores `MoistConvection`, and
+  **every number of items 1-86, and every `ATM_MC_*` knob, needs it**. `adjust` adds no routine:
+  the profile is already prescribed on its adiabat by `densities()` every iteration (or, under
+  `ATM_PROGNOSTIC_T=1`, restored by the dry `ConvectiveAdjustment.h`); `adjust` stops calling
+  `MoistConvection` and zeroes `MC_t`, `MC_q`, `MC_v`, `MC_w`, `P_conv` and the updraft /
+  downdraft fields. **The adjustment is dry here and rightly so** — nothing condenses below
+  ~236 km (invariant 2). Measured, 20 iterations, 8 threads: 127 of 180 printed extrema
+  identical; the scheme's fields go to zero **from `MC_t` and `MC_q` sitting on their caps**;
+  everything else moves in the 4th-9th digit, temperature, wind and OLR not at all.
+  **20 iterations only.** Do not read items 51-53, 61, 63 as describing the default any more.
+
 - **`p_dyn` CARRIES A GRID-SCALE MODE THAT ONLY A PER-AXIS INSTRUMENT CAN SEE, AND THE FIX IS A
   2.55x REDUCTION, NOT A CURE** (item 86). The Poisson operator is the compact 7-point Laplacian
   at `dr` while `div_src` and the Step-3 gradient correction are `2*dr` central differences,
