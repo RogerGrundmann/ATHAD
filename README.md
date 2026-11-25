@@ -13,6 +13,16 @@ closures (k-ε, k-ω, k-ω SST), saturation adjustment, Zero/One/Two/Three-Categ
 schemes, moist convection and multi-layer radiation, and replaces everything that was
 calibrated to a 1 bar, 288 K, N₂/O₂ Earth.
 
+**The Hadean family.** Three successive epochs of the early Earth, one model each, forked from one another with their full history so fixes cherry-pick in both directions:
+
+| Model | Epoch | Atmosphere | Surface |
+|---|---|---|---|
+| **ATHAD** (this repo) | ~4.4 Ga, over the magma ocean | steam (H₂O-dominated), ~250 bar | molten or quenching rock, no topography |
+| [ATHAD_COND](https://github.com/RogerGrundmann/ATHAD_COND) | after the steam rained out | CO₂-dominated, 27–100 bar | liquid sea at 230–250 °C |
+| [ATHAD_PERID](https://github.com/RogerGrundmann/ATHAD_PERID) | after a peridotitic magma ocean solidified | CO₂-dominated, 5–20 bar | ocean at 20–150 °C |
+
+**Sister family:** the same ATOM numerics run the giant planets -- [ATJUP](https://github.com/RogerGrundmann/ATJUP), [ATSAT](https://github.com/RogerGrundmann/ATSAT), [ATURAN](https://github.com/RogerGrundmann/ATURAN), [ATNEPT](https://github.com/RogerGrundmann/ATNEPT).
+
 ## Repository layout
 
 ```
