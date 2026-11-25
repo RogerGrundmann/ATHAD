@@ -2,16 +2,9 @@
 
 **Atmosphere of the Earth in the Hadean Eon.**
 
-An atmospheric general-circulation model of the Earth at ~4.4 Ga: a finite-difference
-Navier–Stokes solver on a spherical shell with RK4 time integration and vertical
-coordinate stretching, applied to a ~250 bar, water-vapour-dominated atmosphere over a
-molten or quenching surface with no topography.
+<p align="center"><img src="https://raw.githubusercontent.com/RogerGrundmann/ATHAD/ATHAD/doc/ATHAD_globe.jpeg" width="520" alt="ATHAD: the surface on the globe"></p>
 
-ATHAD is the atmosphere half of [ATOM_Precipitation](https://github.com/RogerGrundmann/ATOM_Precipitation)
-(forked at `1e3f319`) re-based onto Hadean conditions. It keeps that model's turbulence
-closures (k-ε, k-ω, k-ω SST), saturation adjustment, Zero/One/Two/Three-Category ice
-schemes, moist convection and multi-layer radiation, and replaces everything that was
-calibrated to a 1 bar, 288 K, N₂/O₂ Earth.
+<p align="center"><sub>Surface temperature (°C) of the steam atmosphere over the magma ocean, 1168–1217 °C, coolest at the poles; white: surface-wind stream lines; north pole at the top. Arm <code>run_long_tied</code> (Tiedtke convection) at iteration 400, drawn from the level-0 radial slice with <code>literature/hadean_globe.py</code> (outside the repo).</sub></p>
 
 **The Hadean family.** Three successive epochs of the early Earth, one model each, forked from one another with their full history so fixes cherry-pick in both directions:
 
@@ -22,6 +15,17 @@ calibrated to a 1 bar, 288 K, N₂/O₂ Earth.
 | [ATHAD_PERID](https://github.com/RogerGrundmann/ATHAD_PERID) | after a peridotitic magma ocean solidified | CO₂-dominated, 5–20 bar | ocean at 20–150 °C |
 
 **Sister family:** the same ATOM numerics run the giant planets -- [ATJUP](https://github.com/RogerGrundmann/ATJUP), [ATSAT](https://github.com/RogerGrundmann/ATSAT), [ATURAN](https://github.com/RogerGrundmann/ATURAN), [ATNEPT](https://github.com/RogerGrundmann/ATNEPT).
+
+An atmospheric general-circulation model of the Earth at ~4.4 Ga: a finite-difference
+Navier–Stokes solver on a spherical shell with RK4 time integration and vertical
+coordinate stretching, applied to a ~250 bar, water-vapour-dominated atmosphere over a
+molten or quenching surface with no topography.
+
+ATHAD is the atmosphere half of [ATOM_Precipitation](https://github.com/RogerGrundmann/ATOM_Precipitation)
+(forked at `1e3f319`) re-based onto Hadean conditions. It keeps that model's turbulence
+closures (k-ε, k-ω, k-ω SST), saturation adjustment, Zero/One/Two/Three-Category ice
+schemes, moist convection and multi-layer radiation, and replaces everything that was
+calibrated to a 1 bar, 288 K, N₂/O₂ Earth.
 
 ## Repository layout
 
