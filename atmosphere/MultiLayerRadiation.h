@@ -90,6 +90,19 @@ public:
                                       return (e && atof(e) > 0.0) ? atof(e) : 2.1e8; }();
         return v;
     }
+    // ATM_SFC_LDOWN (with ATM_SFC_COUPLE only; default 1 since 2026-11-28, 0 restores; user: "the coupled
+    // ground should take its downward longwave from the actual/prognostic air"). 1 = the coupled ground's
+    // L_down is the down sweep on the temperatures as they ENTERED this routine (the actual / prognostic
+    // air, the same air H already uses), with this call's layer emissivities; 0 = dn[i_mount+1] of the
+    // radiative-equilibrium column the solve writes. WHY: that column hangs from the ground (level-1 air
+    // ~9 K below T_s), so the ground cooled its own down-welling flux: tskin_2026-11-28 T1, equator
+    // 1500 -> 1474.5 K in 400 it at net -6400 W/m2, while the same balance with the actual air (~1492 K)
+    // is +13 000 W/m2 (register HAD-TSKIN). The Newton branch (ATM_SFC_COUPLE=0) is untouched.
+    static bool sfc_ldown_act() {
+        static const bool v = [](){ const char* e = getenv("ATM_SFC_LDOWN");
+                                    return !(e && atoi(e) == 0); }();
+        return v;
+    }
     static double sfc_accel() {
         static const double v = [](){ const char* e = getenv("ATM_SFC_ACCEL");
                                       return (e && atof(e) > 0.0) ? atof(e) : 1.0; }();
@@ -198,7 +211,8 @@ public:
 
                 for (int i = i_mount; i <= i_trop; i++)
                     T[i] = m.t.x[i][j][k] * m.t_0;
-                if (sfc_slot >= 0 && k == 0) T_in = T;   // ATM_SFC_DIAG: the air as it entered
+                if ((sfc_slot >= 0 && k == 0) || (sfc_couple && sfc_ldown_act()))
+                    T_in = T;                            // ATM_SFC_DIAG / ATM_SFC_LDOWN: the air as it entered
                 const double T_air_act = T[i_mount + 1]; // ATM_SFC_COUPLE: the actual level-1 air
 
                 // ATHAD: layer optical depth from COLUMN MASS with pressure broadening.
@@ -568,7 +582,16 @@ public:
                 } else {
                     // ATM_SFC_COUPLE (see sfc_couple_on): heat capacity, the actual air, a time.
                     const double H   = c_H * (T_s0 - T_air_act);
-                    const double F   = SW_abs + m.geothermal_flux + L_down
+                    double L_dn_sfc  = L_down;
+                    if (sfc_ldown_act()) {                 // ATM_SFC_LDOWN: sweep on the actual air
+                        double d = 0.0;
+                        for (int i = i_trop; i >= i_mount + 1; i--) {
+                            const double eps = m.epsilon.x[i][j][k];
+                            d = d * (1.0 - eps) + eps * m.sigma * pow(T_in[i], 4.0);
+                        }
+                        L_dn_sfc = d;
+                    }
+                    const double F   = SW_abs + m.geothermal_flux + L_dn_sfc
                                      - m.sigma * pow(T_s0, 4.0) - H;
                     const double tau = dt_phys * sfc_accel();
                     T_s = T_s0 + tau * F / (sfc_heatcap() + tau * (dsigT4 + c_H));

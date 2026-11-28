@@ -1135,8 +1135,29 @@ time loop's call only (other callers of `run()` keep the Newton step):
 Both are written AFTER the blend, so the blend no longer touches the ground. `ATM_SFC_HEATCAP` [J/m2/K]
 default 2.1e8 (a 50 m water layer), `ATM_SFC_ACCEL` default 1. At ACCEL 1 the ground is practically constant
 over any affordable run (one iteration is ~0.2 s on `L_atm` here, item 47; +180 W/m2 moves it ~1e-8 K per
-iteration), so the ACCEL value is part of the decision. Prints its settings once. Not measured yet; next:
-`ATM_SFC_COUPLE=1` with `ATM_SFC_DIAG` (register row HAD-SURF-BC).
+iteration), so the ACCEL value is part of the decision. Prints its settings once. Measured 2026-11-28 at ACCEL 1
+(python/sfccpl_2026-11-28, 200 it: the equatorial ground holds, 1497.95 K, where the Newton step falls to 1422 K)
+and ACCEL 1e4 with `ATM_PROGNOSTIC_T=1` (python/tskin_2026-11-28, 400 it, register rows HAD-SURF-BC / HAD-TSKIN).
+
+**`ATM_SFC_LDOWN`** (with `ATM_SFC_COUPLE=1` only; default 1 since 2026-11-28, 0 restores; user: "the coupled
+ground should take its downward longwave from the actual/prognostic air"). 1 = the coupled ground's Ldown is the
+down sweep on the temperatures as they ENTERED the routine (the same actual air H uses), with the call's layer
+emissivities; 0 = `dn[i_mount+1]` of the radiative-equilibrium column the solve writes. WHY: that column hangs
+from the ground (its level-1 air ~9 K below T_s), so with 0 the ground cooled its own down-welling flux. 400 it
+from scratch, `ATM_PROGNOSTIC_T=1 ATM_SFC_ACCEL=1e4`, equator:
+
+| arm | T_s 0 -> 400 | net at the end [W/m2] | OLR [W/m2] |
+|---|---|---|---|
+| T0 Newton step (`ATM_SFC_COUPLE=0`) | 1500 -> 1342 K | -4300 (re) | 174.1 |
+| T1 coupled, `ATM_SFC_LDOWN=0` | 1500 -> 1474.5 K, still falling 0.056 K / call | -6400 | 170.3 |
+| T2 coupled, `ATM_SFC_LDOWN=1` | 1500 -> 1493.8 K, net -> 0 | -400 | 175.6 |
+
+T2's ground settles onto the level-1 air (1492.9 K): under tau_s 2.26e6 Ldown is sigma T_1^4 to 0.3 %, so the
+ground follows the air and the ~9500 K radiative-equilibrium surface of HAD-TSKIN needs the whole COLUMN to warm,
+which ACCEL does not speed up (structural: column heat capacity, item 47). Byte check: `ATM_SFC_LDOWN=0` on the new
+build = `8f994e7` with `ATM_SFC_COUPLE=1 ATM_PROGNOSTIC_T=1 ATM_SFC_ACCEL=1e4`, 4 it, 4 threads, 27 of 27 output
+files (every writer at 2, the restart dump included); the log differs only in timings and in the "rain fall found"
+cell, a tie on the 259.2 mm/d cap picked by thread order.
 
 ## `ATM_CONV_ADJ_MOIST` -- saturated lapse in the convective adjustment (`dc00f01`, written 2026-10-10), default 0 = off
 
