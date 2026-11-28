@@ -1175,6 +1175,19 @@ Byte check (same run): `ATM_FLUID_PHASE=0` against the binary before the field, 
 (panorama, sphere and cloudview included); at the default 16 / 16 identical once the `FluidPhase` array is
 removed, 8 files carry it. Scripts and the C arm's output: `python/fluidphase_2026-11-28/`.
 
+## `ATM_SPECIES_3D` -- the eight species in the panorama and the sphere (2026-11-28), output only, default 1 (=0: not written)
+
+The radial / zonal / longitudinal slices have written all eight species (`H2O CO2 N2 CH4 NH3 H2 CO SO2`, mass
+fractions from `AtmMixture::split()`, README item 61) since item 61; the panorama and the sphere had only
+`WaterVapour` and the raw CO2 tracer, so the six background gases were invisible in 3D. They are now written there
+too, same names, same source (`species_q` in `Paraview_Atm.cpp`), same unit. The six are NOT prognostic: a fixed
+share `f_bg` of the background q_b = carrier - q_CO2, so they move only with the water and the CO2 (ATHAD_PERID:
+`ATM_TRACE_PROG` makes SO2 / NH3 prognostic; CH4, H2, CO stay background, register row PERID-TRACE-SLOW). ~250 MB
+more per panorama. Byte check (2 it from scratch, 1 thread, checkpoint 2, panorama_print 2): `=0` against the
+binary before, 16 / 16 files identical; at the default 16 / 16 identical with the eight arrays removed (panorama
+and sphere carry them); `H2O` = `WaterVapour`/1000 to 5e-9 (the output rounding); the eight sum to 1 - condensate.
+Measured here: the column is water-dominated throughout (H2O 0.672 first air level, 0.677 top), so the six barely move with height (SO2 0.0419 -> 0.0391).
+
 # Moved from README.md on 2026-11-26
 
 The sections below were the technical part of README.md and were moved here verbatim (user: "CLAUDE.md everywhere"); the README keeps each heading with a one-sentence summary.
