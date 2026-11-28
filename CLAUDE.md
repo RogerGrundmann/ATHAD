@@ -1105,7 +1105,9 @@ is T0 += (T1 - T0)/4: every call pulled the ground a quarter of the way to the f
 is not an air cell -- it carries `MultiLayerRadiation`'s surface balance and `densities()` hangs the column and
 the surface pressure from it. With 1 the horizontal passes are unchanged (ground row included) and the vertical
 pass starts one row higher, so level `i_topography+1` is the clamped floor; same k, j, i order as the single
-call. `=0` makes the old single call, so it restores the old branch by construction (no byte check run).
+call. `=0` makes the old single call, so it restores the old branch by construction, and the byte check confirms it (2026-11-28, 2 it, 1 thread, every writer at 2, from
+scratch): HEAD with `ATM_T_DAMP_GROUND=0` against the binary of `dc00f01` (before the knob), 13 / 13 output files
+identical; HEAD at the default against the same binary 1 / 13, so the check sees the knob.
 Measured on ATHAD_PERID (12 bar, ~5 K across the first layer of the dry adiabat; `ATM_SFC_DIAG` + a stage
 probe, scratch only): -1.30 K pole / -1.36 K equator per moist step against +0.07 / +0.36 K from the radiative
 blend, the ground and with it the column falling 4.5 K per 100 iterations. **Not measured on this model**,
