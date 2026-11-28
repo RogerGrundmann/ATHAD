@@ -1094,7 +1094,55 @@ First reading on this model (iteration 1, default config): the balance COOLS the
 -6400 W/m2 at the pole .. -6830 at the equator (sigma T^4 ~250-286 kW/m2 against Ldown ~244-279 kW/m2),
 -8.8 .. -9.2 K per call before the omega_rad = 0.05 blend.
 On ATHAD_PERID it traced the run_1000 cooling of the ground to the moist block's radial `damp_wiggles(t)` at the
-ground row (T0 += (T1 - T0)/4 per moist step); fix under test: `ATM_T_DAMP_GROUND` (uncommitted).
+ground row (T0 += (T1 - T0)/4 per moist step); the fix is `ATM_T_DAMP_GROUND` (below, default 1 since `c27ae39`).
+
+## `ATM_T_DAMP_GROUND` -- the vertical Shapiro pass on t leaves the ground row alone (`c27ae39`, 2026-11-28), DEFAULT 1, =0 restores
+
+**This changes the default: every number in this file from before `c27ae39` belongs to the old branch.**
+`cAtmosphereModel.cpp`, helper `damp_wiggles_t`, at both `damp_wiggles(t)` sites (set-up and moist block). The
+1-2-1 de-checkerboard ran along i from the fluid floor, and with the clamped floor its update at the ground row
+is T0 += (T1 - T0)/4: every call pulled the ground a quarter of the way to the first air layer. The ground row
+is not an air cell -- it carries `MultiLayerRadiation`'s surface balance and `densities()` hangs the column and
+the surface pressure from it. With 1 the horizontal passes are unchanged (ground row included) and the vertical
+pass starts one row higher, so level `i_topography+1` is the clamped floor; same k, j, i order as the single
+call. `=0` makes the old single call, so it restores the old branch by construction (no byte check run).
+Measured on ATHAD_PERID (12 bar, ~5 K across the first layer of the dry adiabat; `ATM_SFC_DIAG` + a stage
+probe, scratch only): -1.30 K pole / -1.36 K equator per moist step against +0.07 / +0.36 K from the radiative
+blend, the ground and with it the column falling 4.5 K per 100 iterations. **Not measured on this model**,
+where the sign is the other way: here level 1 is warmer than the ground after the diffusion ramp, so the pass
+warmed it. Register row HAD-SURF-BC.
+
+## `ATM_SFC_COUPLE` -- the ground with a heat capacity against the actual level-1 air (`f9e9e5a`, 2026-11-28), default 0 = off
+
+`MultiLayerRadiation.h` (`sfc_couple_on`) and `apply_radiative_heating` in `cAtmosphereModel.cpp`. WHY: the
+ground had no working energy balance in the time loop. The Newton step solves the balance against the
+RADIATIVE-EQUILIBRIUM air (which `densities()` then overwrites), has no heat capacity, and the omega_rad = 0.05
+blend keeps 5 % of it per call, so the ground relaxed on an iteration count, not on a time. With 1, in the
+time loop's call only (other callers of `run()` keep the Newton step):
+
+    ground   C dT_s/dt = SW + geo + Ldown - sigma T_s^4 - H,   H = c_H (T_s - T_1)
+             T_1 = the ACTUAL level-1 temperature as it entered; linearised backward Euler over
+             tau = dt L_atm/u_0 * ACCEL (stable for any ACCEL; ACCEL -> infinity is the Newton step
+             with the actual air)
+    level 1  + H dt L_atm/u_0 / (rho_1 cp_1 dz_1)   (real time, not accelerated)
+
+Both are written AFTER the blend, so the blend no longer touches the ground. `ATM_SFC_HEATCAP` [J/m2/K]
+default 2.1e8 (a 50 m water layer), `ATM_SFC_ACCEL` default 1. At ACCEL 1 the ground is practically constant
+over any affordable run (one iteration is ~0.2 s on `L_atm` here, item 47; +180 W/m2 moves it ~1e-8 K per
+iteration), so the ACCEL value is part of the decision. Prints its settings once. Not measured yet; next:
+`ATM_SFC_COUPLE=1` with `ATM_SFC_DIAG` (register row HAD-SURF-BC).
+
+## `ATM_CONV_ADJ_MOIST` -- saturated lapse in the convective adjustment (`dc00f01`, written 2026-10-10), default 0 = off
+
+`ConvectiveAdjustment.h`. The critical drop of a layer is the SATURATED one (`SaturationH2O::moistLapse`,
+ported unchanged from ATHAD_COND together with `latentHeatAuto` / `satDerivFactor*`) where the lower cell of the
+layer is saturated (c >= 0.99 q_sat, ATHAD_COND's `densities()` test), the dry g/cp elsewhere. It still mixes
+temperature only. The saturated lapse is the smaller one, so the option makes the scheme stricter in saturated
+layers and changes nothing in the supercritical column, where `moistLapse` returns g/cp. The drops are computed
+once per column from the state before the sweep. With the prescribed profile (`ATM_PROGNOSTIC_T=0`, the
+default) `densities()` overwrites the result as it does the dry one's, so it matters only with
+`ATM_PROGNOSTIC_T=1`. Prints the count of layers that took the saturated lapse. This tree's own `dqSatdT` is NOT
+replaced by ATHAD_COND's exact one. Not measured.
 
 # Moved from README.md on 2026-11-26
 
