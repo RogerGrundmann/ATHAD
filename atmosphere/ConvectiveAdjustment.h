@@ -37,12 +37,23 @@
  * use the saturated lapse — ATHAD_COND has SaturationH2O::moistLapse for exactly that — but that
  * is a modelling decision with consequences for the microphysics already running in the
  * saturation adjustment, and it is not made here.
+ *
+ * ATM_CONV_ADJ_MOIST (default 0, 2026-10-10) is that moist version, as an option: the critical
+ * drop of a layer is the SATURATED one (SaturationH2O::moistLapse, ported from ATHAD_COND) where
+ * the lower cell of the layer is saturated (c >= 0.99 q_sat, the test of ATHAD_COND's
+ * densities()), and the dry one elsewhere. It still mixes temperature only. The saturated lapse
+ * is the SMALLER one, so the option makes the scheme stricter in saturated layers and changes
+ * nothing in the supercritical column, where moistLapse returns g/cp. The critical drops are
+ * computed once per column from the state before the sweep and are not re-evaluated while it
+ * mixes. With the prescribed profile (ATM_PROGNOSTIC_T=0) densities() overwrites the result,
+ * as it does the dry one's.
  */
 
 #pragma once
 
 #include "cAtmosphereModel.h"
 #include "MixtureAtm.h"
+#include "SaturationH2O.h"
 
 #include <chrono>
 #include <cmath>
@@ -58,7 +69,11 @@ public:
     void run()
     {
         using namespace std;
-        cout << endl << "      AGCM: ConvectiveAdjustment (dry, Manabe-Strickler)" << endl;
+        // ATM_CONV_ADJ_MOIST (default 0): the saturated lapse where the cell is saturated.
+        static const bool moist = [](){ const char* e = getenv("ATM_CONV_ADJ_MOIST");
+                                        return e && atoi(e) != 0; }();
+        cout << endl << "      AGCM: ConvectiveAdjustment (" << (moist ? "moist where saturated" : "dry")
+             << ", Manabe-Strickler)" << endl;
 
         auto begin = std::chrono::high_resolution_clock::now();
 
@@ -82,14 +97,14 @@ public:
         for (int i = 0; i + 1 < m.im; i++)
             dz[i] = m.get_layer_height(i+1) - m.get_layer_height(i);
 
-        long long n_columns_adjusted = 0, n_layers_mixed = 0;
+        long long n_columns_adjusted = 0, n_layers_mixed = 0, n_moist_layers = 0;
         int    max_passes_used = 0;
         double max_dT_K = 0.0, max_rel_drift = 0.0;
 
         std::vector<double> w(m.im), t_col(m.im), dT_ad(m.im);
 
         #pragma omp parallel for collapse(2) schedule(static) firstprivate(w, t_col, dT_ad) \
-            reduction(+:n_columns_adjusted, n_layers_mixed) \
+            reduction(+:n_columns_adjusted, n_layers_mixed, n_moist_layers) \
             reduction(max:max_passes_used, max_dT_K, max_rel_drift)
         for (int j = 0; j < m.jm; j++) {
             for (int k = 0; k < m.km; k++) {
@@ -122,8 +137,24 @@ public:
                     if (i < i1) {
                         const double cp_loc = AtmMixture::cp_of(m.c.x[i][j][k], m.co2.x[i][j][k],
                                                                 t_col[i] * m.t_0, m.m_comp.M_bg);
-                        dT_ad[i] = (cp_loc > 0.0)
-                                 ? lapse_fac * (m.g / cp_loc) * dz[i] / m.t_0 : 0.0;
+                        double gamma = (cp_loc > 0.0) ? m.g / cp_loc : 0.0;
+                        if (moist && cp_loc > 0.0) {
+                            const double T_dim = t_col[i] * m.t_0;
+                            const double M_nw  = AtmMixture::M_nonwater(m.c.x[i][j][k],
+                                                     m.co2.x[i][j][k], m.m_comp.M_bg);
+                            const double q_s   = SaturationH2O::saturationMassFractionAt(
+                                                     T_dim, m.p_stat.x[i][j][k], M_nw);
+                            if (q_s < 1.0 && m.c.x[i][j][k] >= 0.99 * q_s) {
+                                const double q_l   = m.cloud.x[i][j][k] + m.ice.x[i][j][k]
+                                                   + m.gr.x[i][j][k];
+                                const double R_loc = AtmMixture::R_of(m.c.x[i][j][k],
+                                                         m.co2.x[i][j][k], m.m_comp.R_bg, q_l);
+                                gamma = SaturationH2O::moistLapse(T_dim, m.p_stat.x[i][j][k],
+                                                                  M_nw, cp_loc, R_loc, m.g);
+                                n_moist_layers++;
+                            }
+                        }
+                        dT_ad[i] = lapse_fac * gamma * dz[i] / m.t_0;
                     }
                 }
                 // A column with a non-monotonic p_stat or a bad temperature is left untouched:
@@ -208,6 +239,9 @@ public:
                " worst column %d sweeps of %d, max dT %.3f K, enthalpy drift %.2e\n",
                n_columns_adjusted, m.jm * m.km, frac, n_layers_mixed,
                max_passes_used, max_pass, max_dT_K, max_rel_drift);
+        if (moist)
+            printf("      AGCM: convective adjustment — %lld layers took the saturated lapse\n",
+                   n_moist_layers);
         if (max_passes_used >= max_pass)
             cout << "      AGCM: WARNING - the sweep cap was reached, a column may still be "
                     "superadiabatic (raise ATM_CONV_ADJ_PASSES)" << endl;

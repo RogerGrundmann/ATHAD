@@ -212,6 +212,52 @@ namespace SaturationH2O {
         return q_sat * latentHeat(T) / (AtmMixture::R_H2O * T * T);
     }
 
+    // ------------------------------------------------------------------------
+    // The saturated lapse rate and its two helpers, ported from ATHAD_COND's SaturationH2O.h
+    // on 2026-10-10 for ConvectiveAdjustment's ATM_CONV_ADJ_MOIST. The derivation and the
+    // checks are in that file; the three functions are copied unchanged. (dqSatdT above is
+    // this tree's own dilute form and is NOT replaced by ATHAD_COND's exact one here.)
+    inline double latentHeatAuto(double T)
+    {
+        return (T >= T_TRIPLE) ? latentHeat(T) : latentHeatSublimation(T);
+    }
+
+    // A = x*Mw*Mo/den^2, so that (dq_sat/dT)_p = A*L/(R_v T^2) and (dq_sat/dp)_T = -A/p.
+    inline double satDerivFactorAt(double E, double p, double M_other)
+    {
+        if (E == NO_SATURATION || !(p > 0.0) || E >= p) return 0.0;
+
+        const double x   = E / p;
+        const double den = x * AtmMixture::M_H2O + (1.0 - x) * M_other;
+        if (!(den > 0.0)) return 0.0;
+
+        return x * AtmMixture::M_H2O * M_other / (den * den);
+    }
+
+    inline double satDerivFactor(double T, double p, double M_other)
+    {
+        return satDerivFactorAt(saturationPressureAuto(T), p, M_other);
+    }
+
+    // SATURATED adiabatic lapse rate [K/m]:
+    //     dT/dz = -g * [1 + L*A/(R_mix*T)] / [cp + L^2*A/(R_v*T^2)]
+    // Returns the DRY lapse g/cp wherever no condensation is possible (supercritical, or
+    // E >= p), so a caller can use it unconditionally.
+    inline double moistLapse(double T, double p, double M_other,
+                             double cp, double R_mix, double g)
+    {
+        if (!(cp > 0.0) || !(T > 0.0) || !(R_mix > 0.0)) return 0.0;
+
+        const double A = satDerivFactor(T, p, M_other);
+        if (!(A > 0.0)) return g / cp;                       // nothing to condense
+
+        const double L   = latentHeatAuto(T);
+        const double num = 1.0 + L * A / (R_mix * T);
+        const double den = cp  + L * L * A / (AtmMixture::R_H2O * T * T);
+
+        return (den > 0.0) ? g * num / den : g / cp;
+    }
+
     // Convenience: saturation mass fraction directly from T, p and the background molar
     // mass, using whichever phase is stable. Returns 1.0 where supercritical (i.e. no
     // constraint), so callers that compare q_v > q_sat naturally find nothing to condense.
