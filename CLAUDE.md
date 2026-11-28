@@ -618,10 +618,13 @@ properties (ATNEPT `c116d71`); in-place Gauss–Seidel as a threading defect (AT
   because `UtilsAtm.h:267` clamps silently while `cAtmosphereModel.cpp:2031` is the site that
   counts — so "the ceiling deleted nothing" must never be read as "no ceiling is binding".
   The prescribed arm's 778.15 is a real plateau below the clamp.**
-- **`restart_stride = 0` AND `checkpoint_save_iter = -1` STILL WRITE RESTART DUMPS** (item 79) —
-  four 593 MB `.bin` files with both knobs off, 2.3 GB per run. Item 45 recorded half of this as
-  an aside; it is live. And the output file indices key off `total_iter_count`, so a
-  400-iteration run writes `panorama_900.vts`. A full-output run is 15 GB, of which 8.3 GB is the
+- **`restart_stride = 0` AND `checkpoint_save_iter = -1` DO DISABLE THE RESTART DUMP** — item 79's
+  claim that they did not is RETRACTED (2026-11-28, measured): 1 iteration from scratch, `ebc4a54`,
+  8 threads, both off: no `atm_restart_*.bin` and no `save_state` line; the positive control
+  `restart_stride = 1` in the same setup writes `atm_restart_0Ma_1.bin` (621 MB). The gates
+  (`cAtmosphereModel.cpp`, `checkpoint_save_iter >= 0` and `restart_stride > 0`) are unchanged since
+  the fork, so item 79's four dumps came from that run's config. Still true: the output file indices
+  key off `total_iter_count`, so a 400-iteration run writes `panorama_900.vts`. A full-output run is 15 GB, of which 8.3 GB is the
   panorama (`paraview_panorama_vts_flag`, independent of `checkpoint`).
 - **THE PRESCRIBED PROFILE DISCARDS THE LATENT HEATING, NOT JUST THE RADIATION'S ANSWER**
   (item 78). Invariant 3 says `densities()` overwrites what the radiation computed. Measured, it
@@ -6893,6 +6896,9 @@ the measurement.
       Four `atm_restart_0Ma_*.bin` at 593 MB each were written with both knobs off. Item 45
       recorded the first half of this as an aside — *"`restart_stride = 0` did NOT disable the
       restart dump"* — and it is a live defect costing **2.3 GB per run**, not a footnote.
+      **RETRACTED 2026-11-28:** measured, both knobs off write no dump (1 it, `ebc4a54`; positive
+      control `restart_stride = 1` writes one). The gates are correct and unchanged since the fork;
+      the four dumps came from the run's config. See "Open risks".
     - **The output file indices do not match the iteration count.** A 400-iteration run wrote
       `panorama_900.vts` and `atm_restart_0Ma_800.bin`, so the writers key off `total_iter_count`
       rather than the loop index. Match a file to a diagnostic with care.
